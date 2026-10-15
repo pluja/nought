@@ -3,9 +3,12 @@
 package tui
 
 import (
+	"context"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -15,27 +18,28 @@ import (
 // Messages produced by background work.
 type (
 	searchDoneMsg struct {
-		query string
-		out   ops.SearchOut
-		err   error
+		gen int
+		out ops.SearchOut
+		err error
 	}
 	showDoneMsg struct {
+		gen int
 		id  string
 		out ops.ShowOut
 		err error
 	}
+	previewMsg struct{ seq int }
 	tagDoneMsg struct {
-		out    ops.TagOut
-		undo   *undoEntry
-		notice string
-		err    error
+		req tagReq
+		out ops.TagOut
+		err error
 	}
-	statusDoneMsg struct {
-		out []ops.AccountStatusOut
+	undoDoneMsg struct {
+		entry undoEntry
+		err   error
 	}
-	sidebarDoneMsg struct {
-		items []sideItem
-	}
+	statusDoneMsg   struct{ out []ops.AccountStatusOut }
+	sidebarDoneMsg  struct{ items []sideItem }
 	syncProgressMsg struct{ line string }
 	syncDoneMsg     struct {
 		out ops.SyncOut
@@ -50,17 +54,20 @@ type (
 // pageSize is how many messages a view loads.
 const pageSize = 500
 
-func (m Model) search(query string) tea.Cmd {
+// previewDelay debounces previews while the cursor moves.
+const previewDelay = 80 * time.Millisecond
+
+func (m Model) search(query string, gen int) tea.Cmd {
 	return func() tea.Msg {
-		out, err := ops.Call(m.ctx, m.env, perm, ops.MsgSearch, ops.SearchIn{Query: query, Limit: pageSize})
-		return searchDoneMsg{query: query, out: out, err: err}
+		out, err := ops.Call(m.ctx, m.env, permTag, ops.MsgSearch, ops.SearchIn{Query: query, Limit: pageSize})
+		return searchDoneMsg{gen: gen, out: out, err: err}
 	}
 }
 
-func (m Model) show(msg ops.MessageOut) tea.Cmd {
+func (m Model) show(msg ops.MessageOut, gen int) tea.Cmd {
 	return func() tea.Msg {
-		out, err := ops.Call(m.ctx, m.env, perm, ops.MsgShow, ops.ShowIn{ID: msg.ID, Account: msg.Account})
-		return showDoneMsg{id: msg.ID, out: out, err: err}
+		out, err := ops.Call(m.ctx, m.env, permTag, ops.MsgShow, ops.ShowIn{ID: msg.ID, Account: msg.Account})
+		return showDoneMsg{gen: gen, id: msg.ID, out: out, err: err}
 	}
 }
 
@@ -69,9 +76,12 @@ func messageQuery(msg ops.MessageOut) string {
 	return "hash:" + msg.ID + " account:" + msg.Account
 }
 
-// tag changes tags on one message and prepares the matching undo.
-func (m Model) tag(msg ops.MessageOut, add, remove []string, what string) tea.Cmd {
-	// Undo only what actually changes.
+// newTagReq prepares a tag change and the exact undo for it.
+func newTagReq(msg ops.MessageOut, add, remove []string, what string) tagReq {
+	req := tagReq{msg: msg, add: add, remove: remove, what: what}
+	if what == "" {
+		return req
+	}
 	var undoAdd, undoRemove []string
 	for _, t := range remove {
 		if slices.Contains(msg.Tags, t) {
@@ -83,42 +93,44 @@ func (m Model) tag(msg ops.MessageOut, add, remove []string, what string) tea.Cm
 			undoRemove = append(undoRemove, t)
 		}
 	}
-	q := messageQuery(msg)
+	req.undo = &undoEntry{query: messageQuery(msg), add: undoAdd, remove: undoRemove,
+		what: what + ": " + msg.Subject}
+	return req
+}
+
+func (m Model) runTag(req tagReq) tea.Cmd {
 	return func() tea.Msg {
-		out, err := ops.Call(m.ctx, m.env, perm, ops.MsgTag, ops.TagIn{Query: q, Add: add, Remove: remove})
-		var undo *undoEntry
-		if err == nil && out.Changed > 0 && what != "" {
-			undo = &undoEntry{query: q, add: undoAdd, remove: undoRemove, what: what}
-		}
-		return tagDoneMsg{out: out, undo: undo, notice: what, err: err}
+		out, err := ops.Call(m.ctx, m.env, permTag, ops.MsgTag,
+			ops.TagIn{Query: messageQuery(req.msg), Add: req.add, Remove: req.remove})
+		return tagDoneMsg{req: req, out: out, err: err}
 	}
 }
 
 func (m Model) revert(u undoEntry) tea.Cmd {
 	return func() tea.Msg {
-		out, err := ops.Call(m.ctx, m.env, perm, ops.MsgTag, ops.TagIn{Query: u.query, Add: u.add, Remove: u.remove})
-		return tagDoneMsg{out: out, notice: "undid: " + u.what, err: err}
+		_, err := ops.Call(m.ctx, m.env, permTag, ops.MsgTag, ops.TagIn{Query: u.query, Add: u.add, Remove: u.remove})
+		return undoDoneMsg{entry: u, err: err}
 	}
 }
 
 func (m Model) loadStatus() tea.Cmd {
 	return func() tea.Msg {
-		out, _ := ops.Call(m.ctx, m.env, perm, ops.AccountStatus, struct{}{})
+		out, _ := ops.Call(m.ctx, m.env, permTag, ops.AccountStatus, struct{}{})
 		return statusDoneMsg{out: out}
 	}
 }
 
 // loadSidebar builds the sidebar: standard views, accounts, saved searches
-// and tags, with counts where they are cheap.
+// and tags, with exact counts.
 func (m Model) loadSidebar() tea.Cmd {
 	prefs := m.prefs
 	return func() tea.Msg {
 		count := func(q string) int {
-			out, err := ops.Call(m.ctx, m.env, perm, ops.MsgSearch, ops.SearchIn{Query: q, Limit: pageSize})
+			out, err := ops.Call(m.ctx, m.env, permTag, ops.MsgCount, ops.CountIn{Query: q})
 			if err != nil {
 				return -1
 			}
-			return len(out.Messages)
+			return out.Count
 		}
 		items := []sideItem{
 			{label: "Inbox", query: queryInbox, count: count(queryInbox)},
@@ -126,7 +138,7 @@ func (m Model) loadSidebar() tea.Cmd {
 			{label: "Flagged", query: queryFlagged, count: count(queryFlagged)},
 			{label: "All mail", query: queryAll, count: -1},
 		}
-		if accounts, err := ops.Call(m.ctx, m.env, perm, ops.AccountList, struct{}{}); err == nil && len(accounts) > 1 {
+		if accounts, err := ops.Call(m.ctx, m.env, permTag, ops.AccountList, struct{}{}); err == nil && len(accounts) > 1 {
 			for _, a := range accounts {
 				items = append(items, sideItem{label: "@" + a.Name, query: "account:" + a.Name, count: -1})
 			}
@@ -134,7 +146,7 @@ func (m Model) loadSidebar() tea.Cmd {
 		for _, s := range prefs.Searches {
 			items = append(items, sideItem{label: "★ " + s.Name, query: s.Query, count: -1})
 		}
-		if tags, err := ops.Call(m.ctx, m.env, perm, ops.TagsList, struct{}{}); err == nil {
+		if tags, err := ops.Call(m.ctx, m.env, permTag, ops.TagsList, struct{}{}); err == nil {
 			for _, t := range tags {
 				switch t.Tag {
 				case ops.TagInbox, ops.TagUnread, ops.TagFlagged:
@@ -147,10 +159,12 @@ func (m Model) loadSidebar() tea.Cmd {
 	}
 }
 
-func (m Model) sync() tea.Cmd {
+// sync runs in its own cancellable context, so quitting can stop it at a
+// safe point (sync finishes bookkeeping for anything already deleted).
+func (m Model) sync(ctx context.Context) tea.Cmd {
 	send := m.send
 	return func() tea.Msg {
-		out, err := ops.Call(m.ctx, m.env, perm, ops.SyncRun, ops.SyncIn{
+		out, err := ops.Call(ctx, m.env, permSync, ops.SyncRun, ops.SyncIn{
 			Progress: func(account string, f ops.FolderSyncOut) {
 				if f.Action == "ignore" {
 					return
@@ -164,9 +178,16 @@ func (m Model) sync() tea.Cmd {
 
 func (m Model) reindex() tea.Cmd {
 	return func() tea.Msg {
-		out, err := ops.Call(m.ctx, m.env, perm, ops.IndexRebuild, struct{}{})
+		out, err := ops.Call(m.ctx, m.env, permTag, ops.IndexRebuild, struct{}{})
 		return reindexDoneMsg{out: out, err: err}
 	}
+}
+
+func previewAfter(seq int, wait time.Duration) tea.Cmd {
+	if wait <= 0 {
+		return func() tea.Msg { return previewMsg{seq: seq} }
+	}
+	return tea.Tick(wait, func(time.Time) tea.Msg { return previewMsg{seq: seq} })
 }
 
 // syncSummary condenses a sync result into one line.
@@ -184,7 +205,7 @@ func syncSummary(out ops.SyncOut, err error) string {
 			}
 		}
 	}
-	s := fmt.Sprintf("synced: archived %d, deleted %d from servers", fetched, expunged)
+	s := "synced: archived " + strconv.Itoa(fetched) + ", deleted " + strconv.Itoa(expunged) + " from servers"
 	if problems > 0 || err != nil {
 		s += fmt.Sprintf("; %d problems (run 'nou sync' for details)", max(problems, 1))
 	}

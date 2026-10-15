@@ -14,13 +14,19 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"nought/internal/config"
 	"nought/internal/ops"
 )
 
-// The TUI acts for the local user, who holds every permission.
-const perm = ops.Delete
+// Permissions: the TUI acts for the local user. Everyday actions use the
+// tag level; only sync (which can delete server mail, after confirmation)
+// uses the highest.
+const (
+	permTag  = ops.Tag
+	permSync = ops.Delete
+)
 
 // Default views.
 const (
@@ -45,6 +51,7 @@ const (
 	inputSearch
 	inputTags
 	inputPalette
+	inputConfirmSync
 )
 
 // sideItem is one entry in the sidebar.
@@ -62,40 +69,77 @@ type undoEntry struct {
 	what   string
 }
 
+// tagReq is a queued tag change. Changes run one at a time, in the order
+// the keys were pressed.
+type tagReq struct {
+	msg    ops.MessageOut
+	add    []string
+	remove []string
+	what   string // "" for changes that are not undoable (mark read on open)
+	undo   *undoEntry
+}
+
+type styles struct {
+	title, dim, unread, selected, focused, warn lipgloss.Style
+}
+
+func newStyles() styles {
+	return styles{
+		title:    lipgloss.NewStyle().Bold(true),
+		dim:      lipgloss.NewStyle().Faint(true),
+		unread:   lipgloss.NewStyle().Bold(true),
+		selected: lipgloss.NewStyle().Reverse(true),
+		focused:  lipgloss.NewStyle().Underline(true),
+		warn:     lipgloss.NewStyle().Bold(true),
+	}
+}
+
 // Model is the whole TUI state. Bubble Tea passes it by value.
+//
+// It keeps the program's context: a Bubble Tea model lives as long as the
+// program, and its commands must stop when the program is cancelled. This
+// is the one deliberate exception to "never store a context".
 type Model struct {
 	ctx  context.Context
 	env  *ops.Env
 	send func(tea.Msg) // delivers progress from background work
 	now  func() time.Time
+	st   styles
 
 	width, height int
 	prefs         config.TUI
 
-	query  string
-	msgs   []ops.MessageOut
-	more   bool
-	cursor int
-	offset int
+	query     string
+	searchGen int // results of older searches are ignored
+	msgs      []ops.MessageOut
+	more      bool
+	cursor    int
+	offset    int
 
 	focus   focus
 	sidebar bool
 	side    []sideItem
 	sideIdx int
 
-	open   *ops.ShowOut
-	reader viewport.Model
-
-	input     textinput.Model
-	inputKind inputKind
-
-	status    []ops.AccountStatusOut
-	notice    string
-	syncing   bool
-	syncLines []string
-	help      bool
-	pendingG  bool
-	undo      []undoEntry
+	open        *ops.ShowOut
+	openKey     string // message, width and tags the reader content was built for
+	showGen     int    // results of older show requests are ignored
+	previewSeq  int    // debounces previews while moving
+	previewWait time.Duration
+	reader      viewport.Model
+	inputKind   inputKind
+	input       textinput.Model
+	tagQueue    []tagReq
+	tagBusy     bool
+	status      []ops.AccountStatusOut
+	notice      string
+	syncing     bool
+	syncCancel  context.CancelFunc
+	quitting    bool
+	syncLines   []string
+	help        bool
+	pendingG    bool
+	undo        []undoEntry
 }
 
 // Options configure Run.
@@ -107,8 +151,7 @@ type Options struct {
 // Run starts the TUI and returns when the user quits.
 func Run(ctx context.Context, env *ops.Env, opts Options) error {
 	m := newModel(ctx, env)
-	var progOpts []tea.ProgramOption
-	progOpts = append(progOpts, tea.WithContext(ctx))
+	progOpts := []tea.ProgramOption{tea.WithContext(ctx)}
 	if opts.Input != nil {
 		progOpts = append(progOpts, tea.WithInput(opts.Input))
 	}
@@ -139,14 +182,16 @@ func newModel(ctx context.Context, env *ops.Env) Model {
 	in := textinput.New()
 	in.Prompt = ""
 	m := Model{
-		ctx:     ctx,
-		env:     env,
-		send:    func(tea.Msg) {},
-		now:     env.Now,
-		query:   queryInbox,
-		sidebar: true,
-		input:   in,
-		reader:  viewport.New(),
+		ctx:         ctx,
+		env:         env,
+		send:        func(tea.Msg) {},
+		now:         env.Now,
+		st:          newStyles(),
+		previewWait: previewDelay,
+		query:       queryInbox,
+		sidebar:     true,
+		input:       in,
+		reader:      viewport.New(),
 	}
 	if cfg, err := env.Config(); err == nil {
 		m.prefs = cfg.TUI
@@ -156,5 +201,5 @@ func newModel(ctx context.Context, env *ops.Env) Model {
 
 // Init loads the first view.
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(m.search(m.query), m.loadStatus(), m.loadSidebar())
+	return tea.Batch(m.search(m.query, m.searchGen), m.loadStatus(), m.loadSidebar())
 }

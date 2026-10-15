@@ -68,6 +68,7 @@ func newTestModel(t *testing.T, w, h int) Model {
 		t.Fatal(err)
 	}
 	m := newModel(t.Context(), env)
+	m.previewWait = 0
 	return drive(t, m, tea.WindowSizeMsg{Width: w, Height: h}, initMsg{})
 }
 
@@ -170,14 +171,14 @@ func TestOpensOnTheInbox(t *testing.T) {
 
 func TestOpenMarksReadAndShowsLocation(t *testing.T) {
 	m := newTestModel(t, 120, 30)
-	if !hasTag(m.msgs[0], ops.TagUnread) {
+	if !slices.Contains(m.msgs[0].Tags, ops.TagUnread) {
 		t.Fatal("expected an unread message")
 	}
 	m = drive(t, m, key("enter"))
 	if m.focus != focusReader || m.open == nil || m.open.Message.Subject != "Lunch on Friday?" {
 		t.Fatalf("focus %v, open %+v", m.focus, m.open)
 	}
-	if hasTag(m.msgs[0], ops.TagUnread) {
+	if slices.Contains(m.msgs[0].Tags, ops.TagUnread) {
 		t.Error("opening did not mark the message read")
 	}
 	s := screen(m)
@@ -199,7 +200,7 @@ func TestArchiveAndUndo(t *testing.T) {
 		t.Fatalf("after archive: %d messages, notice %q", len(m.msgs), m.notice)
 	}
 	m = drive(t, m, key("z"))
-	if len(m.msgs) != 3 || !strings.Contains(m.notice, "undid") {
+	if len(m.msgs) != 3 || !strings.Contains(m.notice, "undid archived: Lunch on Friday?") {
 		t.Fatalf("after undo: %d messages, notice %q", len(m.msgs), m.notice)
 	}
 	m = drive(t, m, key("z"))
@@ -211,15 +212,15 @@ func TestArchiveAndUndo(t *testing.T) {
 func TestToggleFlagAndTags(t *testing.T) {
 	m := newTestModel(t, 120, 30)
 	m = drive(t, m, key("s"))
-	if !hasTag(m.msgs[0], ops.TagFlagged) {
+	if !slices.Contains(m.msgs[0].Tags, ops.TagFlagged) {
 		t.Fatal("not flagged")
 	}
 	m = drive(t, m, append([]tea.Msg{key("l")}, append(keys("+todo -flagged"), key("enter"))...)...)
-	if !hasTag(m.msgs[0], "todo") || hasTag(m.msgs[0], ops.TagFlagged) {
+	if !slices.Contains(m.msgs[0].Tags, "todo") || slices.Contains(m.msgs[0].Tags, ops.TagFlagged) {
 		t.Errorf("tags = %v", m.msgs[0].Tags)
 	}
 	m = drive(t, m, key("u"), key("u"))
-	if !hasTag(m.msgs[0], ops.TagUnread) {
+	if !slices.Contains(m.msgs[0].Tags, ops.TagUnread) {
 		t.Errorf("u twice should leave it unread: %v", m.msgs[0].Tags)
 	}
 }
@@ -370,5 +371,117 @@ func TestGoldenScreens(t *testing.T) {
 				t.Errorf("%s changed:\n%s\nwant:\n%s", name, got, want)
 			}
 		})
+	}
+}
+
+func TestStaleResultsAreIgnored(t *testing.T) {
+	m := newTestModel(t, 120, 30)
+	before := len(m.msgs)
+	// A search result from an older request must not replace the view.
+	m = drive(t, m, searchDoneMsg{gen: m.searchGen - 1, out: ops.SearchOut{}})
+	if len(m.msgs) != before {
+		t.Fatalf("stale search applied: %d messages", len(m.msgs))
+	}
+	m = drive(t, m, showDoneMsg{gen: m.showGen - 1, id: m.msgs[0].ID, out: ops.ShowOut{Body: "stale"}})
+	if m.open != nil && m.open.Body == "stale" {
+		t.Error("stale show applied")
+	}
+}
+
+func TestCursorFollowsTheMessage(t *testing.T) {
+	m := newTestModel(t, 120, 30)
+	m = drive(t, m, key("j")) // Bob
+	bob := m.msgs[m.cursor].ID
+	// New mail arrives at the top; the same message stays selected.
+	newer := ops.MessageOut{ID: "000000000000", Account: "personal", Subject: "new", Tags: []string{"inbox"}}
+	m = drive(t, m, searchDoneMsg{gen: m.searchGen, out: ops.SearchOut{Messages: append([]ops.MessageOut{newer}, m.msgs...)}})
+	if m.msgs[m.cursor].ID != bob {
+		t.Errorf("cursor moved to %q", m.msgs[m.cursor].Subject)
+	}
+}
+
+func TestArchiveWhileReadingOpensTheNext(t *testing.T) {
+	m := newTestModel(t, 80, 24)
+	m = drive(t, m, key("enter"), key("e"))
+	if m.focus != focusReader || m.open == nil || m.open.Message.Subject != "Invoice 2026-114" {
+		t.Fatalf("after archiving in the reader: focus %v, open %+v", m.focus, m.open)
+	}
+	m = drive(t, m, key("e"), key("e"))
+	if len(m.msgs) != 0 || m.open != nil || m.focus != focusList {
+		t.Errorf("empty inbox: %d messages, open %v, focus %v", len(m.msgs), m.open != nil, m.focus)
+	}
+	if !strings.Contains(screen(m), "Inbox Zero") {
+		t.Error("no Inbox Zero message")
+	}
+}
+
+func TestSearchErrorClearsTheList(t *testing.T) {
+	m := newTestModel(t, 120, 30)
+	m = drive(t, m, append([]tea.Msg{key("/")}, append(keys("bogus:x"), key("enter"))...)...)
+	if len(m.msgs) != 0 || m.open != nil {
+		t.Errorf("old results kept under a failed search: %d", len(m.msgs))
+	}
+}
+
+func TestGPrefix(t *testing.T) {
+	m := newTestModel(t, 80, 24)
+	m = drive(t, m, key("g"), key("j"))
+	if m.cursor != 1 {
+		t.Errorf("g then j: cursor %d (j was swallowed)", m.cursor)
+	}
+	m = drive(t, m, key("enter"), key("g"), key("u"))
+	if m.focus != focusList || m.query != queryUnread || m.open != nil {
+		t.Errorf("gu from the reader: focus %v query %q", m.focus, m.query)
+	}
+}
+
+func TestSyncConfirmationAndQuit(t *testing.T) {
+	m := newTestModel(t, 120, 30)
+	m.status = []ops.AccountStatusOut{{Account: "personal", Deletion: true}}
+	m = drive(t, m, key("S"))
+	if m.inputKind != inputConfirmSync || !strings.Contains(screen(m), "Continue? (y/N)") {
+		t.Fatalf("no confirmation: %v", m.inputKind)
+	}
+	m = drive(t, m, key("n"))
+	if m.syncing || m.notice != "sync cancelled" {
+		t.Errorf("sync started without a yes: %v %q", m.syncing, m.notice)
+	}
+
+	// Quitting while a sync runs stops it first; a second request forces.
+	cancelled := false
+	m.syncing, m.syncCancel = true, func() { cancelled = true }
+	next, cmd := m.Update(key("q"))
+	m = next.(Model)
+	if cmd != nil || !m.quitting || !cancelled {
+		t.Fatalf("quit during sync: cmd %v quitting %v cancelled %v", cmd != nil, m.quitting, cancelled)
+	}
+	if _, cmd := m.Update(syncDoneMsg{}); cmd == nil {
+		t.Error("no quit after the sync stopped")
+	}
+}
+
+func TestTinyTerminals(t *testing.T) {
+	m := newTestModel(t, 120, 30)
+	for _, size := range [][2]int{{1, 1}, {10, 2}, {20, 3}, {40, 5}, {59, 10}, {99, 20}, {200, 60}} {
+		m = drive(t, m, tea.WindowSizeMsg{Width: size[0], Height: size[1]}, key("j"), key("enter"))
+		got := strings.Split(m.render(), "\n")
+		if len(got) != size[1] {
+			t.Errorf("%dx%d: rendered %d lines", size[0], size[1], len(got))
+		}
+		for i, line := range got {
+			if w := ansi.StringWidth(line); w > size[0] {
+				t.Errorf("%dx%d: line %d is %d wide", size[0], size[1], i, w)
+			}
+		}
+		m = drive(t, m, key("esc"))
+	}
+}
+
+func TestSenderShowsDomain(t *testing.T) {
+	if got := senderName("PayPal <alert@evil.example>"); got != "PayPal (evil.example)" {
+		t.Errorf("senderName = %q", got)
+	}
+	if got := senderName("plain@example.org"); got != "plain@example.org" {
+		t.Errorf("senderName = %q", got)
 	}
 }

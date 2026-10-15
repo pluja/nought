@@ -3,6 +3,7 @@
 package index
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"errors"
@@ -105,7 +106,7 @@ func (ix *Index) RecordCopy(ctx context.Context, c ServerCopy, now time.Time) er
 		_, err = tx.ExecContext(ctx, `
 			INSERT INTO server_copies (account, folder, folder_name, uidvalidity, uid, hash, size, internal_date, fetched_at)
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			c.Account, c.Folder, cmpOr(c.FolderName, c.Folder), c.UIDValidity, c.UID, c.Hash, c.Size, date.Unix(), now.Unix())
+			c.Account, c.Folder, cmp.Or(c.FolderName, c.Folder), c.UIDValidity, c.UID, c.Hash, c.Size, date.Unix(), now.Unix())
 		if err != nil {
 			return fmt.Errorf("record server copy: %w", err)
 		}
@@ -178,13 +179,6 @@ func (ix *Index) ForgetFolder(ctx context.Context, account, folder string, uidVa
 	})
 }
 
-func cmpOr(a, b string) string {
-	if a != "" {
-		return a
-	}
-	return b
-}
-
 // MarkSynced records that a folder finished syncing at t.
 func (ix *Index) MarkSynced(ctx context.Context, account, folder string, t time.Time) error {
 	_, err := ix.db.ExecContext(ctx, `UPDATE sync_state SET synced_at = ? WHERE account = ? AND folder = ?`,
@@ -207,6 +201,8 @@ func (ix *Index) OnServer(ctx context.Context, account string, hashes []string) 
 		rows, err := ix.db.QueryContext(ctx, `
 			SELECT folder, folder_name, uidvalidity, uid, hash, size, internal_date FROM server_copies
 			WHERE account = ? AND expunged_at IS NULL AND hash IN (`+strings.Join(marks, ",")+`)
+			  AND uidvalidity = (SELECT s.uidvalidity FROM sync_state s
+			                     WHERE s.account = server_copies.account AND s.folder = server_copies.folder)
 			ORDER BY folder_name`, args...)
 		if err != nil {
 			return nil, fmt.Errorf("server copies: %w", err)
@@ -218,6 +214,7 @@ func (ix *Index) OnServer(ctx context.Context, account string, hashes []string) 
 				return nil, errors.Join(err, rows.Close())
 			}
 			c.InternalDate = time.Unix(date, 0).UTC()
+			c.FolderName = cmp.Or(c.FolderName, c.Folder)
 			out[c.Hash] = append(out[c.Hash], c)
 		}
 		if err := errors.Join(rows.Err(), rows.Close()); err != nil {
@@ -228,7 +225,8 @@ func (ix *Index) OnServer(ctx context.Context, account string, hashes []string) 
 }
 
 // AccountServerStatus summarizes an account: how many archived messages
-// are still on its server, and when it last finished syncing a folder.
+// are still on its server, and when all of its folders were last synced
+// (the oldest folder's time, so one successful folder does not hide others).
 type AccountServerStatus struct {
 	OnServer   int
 	LastSynced time.Time // zero if never
@@ -239,8 +237,10 @@ func (ix *Index) ServerStatus(ctx context.Context, account string) (AccountServe
 	var st AccountServerStatus
 	var last int64
 	err := ix.db.QueryRowContext(ctx, `
-		SELECT (SELECT count(DISTINCT hash) FROM server_copies WHERE account = ? AND expunged_at IS NULL),
-		       COALESCE((SELECT max(synced_at) FROM sync_state WHERE account = ?), 0)`,
+		SELECT (SELECT count(DISTINCT c.hash) FROM server_copies c JOIN sync_state s
+		          ON s.account = c.account AND s.folder = c.folder AND s.uidvalidity = c.uidvalidity
+		        WHERE c.account = ? AND c.expunged_at IS NULL),
+		       COALESCE((SELECT min(synced_at) FROM sync_state WHERE account = ? AND synced_at > 0), 0)`,
 		account, account).Scan(&st.OnServer, &last)
 	if err != nil {
 		return st, fmt.Errorf("server status: %w", err)

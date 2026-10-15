@@ -121,6 +121,11 @@ func TestOnServerAndStatus(t *testing.T) {
 	if err != nil || st.OnServer != 0 || !st.LastSynced.IsZero() {
 		t.Fatalf("empty status = %+v, %v", st, err)
 	}
+	for _, folder := range []string{"INBOX", "Archive.2024"} {
+		if err := ix.SetSyncState(ctx, "a", folder, SyncState{UIDValidity: 1}); err != nil {
+			t.Fatal(err)
+		}
+	}
 	for i, folder := range []string{"INBOX", "Archive.2024"} {
 		c := ServerCopy{Account: "a", Folder: folder, FolderName: strings.ReplaceAll(folder, ".", "/"), UIDValidity: 1,
 			UID: uint32(i + 1), Hash: hash(1), Size: 5, InternalDate: now}
@@ -145,8 +150,42 @@ func TestOnServerAndStatus(t *testing.T) {
 	if err := ix.MarkSynced(ctx, "a", "INBOX", now); err != nil {
 		t.Fatal(err)
 	}
+	if err := ix.MarkSynced(ctx, "a", "Archive.2024", now.Add(-time.Hour)); err != nil {
+		t.Fatal(err)
+	}
 	st, err = ix.ServerStatus(ctx, "a")
-	if err != nil || st.OnServer != 1 || !st.LastSynced.Equal(now) {
+	if err != nil || st.OnServer != 1 || !st.LastSynced.Equal(now.Add(-time.Hour)) { // the oldest folder
 		t.Errorf("status = %+v, %v", st, err)
+	}
+}
+
+func TestFolderNameBackfill(t *testing.T) {
+	ix, path := openIndex(t)
+	ctx := t.Context()
+	if err := ix.SetSyncState(ctx, "a", "Archive.2024", SyncState{UIDValidity: 1}); err != nil {
+		t.Fatal(err)
+	}
+	// A row as written before migration 0003.
+	if _, err := ix.db.ExecContext(ctx, `INSERT INTO server_copies (account, folder, folder_name, uidvalidity, uid, hash, size, internal_date, fetched_at)
+		VALUES ('a', 'Archive.2024', '', 1, 1, ?, 5, 0, 0)`, hash(1)); err != nil {
+		t.Fatal(err)
+	}
+	on, err := ix.OnServer(ctx, "a", []string{hash(1)})
+	if err != nil || len(on[hash(1)]) != 1 || on[hash(1)][0].FolderName != "Archive.2024" {
+		t.Fatalf("fallback = %+v, %v", on, err)
+	}
+	// Re-running migration 0004 fills the column itself.
+	if _, err := ix.db.ExecContext(ctx, "PRAGMA user_version = 3"); err != nil {
+		t.Fatal(err)
+	}
+	_ = ix.Close()
+	again, err := Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = again.Close() }()
+	var name string
+	if err := again.db.QueryRowContext(ctx, "SELECT folder_name FROM server_copies").Scan(&name); err != nil || name != "Archive.2024" {
+		t.Errorf("backfilled name = %q, %v", name, err)
 	}
 }

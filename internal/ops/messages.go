@@ -395,3 +395,32 @@ func addServerLocations(ctx context.Context, env *Env, ix *index.Index, msgs []M
 	}
 	return nil
 }
+
+// CountIn is a query to count.
+type CountIn struct {
+	Query string `json:"query"`
+}
+
+// CountOut is how many messages match.
+type CountOut struct {
+	Count int `json:"count"`
+}
+
+// MsgCount counts messages matching a query, without loading them.
+var MsgCount = Op[CountIn, CountOut]{
+	Name:    "msg.count",
+	Summary: "Count messages matching a query",
+	Perm:    Read,
+	Run: func(ctx context.Context, env *Env, in CountIn) (CountOut, error) {
+		q, err := query.Parse(in.Query)
+		if err != nil {
+			return CountOut{}, usageError("%v", err)
+		}
+		ix, err := env.Index(ctx)
+		if err != nil {
+			return CountOut{}, err
+		}
+		n, err := ix.Count(ctx, q)
+		return CountOut{Count: n}, err
+	},
+}

@@ -58,7 +58,7 @@ func sample(t *testing.T, ix *Index) {
 func TestOpenCreatesPrivateFileAndMigrates(t *testing.T) {
 	ix, path := openIndex(t)
 	var version int
-	if err := ix.db.QueryRowContext(t.Context(), "PRAGMA user_version").Scan(&version); err != nil || version != 3 {
+	if err := ix.db.QueryRowContext(t.Context(), "PRAGMA user_version").Scan(&version); err != nil || version != 4 {
 		t.Fatalf("user_version = %d, %v", version, err)
 	}
 	if runtime.GOOS != "windows" {
@@ -235,6 +235,17 @@ func TestSearch(t *testing.T) {
 		}
 		if !slices.Equal(got, tt.want) {
 			t.Errorf("Search(%q) = %q, want %q", tt.q, got, tt.want)
+		}
+	}
+}
+
+func TestCount(t *testing.T) {
+	ix, _ := openIndex(t)
+	sample(t, ix)
+	for q, want := range map[string]int{"": 4, "tag:inbox": 2, "account:work": 2, "tag:nope": 0} {
+		parsed, _ := query.Parse(q)
+		if n, err := ix.Count(t.Context(), parsed); err != nil || n != want {
+			t.Errorf("Count(%q) = %d, %v; want %d", q, n, err, want)
 		}
 	}
 }

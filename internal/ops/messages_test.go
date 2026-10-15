@@ -205,3 +205,15 @@ func TestSearchMoreAtMaxLimit(t *testing.T) {
 		t.Fatalf("search = %d messages, more %v, %v", len(out.Messages), out.More, err)
 	}
 }
+
+func TestMsgCount(t *testing.T) {
+	env := newTestEnv(t)
+	importSample(t, env)
+	out, err := Call(t.Context(), env, Read, MsgCount, CountIn{Query: "tag:inbox"})
+	if err != nil || out.Count != 3 {
+		t.Fatalf("count = %+v, %v", out, err)
+	}
+	if _, err := Call(t.Context(), env, Read, MsgCount, CountIn{Query: "bogus:x"}); !errors.Is(err, ErrUsage) {
+		t.Errorf("bad query = %v", err)
+	}
+}

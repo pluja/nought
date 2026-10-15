@@ -4,6 +4,7 @@ package tui
 
 import (
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -20,15 +21,6 @@ import (
 const (
 	wideWidth    = 100 // from here, the reader sits beside the list
 	sidebarWidth = 20
-)
-
-var (
-	styleTitle    = lipgloss.NewStyle().Bold(true)
-	styleDim      = lipgloss.NewStyle().Faint(true)
-	styleUnread   = lipgloss.NewStyle().Bold(true)
-	styleSelected = lipgloss.NewStyle().Reverse(true)
-	styleFocused  = lipgloss.NewStyle().Underline(true)
-	styleWarn     = lipgloss.NewStyle().Bold(true)
 )
 
 func (m Model) wide() bool { return m.width >= wideWidth }
@@ -48,7 +40,7 @@ func (m Model) sidebarW() int {
 func (m Model) listW() int {
 	rest := m.width - m.sidebarW()
 	if m.wide() {
-		return max(rest*45/100, 40)
+		return max(rest*55/100, 40)
 	}
 	return rest
 }
@@ -60,24 +52,22 @@ func (m Model) readerW() int {
 	return m.width
 }
 
+// compact is a terminal too short for a header and a status bar.
+func (m Model) compact() bool { return m.height < 4 }
+
 // bodyHeight is the height of the main area (between header and footer).
 func (m Model) bodyHeight() int {
+	if m.compact() {
+		return max(m.height, 1)
+	}
 	h := m.height - 2 // header and status bar
-	if m.inputKind != inputNone || m.notice != "" || m.syncing {
+	if m.renderPromptLine() != "" {
 		h--
 	}
 	return max(h, 1)
 }
 
 func (m Model) listHeight() int { return m.bodyHeight() }
-
-func (m *Model) layoutReader() {
-	m.reader.SetWidth(m.readerW())
-	m.reader.SetHeight(m.bodyHeight())
-	if m.open != nil {
-		m.reader.SetContent(m.readerContent())
-	}
-}
 
 // View renders the screen.
 func (m Model) View() tea.View {
@@ -94,7 +84,6 @@ func (m Model) render() string {
 	if m.help {
 		return m.renderHelp()
 	}
-	m.layoutReader()
 	header := m.renderHeader()
 	var main string
 	switch {
@@ -105,6 +94,9 @@ func (m Model) render() string {
 			m.renderSidebar(), m.renderList(), m.renderSeparator(), m.renderReader(m.readerW()))
 	default:
 		main = lipgloss.JoinHorizontal(lipgloss.Top, m.renderSidebar(), m.renderList())
+	}
+	if m.compact() {
+		return fit(main, m.width, m.height)
 	}
 	lines := []string{header, fit(main, m.width, m.bodyHeight())}
 	if line := m.renderPromptLine(); line != "" {
@@ -123,7 +115,7 @@ func (m Model) renderHeader() string {
 	if m.more {
 		n += "+"
 	}
-	return pad(styleTitle.Render("nought")+"  "+render.SanitizeLine(q)+styleDim.Render("  "+n+" messages"), m.width)
+	return pad(m.st.title.Render("nought")+"  "+render.SanitizeLine(q)+m.st.dim.Render("  "+n+" messages"), m.width)
 }
 
 func (m Model) renderSidebar() string {
@@ -142,10 +134,10 @@ func (m Model) renderSidebar() string {
 		}
 		line := pad(" "+label, sidebarWidth-len(count)-1) + count + " "
 		if it.query == m.query {
-			line = styleTitle.Render(line)
+			line = m.st.title.Render(line)
 		}
 		if m.focus == focusSidebar && i == m.sideIdx {
-			line = styleSelected.Render(line)
+			line = m.st.selected.Render(line)
 		}
 		lines = append(lines, line)
 	}
@@ -155,7 +147,7 @@ func (m Model) renderSidebar() string {
 func (m Model) renderList() string {
 	w, h := m.listW(), m.listHeight()
 	if len(m.msgs) == 0 {
-		return fit(styleDim.Render(" Nothing here. Inbox Zero!"), w, h)
+		return fit(m.st.dim.Render(" Nothing here. Inbox Zero!"), w, h)
 	}
 	var lines []string
 	for i := m.offset; i < len(m.msgs) && i < m.offset+h; i++ {
@@ -169,16 +161,16 @@ func (m Model) renderListLine(msg ops.MessageOut, selected bool, w int) string {
 	if msg.Date != nil {
 		date = shortDate(msg.Date.Local(), m.now())
 	}
-	from := ansi.Truncate(render.SanitizeLine(senderName(msg.From)), 18, "…")
-	line := m.marker(msg) + " " + pad(date, 6) + " " + pad(from, 18) + " " + render.SanitizeLine(msg.Subject)
+	from := ansi.Truncate(render.SanitizeLine(senderName(msg.From)), 22, "…")
+	line := m.marker(msg) + " " + pad(date, 6) + " " + pad(from, 22) + " " + render.SanitizeLine(msg.Subject)
 	line = pad(ansi.Truncate(line, w, "…"), w)
 	switch {
 	case selected && m.focus == focusList:
-		return styleSelected.Render(line)
+		return m.st.selected.Render(line)
 	case selected:
-		return styleFocused.Render(line)
-	case hasTag(msg, ops.TagUnread):
-		return styleUnread.Render(line)
+		return m.st.focused.Render(line)
+	case slices.Contains(msg.Tags, ops.TagUnread):
+		return m.st.unread.Render(line)
 	}
 	return line
 }
@@ -217,7 +209,7 @@ func (m Model) renderReader(w int) string {
 		if len(m.msgs) == 0 {
 			hint = ""
 		}
-		return fit(styleDim.Render(hint), w, m.bodyHeight())
+		return fit(m.st.dim.Render(hint), w, m.bodyHeight())
 	}
 	return fit(m.reader.View(), w, m.bodyHeight())
 }
@@ -228,11 +220,11 @@ func (m Model) readerContent() string {
 		return ""
 	}
 	o := m.open
-	w := max(m.readerW()-1, 20)
+	w := max(m.readerW()-1, 1)
 	wrap := lipgloss.NewStyle().Width(w)
 	var b strings.Builder
 	field := func(name, value string) {
-		b.WriteString(wrap.Render(styleDim.Render(fmt.Sprintf("%-8s", name+":"))+" "+render.SanitizeLine(value)) + "\n")
+		b.WriteString(wrap.Render(m.st.dim.Render(fmt.Sprintf("%-8s", name+":"))+" "+render.SanitizeLine(value)) + "\n")
 	}
 	field("From", o.Message.From)
 	if len(o.Message.To) > 0 {
@@ -244,13 +236,13 @@ func (m Model) readerContent() string {
 	field("Subject", o.Message.Subject)
 	field("Tags", strings.Join(o.Message.Tags, " "))
 	for _, line := range locationLines(o.Message, m.now()) {
-		b.WriteString(wrap.Render(styleWarn.Render(line)) + "\n")
+		b.WriteString(wrap.Render(m.st.warn.Render(line)) + "\n")
 	}
 	for _, a := range o.Attachments {
 		field("Attach", fmt.Sprintf("%s (%s, %s)", a.Filename, a.ContentType, humanSize(a.Size)))
 	}
 	if o.BodyFrom == "text/html" {
-		b.WriteString(styleDim.Render("HTML shown as text; nothing was loaded.") + "\n")
+		b.WriteString(m.st.dim.Render("HTML shown as text; nothing was loaded.") + "\n")
 	}
 	b.WriteString(strings.Repeat("─", w) + "\n")
 	b.WriteString(lipgloss.NewStyle().Width(w).Render(render.Sanitize(strings.TrimRight(o.Body, "\n"))))
@@ -285,6 +277,8 @@ func (m Model) renderPromptLine() string {
 		return pad("tags (+add -remove): "+m.input.View(), m.width)
 	case m.inputKind == inputPalette:
 		return pad(":"+m.input.View(), m.width)
+	case m.inputKind == inputConfirmSync:
+		return pad("Sync may delete mail from servers (accounts with deletion on). Continue? (y/N)", m.width)
 	case m.syncing:
 		line := "syncing…"
 		if len(m.syncLines) > 0 {
@@ -314,8 +308,11 @@ func (m Model) renderStatus() string {
 		parts = append(parts, "no accounts (nou account add)")
 	}
 	right := "? help"
+	if m.width < 30 {
+		right = ""
+	}
 	left := strings.Join(parts, " │ ")
-	return styleDim.Render(pad(ansi.Truncate(left, max(m.width-len(right)-2, 0), "…"), m.width-len(right)) + right)
+	return m.st.dim.Render(fit(pad(ansi.Truncate(left, max(m.width-len(right)-2, 0), "…"), m.width-len(right))+right, m.width, 1))
 }
 
 func (m Model) renderHelp() string {
@@ -368,21 +365,19 @@ func pad(s string, w int) string {
 	return s
 }
 
-func hasTag(msg ops.MessageOut, tag string) bool {
-	for _, t := range msg.Tags {
-		if t == tag {
-			return true
-		}
-	}
-	return false
-}
-
-// senderName prefers the display name of "Name <addr>".
+// senderName shows "Name (domain)" for "Name <addr@domain>": the display
+// name alone could impersonate anyone.
 func senderName(from string) string {
-	if i := strings.Index(from, " <"); i > 0 {
-		return strings.Trim(from[:i], `"`)
+	i := strings.Index(from, " <")
+	if i <= 0 {
+		return from
 	}
-	return from
+	name := strings.Trim(from[:i], `"`)
+	addr := strings.TrimSuffix(from[i+2:], ">")
+	if at := strings.LastIndex(addr, "@"); at >= 0 {
+		return name + " (" + addr[at+1:] + ")"
+	}
+	return name
 }
 
 func shortDate(t, now time.Time) string {
@@ -432,5 +427,3 @@ func humanSize(n int64) string {
 		return fmt.Sprintf("%d B", n)
 	}
 }
-
-func itoa(n int) string { return strconv.Itoa(n) }
