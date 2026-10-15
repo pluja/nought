@@ -118,7 +118,7 @@ func TestEnvConfigLoadsOnce(t *testing.T) {
 func removeFile(env *Env, account string, e store.Entry) error {
 	matches, err := filepath.Glob(filepath.Join(env.Paths.AccountArchive(account), "cur", e.Hash+"*"))
 	if err != nil || len(matches) != 1 {
-		return fmt.Errorf("find %s: %v %v", e.Hash, matches, err)
+		return fmt.Errorf("find %s: %v: %w", e.Hash, matches, err)
 	}
 	return os.Remove(matches[0])
 }

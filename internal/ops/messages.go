@@ -163,7 +163,7 @@ func resolve(ctx context.Context, env *Env, account, id string) (index.Message, 
 	}
 	m, err := ix.Resolve(ctx, account, id)
 	if amb, ok := errors.AsType[*index.AmbiguousError](err); ok {
-		return m, fmt.Errorf("%v (use a longer id or --account): %w", amb, ErrAmbiguous)
+		return m, fmt.Errorf("%w (use a longer id or --account): %w", amb, ErrAmbiguous)
 	}
 	if errors.Is(err, index.ErrNotFound) {
 		return m, fmt.Errorf("%w: %w", err, ErrNotFound)
