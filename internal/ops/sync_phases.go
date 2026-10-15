@@ -33,6 +33,9 @@ func syncPhases(ctx context.Context, env *Env, ix *index.Index, conn *imapsync.C
 	if err != nil {
 		return err
 	}
+	if !slices.ContainsFunc(folders, func(f imapsync.Folder) bool { return isInbox(f.Name) }) {
+		return errors.New("the server did not list INBOX; nothing was changed")
+	}
 	// INBOX first: a message another client moves out of it while this
 	// sync runs is then either still seen in INBOX or seen in its new
 	// folder, never missing from both.
@@ -89,7 +92,7 @@ func scanFolders(ctx context.Context, env *Env, ix *index.Index, conn *imapsync.
 			return nil, ctx.Err()
 		}
 	}
-	gone, err := vanishedFolders(ctx, ix, a.Name, listed, in.AcceptRemovals, out)
+	gone, err := vanishedFolders(ctx, ix, conn, a.Name, listed, in.AcceptRemovals, out)
 	return append(scans, gone), err
 }
 

@@ -351,3 +351,19 @@ func TestTrashCleanupKeepsItsOwnPlace(t *testing.T) {
 		t.Errorf("trash mail skipped after the trash became archived: %v", got)
 	}
 }
+
+// Review finding: a folder list without INBOX must never read as "the
+// whole inbox was deleted".
+func TestMissingInboxChangesNothing(t *testing.T) {
+	env, srv := syncEnv(t, imaptest.Options{}, true)
+	srv.Append(t, "INBOX", mail("a@x", "still here"), daysAgo(env, 0))
+	runSyncOK(t, env, SyncIn{})
+	srv.DeleteMailbox(t, "INBOX")
+	out, err := Call(t.Context(), env, Delete, SyncRun, SyncIn{AcceptRemovals: true})
+	if err == nil || out.Accounts[0].Error == "" || !strings.Contains(out.Accounts[0].Error, "INBOX") {
+		t.Errorf("sync without INBOX = %+v, %v", out.Accounts[0], err)
+	}
+	if len(search(t, env, "tag:inbox")) != 1 || len(search(t, env, "tag:deleted")) != 0 {
+		t.Error("a missing INBOX changed the inbox")
+	}
+}

@@ -189,6 +189,17 @@ func (c *Conn) Folders() ([]Folder, error) {
 	return out, nil
 }
 
+// Exists reports whether a folder exists on the server, for one that is
+// missing from the folder list: a server answering NO to STATUS has no
+// such folder.
+func (c *Conn) Exists(raw string) (bool, error) {
+	_, err := c.c.Status(raw, &imap.StatusOptions{NumMessages: true}).Wait()
+	if imapErr, ok := errors.AsType[*imap.Error](err); ok && imapErr.Type == imap.StatusResponseTypeNo {
+		return false, nil
+	}
+	return err == nil, err
+}
+
 // Mailbox is the state of a selected folder.
 type Mailbox struct {
 	UIDValidity uint32

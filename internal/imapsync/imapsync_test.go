@@ -391,3 +391,13 @@ func TestAllUIDsRejectsAnIncompleteList(t *testing.T) {
 		t.Errorf("AllUIDs = %v, want ErrIncompleteList", err)
 	}
 }
+
+func TestExists(t *testing.T) {
+	s := imaptest.Start(t, imaptest.Options{})
+	c := dial(t, s)
+	for name, want := range map[string]bool{"INBOX": true, "Sent": true, "Nope": false} {
+		if got, err := c.Exists(name); err != nil || got != want {
+			t.Errorf("Exists(%q) = %v, %v; want %v", name, got, err, want)
+		}
+	}
+}

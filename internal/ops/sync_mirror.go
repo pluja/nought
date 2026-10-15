@@ -54,7 +54,7 @@ func checkPresence(ctx context.Context, ix *index.Index, conn *imapsync.Conn, ac
 
 // vanishedFolders finds folders that have live copies but are no longer on
 // the server (deleted on another client): all their copies are gone.
-func vanishedFolders(ctx context.Context, ix *index.Index, account string, listed map[string]bool,
+func vanishedFolders(ctx context.Context, ix *index.Index, conn *imapsync.Conn, account string, listed map[string]bool,
 	accept bool, out *AccountSyncOut) (folderScan, error) {
 	scan := folderScan{trusted: true}
 	tracked, err := ix.TrackedFolders(ctx, account)
@@ -63,6 +63,17 @@ func vanishedFolders(ctx context.Context, ix *index.Index, account string, liste
 	}
 	for folder, validity := range tracked {
 		if listed[folder] {
+			continue
+		}
+		// A folder can be left out of a list by mistake; trust only a
+		// server that says it is gone.
+		exists, err := conn.Exists(folder)
+		if err != nil {
+			return scan, err
+		}
+		if exists {
+			out.Notes, scan.trusted = append(out.Notes, "a folder missing from the server's list still exists; "+
+				"changes made on other devices are applied next time"), false
 			continue
 		}
 		live, err := ix.LiveCopies(ctx, account, folder, validity)
