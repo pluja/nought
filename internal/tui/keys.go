@@ -52,6 +52,8 @@ func (m Model) key(k tea.KeyPressMsg) (Model, tea.Cmd) {
 			return m.goTo(queryUnread)
 		case "f":
 			return m.goTo(queryFlagged)
+		case "t":
+			return m.goTo(queryTrash)
 		}
 	}
 
@@ -154,6 +156,17 @@ func (m Model) messageAction(key string) (Model, tea.Cmd) {
 		return m.enqueue(newTagReq(sel, []string{ops.TagFlagged}, nil, "flagged"))
 	case "l", "t":
 		return m.startInput(inputTags, "")
+	case "#":
+		req, err := m.trashReq(sel)
+		if err != nil {
+			m.notice, m.noticeErr = err.Error(), true
+			return m, nil
+		}
+		return m.enqueue(req)
+	case "D":
+		m.deleting = sel
+		m.inputKind = inputConfirmDelete
+		return m, nil
 	}
 	return m, nil
 }
@@ -267,13 +280,23 @@ func (m Model) startInput(kind inputKind, value string) (Model, tea.Cmd) {
 }
 
 func (m Model) inputKey(k tea.KeyPressMsg) (Model, tea.Cmd) {
-	if m.inputKind == inputConfirmSync {
+	switch m.inputKind {
+	case inputConfirmSync:
 		m.inputKind = inputNone
 		if strings.EqualFold(k.String(), "y") {
 			return m.startSync()
 		}
 		m.notice = "sync cancelled"
 		return m, nil
+	case inputConfirmDelete:
+		m.inputKind = inputNone
+		if k.String() != "y" && k.String() != "Y" {
+			m.notice = "not deleted"
+			return m, nil
+		}
+		msg := m.deleting
+		m, drop := m.dropFromView(msg.ID)
+		return m, tea.Batch(drop, m.deleteNow(msg))
 	}
 	switch k.String() {
 	case "esc":
@@ -343,6 +366,8 @@ func (m Model) command(line string) (Model, tea.Cmd) {
 		return m.submit(inputTags, arg)
 	case "archive":
 		return m.messageAction("e")
+	case "trash":
+		return m.goTo(queryTrash)
 	case "undo":
 		return m.undoLast()
 	case "reindex":

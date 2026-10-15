@@ -313,7 +313,7 @@ func TestDumpRestoreRoundTrip(t *testing.T) {
 	}
 
 	var dump bytes.Buffer
-	if err := ix.Dump(t.Context(), &dump); err != nil {
+	if err := ix.Dump(t.Context(), &dump, nil); err != nil {
 		t.Fatal(err)
 	}
 	text := dump.String()
@@ -374,7 +374,7 @@ func TestDumpRestoreTricky(t *testing.T) {
 	add(t, ix, Message{Account: "a", Hash: hash(2), MessageID: longID, Tags: []string{"long"}}, "")
 	add(t, ix, Message{Account: "a", Hash: hash(3), MessageID: "has space@x", Tags: []string{"sp"}}, "")
 	var dump bytes.Buffer
-	if err := ix.Dump(t.Context(), &dump); err != nil {
+	if err := ix.Dump(t.Context(), &dump, nil); err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(dump.String(), longID[:100]) {

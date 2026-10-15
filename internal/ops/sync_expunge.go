@@ -4,6 +4,7 @@ package ops
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"fmt"
 	"slices"
@@ -29,12 +30,33 @@ func expungeDue(ctx context.Context, env *Env, ix *index.Index, conn *imapsync.C
 	if err != nil {
 		return err
 	}
+	// Messages the user deleted (or that expired) leave the server whatever
+	// the folder's keep_days or the account's automatic deletion setting.
+	requested, err := ix.DeletionRequested(ctx, a.Name, folder, uidValidity, env.Now().UTC().Format(dateLayout))
+	if err != nil {
+		return err
+	}
 	out.Due = len(due)
+	if !a.DeletionEnabled() {
+		if len(due) > 0 && len(requested) == 0 {
+			out.Notes = append(out.Notes, "deletion is disabled for this account; nothing was deleted")
+		}
+		due = nil
+	}
+	for _, r := range requested {
+		if !slices.ContainsFunc(due, func(c index.ServerCopy) bool { return c.UID == r.UID }) {
+			due = append(due, r)
+		}
+	}
+	slices.SortFunc(due, func(x, y index.ServerCopy) int { return cmp.Compare(x.UID, y.UID) })
+	// The journal is backed up: for mail the user deleted it records only
+	// the content hash, not the Message-ID.
+	private := map[uint32]bool{}
+	for _, r := range requested {
+		private[r.UID] = true
+	}
 	switch {
 	case len(due) == 0 || dryRun:
-		return nil
-	case !a.DeletionEnabled():
-		out.Notes = append(out.Notes, "deletion is disabled for this account; nothing was deleted")
 		return nil
 	case !conn.HasUIDPlus():
 		out.Notes = append(out.Notes, "the server does not support UIDPLUS; nothing was deleted")
@@ -61,7 +83,7 @@ func expungeDue(ctx context.Context, env *Env, ix *index.Index, conn *imapsync.C
 		if len(verified) == 0 {
 			continue
 		}
-		if err := expungeBatch(ctx, env, ix, conn, verified); err != nil {
+		if err := expungeBatch(ctx, env, ix, conn, verified, private); err != nil {
 			return err
 		}
 		out.Expunged += len(verified)
@@ -76,10 +98,6 @@ func expungeDue(ctx context.Context, env *Env, ix *index.Index, conn *imapsync.C
 // already gone from the server, and copies that must stay (described).
 func checkBeforeExpunge(env *Env, conn *imapsync.Conn, account string,
 	batch []index.ServerCopy) (verified, gone []index.ServerCopy, bad []string, err error) {
-	st, err := env.Store(account)
-	if err != nil {
-		return nil, nil, nil, err
-	}
 	uids := make([]uint32, len(batch))
 	for i, c := range batch {
 		uids[i] = c.UID
@@ -103,6 +121,10 @@ func checkBeforeExpunge(env *Env, conn *imapsync.Conn, account string,
 		case info.Size != c.Size:
 			bad = append(bad, fmt.Sprintf("uid %d changed on the server", c.UID))
 		default:
+			st, err := env.locate(account, c.Hash)
+			if err != nil {
+				return nil, nil, nil, err
+			}
 			raw, err := st.Get(c.Hash)
 			if err == nil && store.Hash(raw) != c.Hash {
 				err = store.ErrCorrupt
@@ -139,8 +161,9 @@ func sameHeader(serverHeader, raw []byte) bool {
 // expungeBatch journals, deletes, and records one batch. Once the server
 // has deleted the messages, the bookkeeping finishes even if the user
 // interrupts, so the journal never shows an intent without its outcome.
-func expungeBatch(ctx context.Context, env *Env, ix *index.Index, conn *imapsync.Conn, batch []index.ServerCopy) error {
-	if err := journal.Append(env.Paths.Journal, journalEntries(ctx, ix, env.Now(), journal.Intent, batch)); err != nil {
+func expungeBatch(ctx context.Context, env *Env, ix *index.Index, conn *imapsync.Conn, batch []index.ServerCopy,
+	private map[uint32]bool) error {
+	if err := journal.Append(env.Paths.Journal, journalEntries(ctx, ix, env.Now(), journal.Intent, batch, private)); err != nil {
 		return fmt.Errorf("journal (nothing was deleted): %w", err)
 	}
 	uids := make([]uint32, len(batch))
@@ -154,15 +177,19 @@ func expungeBatch(ctx context.Context, env *Env, ix *index.Index, conn *imapsync
 	if err := ix.MarkExpunged(done, batch, env.Now()); err != nil {
 		return err
 	}
-	return journal.Append(env.Paths.Journal, journalEntries(done, ix, env.Now(), journal.Done, batch))
+	return journal.Append(env.Paths.Journal, journalEntries(done, ix, env.Now(), journal.Done, batch, private))
 }
 
-func journalEntries(ctx context.Context, ix *index.Index, at time.Time, phase string, copies []index.ServerCopy) []journal.Entry {
+func journalEntries(ctx context.Context, ix *index.Index, at time.Time, phase string, copies []index.ServerCopy,
+	private map[uint32]bool) []journal.Entry {
 	entries := make([]journal.Entry, len(copies))
 	for i, c := range copies {
 		entries[i] = journal.Entry{
 			Time: at.UTC(), Phase: phase, Account: c.Account, Folder: c.Folder,
-			UIDValidity: c.UIDValidity, UID: c.UID, MessageID: ix.MessageIDOf(ctx, c.Account, c.Hash), Hash: c.Hash,
+			UIDValidity: c.UIDValidity, UID: c.UID, Hash: c.Hash,
+		}
+		if !private[c.UID] {
+			entries[i].MessageID = ix.MessageIDOf(ctx, c.Account, c.Hash)
 		}
 	}
 	return entries

@@ -101,8 +101,9 @@ func (ix *Index) TagCounts(ctx context.Context) ([]TagCount, error) {
 // and messages without a unique Message-ID are keyed "hash:<sha256>".
 const dumpHeader = "# nought tag dump v1 (notmuch batch-tag format)"
 
-// Dump writes every message's tags to w, grouped by account.
-func (ix *Index) Dump(ctx context.Context, w io.Writer) error {
+// Dump writes the tags of every message for which keep returns true (all
+// messages if keep is nil) to w, grouped by account.
+func (ix *Index) Dump(ctx context.Context, w io.Writer, keep func(tags []string) bool) error {
 	rows, err := ix.db.QueryContext(ctx, `
 		SELECT a.name, m.hash, m.message_id,
 		       CASE WHEN m.message_id = '' THEN 0 ELSE
@@ -125,6 +126,15 @@ func (ix *Index) Dump(ctx context.Context, w io.Writer) error {
 		var sameID int
 		if err := rows.Scan(&name, &hash, &msgID, &sameID, &tags); err != nil {
 			return err
+		}
+		if keep != nil {
+			var list []string
+			if tags != "" {
+				list = strings.Split(tags, tagSep)
+			}
+			if !keep(list) {
+				continue
+			}
 		}
 		if name != account {
 			account = name

@@ -1,0 +1,28 @@
+exec nou import export --account personal --inbox
+exec nou msg delete subject:lunch
+stdout '^moved 1 to the trash'
+exec nou search
+! stdout lunch
+exec nou search tag:deleted
+stdout lunch
+exec nou msg restore tag:deleted
+stdout '^restored 1$'
+exec nou msg delete --now subject:code
+stdout '^deleted 1 for good; 0 wait'
+exec nou search tag:deleted OR subject:code
+! stdout .
+exec nou paths
+stdout 'never back up'
+
+-- export/Inbox/a.eml --
+From: Alice <alice@example.org>
+Message-ID: <a@example.org>
+Subject: lunch on friday
+
+pizza?
+-- export/Inbox/b.eml --
+From: Bank <no-reply@bank.example>
+Message-ID: <b@example.org>
+Subject: your code is 123456
+
+123456

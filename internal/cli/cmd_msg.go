@@ -78,7 +78,7 @@ func newMsgCmd(a *app) *cobra.Command {
 		Args:  noArgs,
 		RunE:  func(cmd *cobra.Command, _ []string) error { return cmd.Help() },
 	}
-	cmd.AddCommand(newMsgShowCmd(a), newMsgTagCmd(a), newMsgArchiveCmd(a))
+	cmd.AddCommand(newMsgShowCmd(a), newMsgTagCmd(a), newMsgArchiveCmd(a), newMsgDeleteCmd(a), newMsgRestoreCmd(a))
 	return cmd
 }
 

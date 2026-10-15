@@ -123,6 +123,13 @@ func runSync(ctx context.Context, env *Env, in SyncIn) (SyncOut, error) {
 			return out, err
 		}
 	}
+	// Deleted and expired mail whose server copies are gone now leaves the
+	// archive for good.
+	if !in.DryRun {
+		if _, err := purge(ctx, env); err != nil {
+			return out, err
+		}
+	}
 	if err := ctx.Err(); err != nil {
 		return out, err
 	}

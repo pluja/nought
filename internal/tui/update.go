@@ -114,6 +114,17 @@ func (m Model) update(msg tea.Msg) (Model, tea.Cmd) {
 		m.noticeErr = msg.err != nil
 		return m.refresh()
 
+	case deleteDoneMsg:
+		switch {
+		case msg.err != nil:
+			m.notice, m.noticeErr = "delete: "+msg.err.Error(), true
+		case msg.out.Pending > 0:
+			m.notice = "deleted; the server copy goes at the next sync, then the local one"
+		default:
+			m.notice = "deleted for good"
+		}
+		return m.refresh()
+
 	case reindexDoneMsg:
 		if msg.err != nil {
 			m.notice, m.noticeErr = "reindex: "+msg.err.Error(), true
@@ -202,14 +213,27 @@ func (m Model) enqueue(req tagReq) (Model, tea.Cmd) {
 	if !m.tagBusy {
 		m, cmd = m.startNextTag()
 	}
-	// Archiving from the inbox: the message leaves the view at once, and
-	// the next one is selected (and opened, when reading).
-	if m.query == queryInbox && slices.Contains(req.remove, ops.TagInbox) {
+	// A message that no longer belongs in the view (archived from the
+	// inbox, trashed, restored from the trash) leaves it at once, and the
+	// next one is selected (and opened, when reading).
+	if m.leavesView(req) {
 		var next tea.Cmd
 		m, next = m.dropFromView(req.msg.ID)
 		cmd = tea.Batch(cmd, next)
 	}
 	return m, cmd
+}
+
+func (m Model) leavesView(req tagReq) bool {
+	switch {
+	case m.query == queryInbox && slices.Contains(req.remove, ops.TagInbox):
+		return true
+	case m.query == queryTrash:
+		return slices.Contains(req.remove, ops.TagDeleted)
+	default:
+		// Searches hide the trash unless they ask for it.
+		return slices.Contains(req.add, ops.TagDeleted) && !strings.Contains(m.query, ops.TagDeleted)
+	}
 }
 
 func (m Model) dropFromView(id string) (Model, tea.Cmd) {

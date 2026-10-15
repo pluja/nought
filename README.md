@@ -58,6 +58,36 @@ By default, mail stays on the server for 7 days after it arrives (so your phone 
 mail). Drafts, templates, junk, spam and trash are never archived or deleted. Each account's
 folder rules are in the config file, and `nou account show <name>` lists them.
 
+## Deleting mail
+
+Some mail is not worth keeping anywhere: a login code, a shipping notice. Deleting it removes it
+from your archive and, at the next sync, from the server too, even for accounts whose automatic
+deletion is off. It never reaches your backups (see below).
+
+```sh
+nou msg delete subject:"verification code"   # to the trash: hidden, deleted for good after 30 days
+nou msg restore tag:deleted                  # changed your mind
+nou msg delete --now a3f9c2e1b0d4            # for good, at once (server copy at the next sync)
+nou trash empty
+```
+
+In the TUI, `#` moves a message to the trash (`z` undoes it, `gt` shows the trash) and `D`
+deletes it for good after asking.
+
+Rules can tag new mail as it is archived, and make it expire:
+
+```toml
+trash_days = 30   # how long the trash keeps mail (0: until the next sync)
+
+[[rule]]
+query = "from:no-reply@bank.example subject:code"
+expire_days = 1   # deleted for good, here and on the server, a day after it arrives
+
+[[rule]]
+query = "from:newsletter@example.org"
+tags = ["newsletter"]
+```
+
 ## Searching
 
 Terms are ANDed; `a OR b` ORs two terms; `-term` negates (put `--` before a query that starts
@@ -81,17 +111,20 @@ with `-`).
 ~/.local/share/nought/tags.dump           all tags, notmuch dump format
 ~/.local/share/nought/expunge.journal     every server deletion, JSON lines
 ~/.local/share/nought/index.db            SQLite index (rebuild with 'nou reindex')
+~/.local/share/nought/transient/          deleted and expiring mail, and its tags: never back up
 ```
 
 `nou paths` prints the actual locations on your system (macOS and Windows differ).
 
-**Backups:** back up `archive/`, `tags.dump`, `expunge.journal` and `config.toml`. Message files
+**Backups:** back up `archive/`, `tags.dump`, `expunge.journal` and `config.toml`, and never
+`transient/`: it holds the mail you asked to be rid of. Message files
 never change content and are named by their SHA-256, so restic and kopia deduplicate them
 perfectly; with rclone, use `--track-renames`. Skip `index.db`: `nou reindex` rebuilds it from the
-files and the tag dump. A typical cron job:
+files and the tag dumps. A typical cron job:
 
 ```sh
-nou sync && restic backup ~/.local/share/nought ~/.config/nought --exclude index.db
+nou sync && restic backup ~/.local/share/nought ~/.config/nought \
+  --exclude index.db --exclude transient
 ```
 
 ## For scripts and agents

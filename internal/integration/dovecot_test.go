@@ -219,3 +219,31 @@ func TestDamagedArchiveKeepsServerCopy(t *testing.T) {
 		t.Fatal("deleted a message whose local copy was damaged")
 	}
 }
+
+// TestDeletedMailLeavesDovecot: trashed and deleted-now mail leaves the
+// server at the next sync even with the account's deletion off, and the
+// deleted-now message is then gone locally too.
+func TestDeletedMailLeavesDovecot(t *testing.T) {
+	f := setup(t, config.TLSImplicit, 10993)
+	f.append("INBOX", "keep", "keep me", time.Hour)
+	f.append("INBOX", "trash", "trash me", time.Hour)
+	f.append("INBOX", "code", "login code", time.Hour)
+	f.sync(false)
+
+	for _, d := range []ops.DeleteIn{{Query: "subject:trash"}, {Query: "subject:code", Now: true}} {
+		out, err := ops.Call(t.Context(), f.env, ops.Delete, ops.MsgDelete, d)
+		if err != nil || out.Matched != 1 {
+			t.Fatalf("delete %+v: %+v, %v", d, out, err)
+		}
+		if d.Now && out.Pending != 1 {
+			t.Errorf("delete now with a server copy: %+v, want 1 pending", out)
+		}
+	}
+	f.sync(false)
+	if n := f.count("INBOX"); n != 1 {
+		t.Errorf("INBOX has %d messages, want 1", n)
+	}
+	if got := f.subjects(""); !slices.Equal(got, []string{"keep me", "trash me"}) {
+		t.Errorf("local = %v, want the kept and the trashed one", got)
+	}
+}

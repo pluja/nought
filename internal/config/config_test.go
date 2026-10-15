@@ -93,9 +93,9 @@ func TestResolvePaths(t *testing.T) {
 			if got := filepath.ToSlash(p.AccountArchive("work")); got != tt.wantData+"/archive/work" {
 				t.Errorf("AccountArchive = %q", got)
 			}
-			include, optional := p.BackupSet()
-			if len(include) != 4 || len(optional) != 1 || optional[0] != p.IndexFile {
-				t.Errorf("BackupSet = %v, %v", include, optional)
+			include, optional, never := p.BackupSet()
+			if len(include) != 4 || len(optional) != 1 || optional[0] != p.IndexFile || len(never) != 1 || never[0] != p.TransientDir {
+				t.Errorf("BackupSet = %v, %v, %v", include, optional, never)
 			}
 		})
 	}
@@ -221,6 +221,36 @@ func TestLoadTooLarge(t *testing.T) {
 	_, err := Load(writeConfig(t, validTOML+strings.Repeat("# padding\n", 120000)))
 	if err == nil || !strings.Contains(err.Error(), "larger") {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestRulesAndTrash(t *testing.T) {
+	c, err := Load(writeConfig(t, "trash_days = 7\n"+validTOML+"\n[[rule]]\nquery = 'subject:\"verification code\" OR subject:otp'\nexpire_days = 1\n[[rule]]\nquery = \"from:shop.example\"\ntags = [\"receipts\"]\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.TrashKeepDays() != 7 || len(c.Rules) != 2 || c.Rules[0].ExpireDays != 1 || c.Rules[1].Tags[0] != "receipts" {
+		t.Errorf("config = %+v", c)
+	}
+	if (&Config{}).TrashKeepDays() != DefaultTrashDays {
+		t.Error("default trash days")
+	}
+	for _, bad := range []string{
+		"\n[[rule]]\nquery = \"bogus:x\"\nexpire_days = 1\n",
+		"\n[[rule]]\nquery = \"from:x\"\n",
+		"\n[[rule]]\nquery = \"\"\nexpire_days = 1\n",
+		"\n[[rule]]\nquery = \"from:x\"\ntags = [\"Bad Tag\"]\n",
+		"\n[[rule]]\nquery = \"from:x\"\nexpire_days = -1\n",
+	} {
+		if _, err := Load(writeConfig(t, validTOML+bad)); err == nil {
+			t.Errorf("accepted %q", bad)
+		}
+	}
+}
+
+func TestBadTrashDays(t *testing.T) {
+	if _, err := Load(writeConfig(t, "trash_days = -2\n"+validTOML)); err == nil {
+		t.Error("accepted negative trash_days")
 	}
 }
 

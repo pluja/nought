@@ -236,12 +236,34 @@ func userTags(tags []string) []string {
 	for _, t := range tags {
 		switch {
 		case t == ops.TagInbox, t == ops.TagUnread, t == ops.TagFlagged, t == ops.TagReplied,
-			strings.HasPrefix(t, "folder:"):
+			strings.HasPrefix(t, "folder:"), hiddenTag(t):
 			continue
 		}
 		out = append(out, t)
 	}
 	return out
+}
+
+// hiddenTag: the trash and expiry tags are shown as a sentence in the
+// reader instead.
+func hiddenTag(t string) bool { return t == ops.TagDeleted || ops.IsExpiryTag(t) }
+
+// expiryLine says when a deleted or expiring message is deleted for good.
+func expiryLine(tags []string, now time.Time) string {
+	at, ok := ops.ExpiresAt(tags)
+	switch {
+	case !ok:
+		if slices.Contains(tags, ops.TagDeleted) {
+			return "In the trash"
+		}
+		return ""
+	case !at.After(now):
+		return "Deleted for good at the next sync"
+	case slices.Contains(tags, ops.TagDeleted):
+		return "In the trash until " + at.Format("2 Jan 2006") + " (# restores)"
+	default:
+		return "Expires on " + at.Format("2 Jan 2006") + ", then deleted for good"
+	}
 }
 
 // location tells where a message lives, as a circle that fills up as the
@@ -318,6 +340,9 @@ func (m Model) readerContent() string {
 	for _, a := range o.Attachments {
 		field("Attach", fmt.Sprintf("%s (%s)", a.Filename, humanSize(a.Size)))
 	}
+	if line := expiryLine(o.Message.Tags, m.now()); line != "" {
+		b.WriteString(wrap.Render(m.st.warn.Render(line)) + "\n")
+	}
 	glyph, where := m.location(o.Message)
 	for _, line := range locationLines(o.Message, m.now()) {
 		b.WriteString(wrap.Render(where.Render(glyph+" "+line)) + "\n")
@@ -359,6 +384,9 @@ func (m Model) renderPromptLine() string {
 		return pad(":"+m.input.View(), m.width)
 	case m.inputKind == inputLinkNumber:
 		return pad("open link number (1-"+strconv.Itoa(len(m.links))+"): "+m.input.View(), m.width)
+	case m.inputKind == inputConfirmDelete:
+		q := "Delete permanently, here and on the server? (y/N) "
+		return fit(m.st.errText.Render(q)+render.SanitizeLine(m.deleting.Subject), m.width, 1)
 	case m.inputKind == inputConfirmSync:
 		return fit(m.st.warn.Bold(true).Render("Sync may delete mail from servers (accounts with deletion on). Continue? (y/N)"), m.width, 1)
 	case m.syncing:
@@ -383,6 +411,8 @@ func (m Model) renderHints() string {
 	switch {
 	case m.inputKind == inputLinkNumber:
 		hints = [][2]string{{"1-" + strconv.Itoa(len(m.links)), "link"}, {"enter", "confirm"}, {"esc", "cancel"}}
+	case m.inputKind == inputConfirmSync || m.inputKind == inputConfirmDelete:
+		hints = [][2]string{{"y", "yes"}, {"any other key", "no"}}
 	case m.inputKind != inputNone:
 		hints = [][2]string{{"enter", "confirm"}, {"esc", "cancel"}}
 	case m.focus == focusReader:
@@ -431,28 +461,26 @@ func (m Model) renderHelp() string {
   j/k, ↓/↑         move              Enter            open (marks read)
   gg / G           first / last      Esc, h           back to the list
   Ctrl-d / Ctrl-u  half page         J / K            next / previous message
-  gi ga gu gf      inbox, all, unread, flagged
+  gi ga gu gf gt   inbox, all, unread, flagged, trash
   /                search            Tab              switch pane
   b                sidebar           :                command (sync, search, tag,
   e                archive                             archive, undo, reindex, quit)
   u                read / unread     S                sync now
   s                flag / unflag     z                undo the last change
   l, t             tags: +add -remove                  ?  help      q  quit
+  #                trash / restore   D                delete for good (asks)
   o                open a link: asks first, can open or copy it without tracking
   L                show / hide the message's links
 
 Where messages live (every message is in your local archive):
   ◐ (S)  also on a server, stays there (deletion off for the account)
-  ◕ (-)  also on a server, leaves it soon (deletion on)
+  ◕ (-)  also on a server, leaves it soon (deletion on, or you deleted it)
   ● (L)  local only: no longer on any server
-HTML mail is shown as text: nothing is ever loaded from the internet.
   ◆  unread (read mail is dimmed)    ★  flagged    #tag  your tags
-
-Archiving (e) only removes the inbox tag in your archive. Nothing in this
-interface deletes mail from a server: that happens only during sync, for
-accounts with deletion enabled, after each message's local copy is verified.
-
-Reply and compose arrive with sub-project 4.               (any key closes)`
+Archiving (e) only removes the inbox tag. Mail leaves servers only during
+sync, after its local copy is verified. The trash is never backed up.
+HTML mail is shown as text: nothing is ever loaded from the internet.
+                                                           (any key closes)`
 	return fit(help, m.width, m.height)
 }
 

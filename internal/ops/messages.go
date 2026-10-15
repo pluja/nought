@@ -82,7 +82,7 @@ var MsgSearch = Op[SearchIn, SearchOut]{
 	Summary: "Search messages",
 	Perm:    Read,
 	Run: func(ctx context.Context, env *Env, in SearchIn) (SearchOut, error) {
-		q, err := query.Parse(in.Query)
+		q, err := query.Parse(withoutTrash(in.Query))
 		if err != nil {
 			return SearchOut{}, usageError("%v", err)
 		}
@@ -142,7 +142,7 @@ var MsgShow = Op[ShowIn, ShowOut]{
 		if err != nil {
 			return ShowOut{}, err
 		}
-		st, err := env.Store(m.Account)
+		st, err := env.locate(m.Account, m.Hash)
 		if err != nil {
 			return ShowOut{}, err
 		}
@@ -302,6 +302,9 @@ func runTag(ctx context.Context, env *Env, in TagIn) (out TagOut, err error) {
 			return err
 		}
 		out.Changed += len(ids)
+		if err := placeFiles(env, changed); err != nil {
+			flagErrs = append(flagErrs, err)
+		}
 		if err := applyFlags(env, changed); err != nil {
 			flagErrs = append(flagErrs, err)
 		}
@@ -392,6 +395,9 @@ func addServerLocations(ctx context.Context, env *Env, ix *index.Index, msgs []M
 						loc.LeavesAt = &t
 					}
 				}
+				if t, ok := leavesServerAt(msgs[i].Tags, env.Now()); ok && (loc.LeavesAt == nil || t.Before(*loc.LeavesAt)) {
+					loc.LeavesAt = &t
+				}
 				msgs[i].Server = append(msgs[i].Server, loc)
 			}
 		}
@@ -415,7 +421,7 @@ var MsgCount = Op[CountIn, CountOut]{
 	Summary: "Count messages matching a query",
 	Perm:    Read,
 	Run: func(ctx context.Context, env *Env, in CountIn) (CountOut, error) {
-		q, err := query.Parse(in.Query)
+		q, err := query.Parse(withoutTrash(in.Query))
 		if err != nil {
 			return CountOut{}, usageError("%v", err)
 		}
@@ -426,4 +432,13 @@ var MsgCount = Op[CountIn, CountOut]{
 		n, err := ix.Count(ctx, q)
 		return CountOut{Count: n}, err
 	},
+}
+
+// withoutTrash hides deleted mail from searches unless the query asks
+// about it.
+func withoutTrash(q string) string {
+	if strings.Contains(q, TagDeleted) {
+		return q
+	}
+	return strings.TrimSpace(q + " -tag:" + TagDeleted)
 }

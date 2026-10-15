@@ -437,3 +437,42 @@ func FuzzParseName(f *testing.F) {
 		}
 	})
 }
+
+func TestMoveAndRemove(t *testing.T) {
+	a, b := open(t, t.TempDir()), open(t, t.TempDir())
+	e, _, err := a.Put([]byte(msg), "S")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := a.MoveTo(b, e.Hash); err != nil {
+		t.Fatal(err)
+	}
+	if a.Has(e.Hash) || !b.Has(e.Hash) {
+		t.Fatal("not moved")
+	}
+	if err := b.Verify(e.Hash); err != nil {
+		t.Errorf("moved copy: %v", err)
+	}
+	if flags, _ := b.Flags(e.Hash); flags != "S" {
+		t.Errorf("flags lost: %q", flags)
+	}
+	// Moving into a store that already has it just drops the source copy.
+	if _, _, err := a.Put([]byte(msg), ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.MoveTo(b, e.Hash); err != nil || a.Has(e.Hash) || !b.Has(e.Hash) {
+		t.Fatalf("move onto existing: %v", err)
+	}
+	if err := b.Remove(e.Hash); err != nil {
+		t.Fatal(err)
+	}
+	if b.Has(e.Hash) {
+		t.Error("still there after Remove")
+	}
+	if err := b.Remove(e.Hash); !errors.Is(err, ErrNotFound) {
+		t.Errorf("remove missing = %v", err)
+	}
+	if err := a.MoveTo(b, e.Hash); !errors.Is(err, ErrNotFound) {
+		t.Errorf("move missing = %v", err)
+	}
+}

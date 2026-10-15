@@ -43,7 +43,8 @@ func newPathsCmd(a *app) *cobra.Command {
 						return err
 					}
 				}
-				_, err := fmt.Fprintf(w, "optional (rebuild with 'nou reindex'):\n  %s\n", out.IndexFile)
+				_, err := fmt.Fprintf(w, "optional (rebuild with 'nou reindex'):\n  %s\nnever back up (deleted and expiring mail):\n  %s\n",
+					out.IndexFile, out.TransientDir)
 				return err
 			})
 		},

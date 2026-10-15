@@ -241,3 +241,32 @@ func (ix *Index) selectMessages(ctx context.Context, where string, args []any, o
 	}
 	return out, nil
 }
+
+// DeleteMessage removes a message from the index for good: its row, tags,
+// full-text entry and server-copy records. Only used for mail the user
+// deleted.
+func (ix *Index) DeleteMessage(ctx context.Context, m Message) error {
+	return ix.tx(ctx, func(tx *sql.Tx) error {
+		for _, q := range []string{
+			`DELETE FROM messages_fts WHERE rowid = ?`,
+			`DELETE FROM tags WHERE message_id = ?`,
+			`DELETE FROM messages WHERE id = ?`,
+		} {
+			if _, err := tx.ExecContext(ctx, q, m.ID); err != nil {
+				return fmt.Errorf("delete message: %w", err)
+			}
+		}
+		_, err := tx.ExecContext(ctx, `DELETE FROM server_copies WHERE account = ? AND hash = ?`, m.Account, m.Hash)
+		return err
+	})
+}
+
+// DeleteAfterPrefix starts tags that schedule a message's permanent
+// deletion: "delete-after:2026-11-14".
+const DeleteAfterPrefix = "delete-after:"
+
+// PurgeDue lists messages whose delete-after date is today or earlier.
+func (ix *Index) PurgeDue(ctx context.Context, today string) ([]Message, error) {
+	return ix.selectMessages(ctx, `m.id IN (SELECT message_id FROM tags
+		WHERE tag LIKE 'delete-after:%' AND substr(tag, 14) <= ?)`, []any{today}, "m.id", MaxLimit)
+}

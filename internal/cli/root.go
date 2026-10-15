@@ -49,6 +49,7 @@ func newRootCmd(a *app) *cobra.Command {
 		newAccountCmd(a),
 		newImportCmd(a),
 		newReindexCmd(a),
+		newTrashCmd(a),
 		newTagsCmd(a),
 		newPathsCmd(a),
 		newVersionCmd(a),

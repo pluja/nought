@@ -44,7 +44,7 @@ type Env struct {
 	mu     sync.Mutex
 	config *config.Config
 	index  *index.Index
-	stores map[string]*store.Maildir
+	stores map[string]*store.Maildir // keyed by directory
 }
 
 // NewEnv returns an Env. Nothing is opened until an op needs it.
@@ -92,23 +92,54 @@ func (e *Env) closeIndex() error {
 	return err
 }
 
-// Store opens an account's Maildir on first use. A Maildir is not safe for
-// concurrent use; callers use one account per goroutine.
+// Store opens an account's archive Maildir on first use. A Maildir is not
+// safe for concurrent use; callers use one account per goroutine.
 func (e *Env) Store(account string) (*store.Maildir, error) {
+	return e.openStore(account, e.Paths.AccountArchive)
+}
+
+// Transient opens the Maildir holding an account's deleted and expiring
+// mail, which is kept out of backups.
+func (e *Env) Transient(account string) (*store.Maildir, error) {
+	return e.openStore(account, e.Paths.TransientArchive)
+}
+
+func (e *Env) openStore(account string, dir func(string) string) (*store.Maildir, error) {
 	if err := config.ValidateAccountName(account); err != nil {
 		return nil, usageError("account %q: %v", account, err)
 	}
+	path := dir(account)
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	if st, ok := e.stores[account]; ok {
+	if st, ok := e.stores[path]; ok {
 		return st, nil
 	}
-	st, err := store.Open(e.Paths.AccountArchive(account))
+	st, err := store.Open(path)
 	if err != nil {
 		return nil, err
 	}
-	e.stores[account] = st
+	e.stores[path] = st
 	return st, nil
+}
+
+// locate returns the Maildir that holds a message: the archive, or the
+// transient store for deleted and expiring mail.
+func (e *Env) locate(account, hash string) (*store.Maildir, error) {
+	st, err := e.Store(account)
+	if err != nil {
+		return nil, err
+	}
+	if st.Has(hash) {
+		return st, nil
+	}
+	tr, err := e.Transient(account)
+	if err != nil {
+		return nil, err
+	}
+	if tr.Has(hash) {
+		return tr, nil
+	}
+	return st, nil // callers get store.ErrNotFound from it
 }
 
 // Close releases everything the Env opened.

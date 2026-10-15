@@ -293,7 +293,7 @@ func TestPaletteAndHelp(t *testing.T) {
 		t.Errorf("palette search: %d", len(m.msgs))
 	}
 	m = drive(t, m, key("?"))
-	if !strings.Contains(screen(m), "Nothing in this") || !m.help {
+	if !strings.Contains(screen(m), "leaves servers only during") || !m.help {
 		t.Error("help not shown")
 	}
 	m = drive(t, m, key("x"))
@@ -653,5 +653,77 @@ func TestHintsFollowTheScreen(t *testing.T) {
 	m.prefs.Hints = &off
 	if strings.Contains(screen(m), "o link") {
 		t.Error("hints shown although disabled")
+	}
+}
+
+func TestTrashRestoreAndUndo(t *testing.T) {
+	m := newTestModel(t, 120, 30)
+	m = drive(t, m, key("#"))
+	if len(m.msgs) != 2 || m.notice != "moved to the trash" {
+		t.Fatalf("after trash: %d messages, notice %q", len(m.msgs), m.notice)
+	}
+	if !slices.ContainsFunc(m.side, func(s sideItem) bool { return s.label == "Trash" && s.count == 1 }) {
+		t.Errorf("sidebar has no Trash (1): %+v", m.side)
+	}
+	m = drive(t, m, key("z"))
+	if len(m.msgs) != 3 || slices.ContainsFunc(m.side, func(s sideItem) bool { return s.label == "Trash" }) {
+		t.Fatalf("after undo: %d messages, sidebar %+v", len(m.msgs), m.side)
+	}
+
+	// Trash again, then restore it from the trash view.
+	m = drive(t, m, key("#"))
+	m = drive(t, m, keys("gt")...)
+	if m.query != queryTrash || len(m.msgs) != 1 {
+		t.Fatalf("trash view: query %q, %d messages", m.query, len(m.msgs))
+	}
+	m = drive(t, m, key("enter"))
+	if s := screen(m); !strings.Contains(s, "In the trash until 14 Nov 2026") || strings.Contains(s, "#deleted") {
+		t.Errorf("reader:\n%s", s)
+	}
+	m = drive(t, m, key("#"))
+	if len(m.msgs) != 0 || m.notice != "restored" {
+		t.Fatalf("after restore: %d messages, notice %q", len(m.msgs), m.notice)
+	}
+	m = drive(t, m, keys("gi")...)
+	if len(m.msgs) != 3 || slices.ContainsFunc(m.msgs[0].Tags, hiddenTag) {
+		t.Fatalf("inbox after restore: %+v", m.msgs)
+	}
+}
+
+func TestDeleteNowAsksFirst(t *testing.T) {
+	m := newTestModel(t, 120, 30)
+	m = drive(t, m, key("D"))
+	if !strings.Contains(screen(m), "Delete permanently") {
+		t.Fatalf("no confirmation:\n%s", screen(m))
+	}
+	m = drive(t, m, key("n"))
+	if len(m.msgs) != 3 || m.notice != "not deleted" {
+		t.Fatalf("after no: %d messages, notice %q", len(m.msgs), m.notice)
+	}
+	m = drive(t, m, key("D"), key("y"))
+	if len(m.msgs) != 2 || m.notice != "deleted for good" {
+		t.Fatalf("after yes: %d messages, notice %q", len(m.msgs), m.notice)
+	}
+	m = drive(t, m, keys("ga")...)
+	if len(m.msgs) != 2 {
+		t.Errorf("all mail has %d messages, want 2", len(m.msgs))
+	}
+	m = drive(t, m, key("z"))
+	if m.notice != "nothing to undo" {
+		t.Errorf("delete for good must not be undoable, notice %q", m.notice)
+	}
+}
+
+func TestExpiryLine(t *testing.T) {
+	for tags, want := range map[string]string{
+		"":                                  "",
+		"deleted":                           "In the trash",
+		"deleted delete-after:2026-11-14":   "In the trash until 14 Nov 2026 (# restores)",
+		"delete-after:2026-10-20":           "Expires on 20 Oct 2026, then deleted for good",
+		"delete-after:2026-10-15 something": "Deleted for good at the next sync",
+	} {
+		if got := expiryLine(strings.Fields(tags), testNow); got != want {
+			t.Errorf("expiryLine(%q) = %q, want %q", tags, got, want)
+		}
 	}
 }

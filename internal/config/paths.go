@@ -16,6 +16,16 @@ type Paths struct {
 	TagsDump   string `json:"tags_dump"`
 	Journal    string `json:"journal"`
 	LockFile   string `json:"lock_file"`
+	// Transient holds deleted and expiring mail and its tags. Keep it out
+	// of backups: it is mail the user wants gone.
+	TransientDir  string `json:"transient_dir"`
+	TransientDump string `json:"transient_dump"`
+}
+
+// TransientArchive returns the Maildir for an account's deleted and
+// expiring mail.
+func (p Paths) TransientArchive(account string) string {
+	return filepath.Join(p.TransientDir, account)
 }
 
 // AccountArchive returns the Maildir directory of an account. Account names
@@ -24,11 +34,13 @@ func (p Paths) AccountArchive(account string) string {
 	return filepath.Join(p.ArchiveDir, account)
 }
 
-// BackupSet returns the paths that must be backed up, and the ones that may be
-// skipped because they can be rebuilt.
-func (p Paths) BackupSet() (include, optional []string) {
+// BackupSet returns the paths that must be backed up, the ones that may be
+// skipped because they can be rebuilt, and the ones that must never be
+// backed up (deleted and expiring mail).
+func (p Paths) BackupSet() (include, optional, never []string) {
 	return []string{p.ArchiveDir, p.TagsDump, p.Journal, p.ConfigFile},
-		[]string{p.IndexFile}
+		[]string{p.IndexFile},
+		[]string{p.TransientDir}
 }
 
 const appName = "nought"
@@ -49,6 +61,9 @@ func ResolvePaths(goos string, getenv func(string) string) (Paths, error) {
 		TagsDump:   filepath.Join(dataDir, "tags.dump"),
 		Journal:    filepath.Join(dataDir, "expunge.journal"),
 		LockFile:   filepath.Join(dataDir, "sync.lock"),
+
+		TransientDir:  filepath.Join(dataDir, "transient"),
+		TransientDump: filepath.Join(dataDir, "transient", "tags.dump"),
 	}, nil
 }
 

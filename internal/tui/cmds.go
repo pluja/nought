@@ -45,6 +45,10 @@ type (
 		out ops.SyncOut
 		err error
 	}
+	deleteDoneMsg struct {
+		out ops.DeleteOut
+		err error
+	}
 	reindexDoneMsg struct {
 		out ops.ReindexOut
 		err error
@@ -138,6 +142,9 @@ func (m Model) loadSidebar() tea.Cmd {
 			{label: "Flagged", query: queryFlagged, count: count(queryFlagged)},
 			{label: "All mail", query: queryAll, count: -1},
 		}
+		if n := count(queryTrash); n > 0 { // shown only when there is something in it
+			items = append(items, sideItem{label: "Trash", query: queryTrash, count: n})
+		}
 		if accounts, err := ops.Call(m.ctx, m.env, permTag, ops.AccountList, struct{}{}); err == nil && len(accounts) > 1 {
 			for _, a := range accounts {
 				items = append(items, sideItem{label: "@" + a.Name, query: "account:" + a.Name, count: -1})
@@ -148,8 +155,7 @@ func (m Model) loadSidebar() tea.Cmd {
 		}
 		if tags, err := ops.Call(m.ctx, m.env, permTag, ops.TagsList, struct{}{}); err == nil {
 			for _, t := range tags {
-				switch t.Tag {
-				case ops.TagInbox, ops.TagUnread, ops.TagFlagged:
+				if t.Tag == ops.TagInbox || t.Tag == ops.TagUnread || t.Tag == ops.TagFlagged || hiddenTag(t.Tag) {
 					continue
 				}
 				items = append(items, sideItem{label: "#" + t.Tag, query: "tag:" + t.Tag, count: t.Count})
@@ -164,7 +170,7 @@ func (m Model) loadSidebar() tea.Cmd {
 func (m Model) sync(ctx context.Context) tea.Cmd {
 	send := m.send
 	return func() tea.Msg {
-		out, err := ops.Call(ctx, m.env, permSync, ops.SyncRun, ops.SyncIn{
+		out, err := ops.Call(ctx, m.env, permDelete, ops.SyncRun, ops.SyncIn{
 			Progress: func(account string, f ops.FolderSyncOut) {
 				if f.Action == "ignore" {
 					return
@@ -173,6 +179,15 @@ func (m Model) sync(ctx context.Context) tea.Cmd {
 			},
 		})
 		return syncDoneMsg{out: out, err: err}
+	}
+}
+
+// deleteNow deletes one message for good (its server copies at the next
+// sync).
+func (m Model) deleteNow(msg ops.MessageOut) tea.Cmd {
+	return func() tea.Msg {
+		out, err := ops.Call(m.ctx, m.env, permDelete, ops.MsgDelete, ops.DeleteIn{Query: messageQuery(msg), Now: true})
+		return deleteDoneMsg{out: out, err: err}
 	}
 }
 
@@ -225,4 +240,23 @@ func parseTagInput(s string) (add, remove []string) {
 		}
 	}
 	return add, remove
+}
+
+// trashReq moves a message to the trash, or takes it out (back to the
+// inbox). Both are undoable with z.
+func (m Model) trashReq(msg ops.MessageOut) (tagReq, error) {
+	var expiry []string
+	for _, t := range msg.Tags {
+		if ops.IsExpiryTag(t) {
+			expiry = append(expiry, t)
+		}
+	}
+	if slices.Contains(msg.Tags, ops.TagDeleted) {
+		return newTagReq(msg, []string{ops.TagInbox}, append([]string{ops.TagDeleted}, expiry...), "restored"), nil
+	}
+	add, remove, err := ops.TrashTags(m.env, false)
+	if err != nil {
+		return tagReq{}, err
+	}
+	return newTagReq(msg, add, append(remove, expiry...), "moved to the trash"), nil
 }

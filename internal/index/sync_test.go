@@ -4,9 +4,12 @@ package index
 
 import (
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
+
+	"nought/internal/query"
 )
 
 func TestSyncState(t *testing.T) {
@@ -187,5 +190,56 @@ func TestFolderNameBackfill(t *testing.T) {
 	var name string
 	if err := again.db.QueryRowContext(ctx, "SELECT folder_name FROM server_copies").Scan(&name); err != nil || name != "Archive.2024" {
 		t.Errorf("backfilled name = %q, %v", name, err)
+	}
+}
+
+func TestDeletionBookkeeping(t *testing.T) {
+	ix, _ := openIndex(t)
+	ctx := t.Context()
+	add(t, ix, Message{Account: "a", Hash: hash(1), MessageID: "keep@x", Tags: []string{"inbox"}}, "")
+	add(t, ix, Message{Account: "a", Hash: hash(2), MessageID: "trash@x", Tags: []string{"deleted", "delete-after:2026-11-14"}}, "")
+	add(t, ix, Message{Account: "a", Hash: hash(3), MessageID: "code@x", Tags: []string{"delete-after:2026-10-15"}}, "")
+	if err := ix.SetSyncState(ctx, "a", "INBOX", SyncState{UIDValidity: 1}); err != nil {
+		t.Fatal(err)
+	}
+	for i := 1; i <= 3; i++ {
+		if err := ix.RecordCopy(ctx, ServerCopy{Account: "a", Folder: "INBOX", UIDValidity: 1, UID: uint32(i), Hash: hash(i), Size: 1, InternalDate: now}, now); err != nil {
+			t.Fatal(err)
+		}
+	}
+	req, err := ix.DeletionRequested(ctx, "a", "INBOX", 1, "2026-10-15")
+	if err != nil || len(req) != 2 || req[0].UID != 2 || req[1].UID != 3 {
+		t.Fatalf("deletion requests = %+v, %v", req, err)
+	}
+	if req, _ := ix.DeletionRequested(ctx, "a", "INBOX", 1, "2026-10-14"); len(req) != 1 {
+		t.Errorf("before the date, only the trashed one: %+v", req)
+	}
+	due, err := ix.PurgeDue(ctx, "2026-10-15")
+	if err != nil || len(due) != 1 || due[0].MessageID != "code@x" {
+		t.Fatalf("purge due = %+v, %v", due, err)
+	}
+	if err := ix.DeleteMessage(ctx, due[0]); err != nil {
+		t.Fatal(err)
+	}
+	if ok, _ := ix.HasHash(ctx, "a", hash(3)); ok {
+		t.Error("message still indexed")
+	}
+	if on, _ := ix.OnServer(ctx, "a", []string{hash(3)}); len(on[hash(3)]) != 0 {
+		t.Error("server copy record kept")
+	}
+	parsed, _ := query.Parse("code")
+	if n, _ := ix.Count(ctx, parsed); n != 0 {
+		t.Error("full-text entry kept")
+	}
+
+	var all, transient strings.Builder
+	if err := ix.Dump(ctx, &all, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := ix.Dump(ctx, &transient, func(tags []string) bool { return slices.Contains(tags, "deleted") }); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(all.String(), "keep@x") || strings.Contains(transient.String(), "keep@x") || !strings.Contains(transient.String(), "trash@x") {
+		t.Errorf("dumps:\n%s\n---\n%s", all.String(), transient.String())
 	}
 }

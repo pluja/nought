@@ -41,7 +41,11 @@ func archive(ctx context.Context, env *Env, account string, raw []byte, flags st
 	if err != nil {
 		return index.Message{}, false, err
 	}
-	return indexMessage(ctx, env, ix, account, raw, entry.Flags, tags)
+	m, created, err := indexMessage(ctx, env, ix, account, raw, entry.Flags, tags)
+	if err == nil && created {
+		err = applyRules(ctx, env, ix, &m)
+	}
+	return m, created, err
 }
 
 // indexMessage adds a stored message to the index. Parsing is best effort:
@@ -158,18 +162,25 @@ func folderTag(folder string) string {
 	return tag
 }
 
-// writeTagsDump rewrites the tag dump atomically, so the index is never the
-// only copy of the user's tags.
+// writeTagsDump rewrites the tag dumps atomically, so the index is never the
+// only copy of the user's tags. Deleted and expiring mail goes to its own
+// dump in the transient folder, which is kept out of backups.
 func writeTagsDump(ctx context.Context, env *Env) error {
 	ix, err := env.Index(ctx)
 	if err != nil {
 		return err
 	}
-	err = atomicfile.Write(env.Paths.TagsDump, 0o600, func(w io.Writer) error {
-		return ix.Dump(ctx, w)
-	})
-	if err != nil {
-		return fmt.Errorf("write tag dump: %w", err)
+	for _, d := range []struct {
+		path string
+		keep func([]string) bool
+	}{
+		{env.Paths.TagsDump, func(tags []string) bool { return !isTransient(tags) }},
+		{env.Paths.TransientDump, isTransient},
+	} {
+		err := atomicfile.Write(d.path, 0o600, func(w io.Writer) error { return ix.Dump(ctx, w, d.keep) })
+		if err != nil {
+			return fmt.Errorf("write tag dump: %w", err)
+		}
 	}
 	return nil
 }

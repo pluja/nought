@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 
 	"nought/internal/atomicfile"
 	"nought/internal/config"
@@ -56,10 +57,10 @@ var TagsDump = Op[TagsDumpIn, TagsDumpOut]{
 		}
 		if in.Path == "" {
 			var b bytes.Buffer
-			err := ix.Dump(ctx, &b)
+			err := ix.Dump(ctx, &b, nil)
 			return TagsDumpOut{Dump: b.String()}, err
 		}
-		err = atomicfile.Write(in.Path, 0o600, func(w io.Writer) error { return ix.Dump(ctx, w) })
+		err = atomicfile.Write(in.Path, 0o600, func(w io.Writer) error { return ix.Dump(ctx, w, nil) })
 		return TagsDumpOut{Path: in.Path}, err
 	},
 }
@@ -148,36 +149,44 @@ func runReindex(ctx context.Context, env *Env, _ struct{}) (ReindexOut, error) {
 		}
 	}()
 
-	accounts, err := archivedAccounts(env.Paths.ArchiveDir)
+	accounts, err := archivedAccounts(env.Paths.ArchiveDir, env.Paths.TransientDir)
 	if err != nil {
 		return out, err
 	}
 	for _, account := range accounts {
-		st, err := env.Store(account)
+		out.Accounts++
+		for _, open := range []func(string) (*store.Maildir, error){env.Store, env.Transient} {
+			st, err := open(account)
+			if err != nil {
+				return out, err
+			}
+			for entry := range st.All() {
+				if err := ctx.Err(); err != nil {
+					return out, err
+				}
+				raw, err := st.Get(entry.Hash)
+				if err == nil {
+					_, _, err = indexMessage(ctx, env, ix, account, raw, entry.Flags, nil)
+				}
+				if err != nil {
+					out.Failed++
+					if len(out.Failures) < maxFailures {
+						out.Failures = append(out.Failures, Failure{Source: account + "/" + entry.Hash[:IDLen], Error: err.Error()})
+					}
+					continue
+				}
+				out.Messages++
+			}
+		}
+	}
+	for _, dump := range []string{env.Paths.TagsDump, env.Paths.TransientDump} {
+		res, err := restoreDumpFile(ctx, ix, dump)
 		if err != nil {
 			return out, err
 		}
-		out.Accounts++
-		for entry := range st.All() {
-			if err := ctx.Err(); err != nil {
-				return out, err
-			}
-			raw, err := st.Get(entry.Hash)
-			if err == nil {
-				_, _, err = indexMessage(ctx, env, ix, account, raw, entry.Flags, nil)
-			}
-			if err != nil {
-				out.Failed++
-				if len(out.Failures) < maxFailures {
-					out.Failures = append(out.Failures, Failure{Source: account + "/" + entry.Hash[:IDLen], Error: err.Error()})
-				}
-				continue
-			}
-			out.Messages++
-		}
-	}
-	if out.Restored, err = restoreDumpFile(ctx, ix, env.Paths.TagsDump); err != nil {
-		return out, err
+		out.Restored.Applied += res.Applied
+		out.Restored.Missing += res.Missing
+		out.Restored.SkippedTags += res.SkippedTags
 	}
 
 	// Swap: close both, drop the old database and its WAL files, rename.
@@ -254,7 +263,23 @@ func removeDB(path string) error {
 }
 
 // archivedAccounts lists account directories in the archive.
-func archivedAccounts(dir string) ([]string, error) {
+func archivedAccounts(dirs ...string) ([]string, error) {
+	var names []string
+	for _, dir := range dirs {
+		found, err := accountDirs(dir)
+		if err != nil {
+			return nil, err
+		}
+		for _, n := range found {
+			if !slices.Contains(names, n) {
+				names = append(names, n)
+			}
+		}
+	}
+	return names, nil
+}
+
+func accountDirs(dir string) ([]string, error) {
 	entries, err := os.ReadDir(dir)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
@@ -287,7 +312,7 @@ func syncFlagsFromTags(ctx context.Context, env *Env) error {
 func applyFlags(env *Env, msgs []index.Message) error {
 	var errs []error
 	for _, m := range msgs {
-		st, err := env.Store(m.Account)
+		st, err := env.locate(m.Account, m.Hash)
 		if err != nil {
 			errs = append(errs, err)
 			continue

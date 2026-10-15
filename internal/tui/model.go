@@ -22,12 +22,12 @@ import (
 	"nought/internal/render"
 )
 
-// Permissions: the TUI acts for the local user. Everyday actions use the
-// tag level; only sync (which can delete server mail, after confirmation)
-// uses the highest.
+// Permissions: the TUI acts for the local user. Everyday actions (the
+// trash included: it can be undone) use the tag level; only sync and
+// deleting for good, both after confirmation, use the highest.
 const (
-	permTag  = ops.Tag
-	permSync = ops.Delete
+	permTag    = ops.Tag
+	permDelete = ops.Delete
 )
 
 // Default views.
@@ -36,6 +36,7 @@ const (
 	queryUnread  = "is:unread"
 	queryFlagged = "is:flagged"
 	queryAll     = ""
+	queryTrash   = "tag:deleted"
 )
 
 type focus int
@@ -55,6 +56,7 @@ const (
 	inputPalette
 	inputConfirmSync
 	inputLinkNumber
+	inputConfirmDelete
 )
 
 // sideItem is one entry in the sidebar.
@@ -157,7 +159,8 @@ type Model struct {
 	tagBusy     bool
 	status      []ops.AccountStatusOut
 	notice      string
-	noticeErr   bool // the notice reports a failure
+	noticeErr   bool           // the notice reports a failure
+	deleting    ops.MessageOut // the message D asks about
 	syncing     bool
 	syncCancel  context.CancelFunc
 	quitting    bool

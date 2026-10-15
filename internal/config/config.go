@@ -5,6 +5,7 @@ package config
 
 import (
 	"bytes"
+	"cmp"
 	"errors"
 	"fmt"
 	"io"
@@ -17,6 +18,7 @@ import (
 	"github.com/pelletier/go-toml/v2"
 
 	"nought/internal/atomicfile"
+	"nought/internal/query"
 )
 
 // TLS modes. Plaintext connections are deliberately not representable.
@@ -34,7 +36,30 @@ const (
 // Config is the whole configuration file.
 type Config struct {
 	Accounts []Account `toml:"account"`
-	TUI      TUI       `toml:"tui,omitempty"`
+	// TrashDays is how long deleted mail stays in the trash (default 30).
+	TrashDays *int   `toml:"trash_days,omitempty"`
+	Rules     []Rule `toml:"rule,omitempty"`
+	TUI       TUI    `toml:"tui,omitempty"`
+}
+
+// Rule acts on newly archived messages that match a query: it adds tags,
+// and can make them expire (be deleted for good, locally and from the
+// server) a number of days after they arrive.
+type Rule struct {
+	Query      string   `toml:"query"`
+	Tags       []string `toml:"tags,omitempty"`
+	ExpireDays int      `toml:"expire_days,omitempty"`
+}
+
+// DefaultTrashDays applies when trash_days is not set.
+const DefaultTrashDays = 30
+
+// TrashKeepDays returns how long deleted mail stays in the trash.
+func (c *Config) TrashKeepDays() int {
+	if c.TrashDays == nil {
+		return DefaultTrashDays
+	}
+	return *c.TrashDays
 }
 
 // TUI holds terminal UI preferences.
@@ -178,6 +203,25 @@ var (
 
 // Validate checks the whole configuration and reports the first problem.
 func (c *Config) Validate() error {
+	if c.TrashDays != nil && (*c.TrashDays < 0 || *c.TrashDays > 3650) {
+		return errors.New("trash_days must be between 0 and 3650")
+	}
+	for i, r := range c.Rules {
+		if _, err := query.Parse(r.Query); err != nil || strings.TrimSpace(r.Query) == "" {
+			return fmt.Errorf("rule %d: query: %w", i+1, cmp.Or(err, errors.New("must not be empty")))
+		}
+		if r.ExpireDays < 0 || r.ExpireDays > 3650 {
+			return fmt.Errorf("rule %d: expire_days must be between 0 and 3650", i+1)
+		}
+		if len(r.Tags) == 0 && r.ExpireDays == 0 {
+			return fmt.Errorf("rule %d: needs tags or expire_days", i+1)
+		}
+		for _, t := range r.Tags {
+			if t == "" || t != strings.ToLower(t) || strings.ContainsFunc(t, unicode.IsSpace) || hasControl(t) {
+				return fmt.Errorf("rule %d: tag %q must be lowercase without spaces", i+1, t)
+			}
+		}
+	}
 	for _, s := range c.TUI.Searches {
 		if strings.TrimSpace(s.Name) == "" || hasControl(s.Name) || strings.TrimSpace(s.Query) == "" {
 			return fmt.Errorf("tui search %q: needs a name and a query", s.Name)

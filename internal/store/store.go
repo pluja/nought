@@ -46,6 +46,7 @@ type hooks struct {
 
 // Maildir is one account's archive directory.
 type Maildir struct {
+	dir        string
 	root       *os.Root
 	names      map[string]string // hash -> path relative to root, e.g. "cur/<hash>:2,S"
 	foreign    int
@@ -76,7 +77,7 @@ func Open(dir string) (*Maildir, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open maildir: %w", err)
 	}
-	m := &Maildir{root: root, now: time.Now}
+	m := &Maildir{dir: dir, root: root, now: time.Now}
 	if err := m.scan(); err != nil {
 		return nil, errors.Join(err, root.Close())
 	}
@@ -435,3 +436,36 @@ func tempName(hash string) string {
 }
 
 func isOurTemp(name string) bool { return strings.HasPrefix(name, tempPrefix) }
+
+// MoveTo moves a stored message, unchanged, into another Maildir (on the
+// same filesystem): rename, then fsync both directories. Moving a message
+// the destination already holds just removes it here.
+func (m *Maildir) MoveTo(dst *Maildir, hash string) error {
+	name, err := m.lookup(hash)
+	if err != nil {
+		return err
+	}
+	if _, err := dst.lookup(hash); err == nil {
+		return m.Remove(hash)
+	}
+	if err := os.Rename(filepath.Join(m.dir, filepath.FromSlash(name)), filepath.Join(dst.dir, filepath.FromSlash(name))); err != nil {
+		return fmt.Errorf("move message: %w", err)
+	}
+	delete(m.names, hash)
+	dst.names[hash] = name
+	return errors.Join(dst.syncDir(path.Dir(name)), m.syncDir(path.Dir(name)))
+}
+
+// Remove deletes a stored message for good. It is only used for mail the
+// user deleted.
+func (m *Maildir) Remove(hash string) error {
+	name, err := m.lookup(hash)
+	if err != nil {
+		return err
+	}
+	if err := m.root.Remove(name); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("remove message: %w", err)
+	}
+	delete(m.names, hash)
+	return m.syncDir(path.Dir(name))
+}

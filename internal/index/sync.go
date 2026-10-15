@@ -250,3 +250,32 @@ func (ix *Index) ServerStatus(ctx context.Context, account string) (AccountServe
 	}
 	return st, nil
 }
+
+// DeletionRequested lists a folder's copies still on the server whose
+// message the user deleted (tag "deleted") or whose delete-after date has
+// come: sync removes these regardless of the folder's keep_days and the
+// account's automatic deletion setting.
+func (ix *Index) DeletionRequested(ctx context.Context, account, folder string, uidValidity uint32, today string) ([]ServerCopy, error) {
+	rows, err := ix.db.QueryContext(ctx, `
+		SELECT c.uid, c.hash, c.size, c.internal_date FROM server_copies c
+		WHERE c.account = ? AND c.folder = ? AND c.uidvalidity = ? AND c.expunged_at IS NULL
+		  AND EXISTS (SELECT 1 FROM messages m JOIN accounts a ON a.id = m.account_id JOIN tags t ON t.message_id = m.id
+		              WHERE a.name = c.account AND m.hash = c.hash
+		                AND (t.tag = 'deleted' OR (t.tag LIKE 'delete-after:%' AND substr(t.tag, 14) <= ?)))
+		ORDER BY c.uid`, account, folder, uidValidity, today)
+	if err != nil {
+		return nil, fmt.Errorf("deletion requests: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	var out []ServerCopy
+	for rows.Next() {
+		c := ServerCopy{Account: account, Folder: folder, UIDValidity: uidValidity}
+		var date int64
+		if err := rows.Scan(&c.UID, &c.Hash, &c.Size, &date); err != nil {
+			return nil, err
+		}
+		c.InternalDate = time.Unix(date, 0).UTC()
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
