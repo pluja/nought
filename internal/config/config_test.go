@@ -297,15 +297,15 @@ func TestPolicy(t *testing.T) {
 		folder string
 		want   Policy
 	}{
-		{"INBOX", Policy{ActionArchive, 3}},
-		{"Sent", Policy{ActionArchive, 0}},
-		{"Sent Items", Policy{ActionArchive, 0}},
-		{"Junk", Policy{ActionIgnore, DefaultKeepDays}},
-		{"Trash", Policy{ActionIgnore, DefaultKeepDays}},
-		{"Archive/2024", Policy{ActionArchive, DefaultKeepDays}},
-		{"Junk/Old", Policy{ActionArchive, DefaultKeepDays}}, // rule is exact {Junk,...}
-		{"Sent/2020", Policy{ActionArchive, 0}},
-		{"Other", Policy{ActionArchive, DefaultKeepDays}},
+		{"INBOX", Policy{Action: ActionArchive, KeepDays: 3}},
+		{"Sent", Policy{Action: ActionArchive, KeepDays: 0}},
+		{"Sent Items", Policy{Action: ActionArchive, KeepDays: 0}},
+		{"Junk", Policy{Action: ActionIgnore, KeepDays: DefaultKeepDays}},
+		{"Trash", Policy{Action: ActionIgnore, KeepDays: DefaultKeepDays}},
+		{"Archive/2024", Policy{Action: ActionArchive, KeepDays: DefaultKeepDays}},
+		{"Junk/Old", Policy{Action: ActionArchive, KeepDays: DefaultKeepDays}}, // rule is exact {Junk,...}
+		{"Sent/2020", Policy{Action: ActionArchive, KeepDays: 0}},
+		{"Other", Policy{Action: ActionArchive, KeepDays: DefaultKeepDays}},
 	}
 	for _, tt := range tests {
 		if got := a.Policy(tt.folder); got != tt.want {
@@ -368,6 +368,28 @@ func TestSyncEvery(t *testing.T) {
 	}
 	for _, bad := range []string{"10", "30s", "48h", "-5m", "soon"} {
 		if _, err := Load(writeConfig(t, validTOML+"\n[tui]\nsync_every = \""+bad+"\"\n")); err == nil {
+			t.Errorf("accepted %q", bad)
+		}
+	}
+}
+
+func TestPolicyMaxDays(t *testing.T) {
+	seven, thirty := 7, 30
+	a := Account{Folders: []FolderRule{
+		{Match: "INBOX", KeepDays: &seven, MaxDays: &thirty},
+		{Match: "Sent"},
+	}}
+	if p := a.Policy("INBOX"); p != (Policy{Action: ActionArchive, KeepDays: 7, MaxDays: 30}) {
+		t.Errorf("INBOX = %+v", p)
+	}
+	if p := a.Policy("Sent"); p != (Policy{Action: ActionArchive, KeepDays: DefaultKeepDays}) {
+		t.Errorf("Sent = %+v", p)
+	}
+	for _, bad := range []string{
+		"\n[[account.folder]]\nmatch = \"x\"\nmax_days = -1\n",
+		"\n[[account.folder]]\nmatch = \"x\"\nkeep_days = 10\nmax_days = 5\n",
+	} {
+		if _, err := Load(writeConfig(t, validTOML+bad)); err == nil {
 			t.Errorf("accepted %q", bad)
 		}
 	}

@@ -80,7 +80,11 @@ func folderSummary(f ops.FolderSyncOut, dryRun bool) string {
 			parts = append(parts, fmt.Sprintf("%d due but kept", waiting))
 		}
 	}
-	return strings.Join(parts, ", ") + fmt.Sprintf(" (keep %dd)", f.KeepDays)
+	s := strings.Join(parts, ", ")
+	if f.KeepDays > 0 {
+		s += fmt.Sprintf(" (keep %dd)", f.KeepDays)
+	}
+	return s
 }
 
 func newAccountTestCmd(a *app) *cobra.Command {
@@ -99,11 +103,7 @@ func newAccountTestCmd(a *app) *cobra.Command {
 					return err
 				}
 				for _, f := range out.Folders {
-					what := "ignore"
-					if f.Policy.Action == "archive" {
-						what = fmt.Sprintf("archive, keep %d days on server", f.Policy.KeepDays)
-					}
-					if err := printf(w, "  %-24s %s\n", sanitize(f.Folder), what); err != nil {
+					if err := printf(w, "  %-24s %s\n", sanitize(f.Folder), describePolicy(f.Policy)); err != nil {
 						return err
 					}
 				}

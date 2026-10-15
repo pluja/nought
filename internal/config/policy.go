@@ -3,6 +3,7 @@
 package config
 
 import (
+	"cmp"
 	"errors"
 	"regexp"
 	"strings"
@@ -20,7 +21,8 @@ const DefaultKeepDays = 7
 // Policy is what sync does with one server folder.
 type Policy struct {
 	Action   string `json:"action"`
-	KeepDays int    `json:"keep_days"`
+	KeepDays int    `json:"keep_days"` // minimum days on the server once handled
+	MaxDays  int    `json:"max_days"`  // deleted after this many days even if not handled; 0: never
 }
 
 // MaxKeepDays bounds keep_days to something meaningful (100 years).
@@ -31,17 +33,22 @@ const MaxKeepDays = 36500
 func (a *Account) Policy(folder string) Policy {
 	for _, r := range a.Folders {
 		if re, err := compileGlob(r.Match); err == nil && re.MatchString(folder) {
-			p := Policy{Action: ActionArchive, KeepDays: DefaultKeepDays}
-			if r.Action != "" {
-				p.Action = r.Action
-			}
-			if r.KeepDays != nil {
-				p.KeepDays = *r.KeepDays
-			}
-			return p
+			return r.Policy()
 		}
 	}
-	return Policy{Action: ActionArchive, KeepDays: DefaultKeepDays}
+	return FolderRule{}.Policy()
+}
+
+// Policy is the rule's policy, with defaults for what it leaves out.
+func (r FolderRule) Policy() Policy {
+	p := Policy{Action: cmp.Or(r.Action, ActionArchive), KeepDays: DefaultKeepDays}
+	if r.KeepDays != nil {
+		p.KeepDays = *r.KeepDays
+	}
+	if r.MaxDays != nil {
+		p.MaxDays = *r.MaxDays
+	}
+	return p
 }
 
 func (r FolderRule) validate() error {
@@ -58,6 +65,12 @@ func (r FolderRule) validate() error {
 	}
 	if r.KeepDays != nil && (*r.KeepDays < 0 || *r.KeepDays > MaxKeepDays) {
 		return errors.New("keep_days must be between 0 and 36500")
+	}
+	if r.MaxDays != nil && (*r.MaxDays < 0 || *r.MaxDays > MaxKeepDays) {
+		return errors.New("max_days must be between 0 and 36500")
+	}
+	if r.MaxDays != nil && *r.MaxDays > 0 && r.KeepDays != nil && *r.MaxDays < *r.KeepDays {
+		return errors.New("max_days must not be less than keep_days")
 	}
 	return nil
 }

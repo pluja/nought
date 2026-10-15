@@ -19,7 +19,7 @@ exec nou account add
 stdout 'Not in nought.s built-in provider list'
 stdout 'Could not connect'
 stdout 'Connected. Folders:'
-stdout 'INBOX +archive, keep 7 days on server'
+stdout 'INBOX +archive; leaves the server once handled, after 7 days$'
 stdout 'Trash +ignore'
 stdout 'Saved example\. Server deletion is off\.'
 grep '"example":"test-password"' keyring.json

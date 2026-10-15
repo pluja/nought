@@ -8,7 +8,7 @@ stdin password.txt
 exec nou account add test --email me@example.org --imap-host 127.0.0.1 --imap-port $IMAP_PORT --password-stdin
 exec nou account test test
 stdout '^UIDPLUS: yes$'
-stdout 'INBOX +archive, keep 7 days on server'
+stdout 'INBOX +archive; leaves the server once handled, after 7 days$'
 stdout 'Trash +ignore'
 
 exec nou sync --dry-run

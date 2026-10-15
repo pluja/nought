@@ -141,6 +141,7 @@ type FolderRule struct {
 	Match    string `toml:"match"`
 	Action   string `toml:"action,omitempty"`
 	KeepDays *int   `toml:"keep_days,omitempty"`
+	MaxDays  *int   `toml:"max_days,omitempty"`
 }
 
 // Login returns the IMAP/SMTP username, which defaults to the email address.

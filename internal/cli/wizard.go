@@ -455,11 +455,7 @@ func printCheck(p *prompter, out ops.AccountTestOut) error {
 		return err
 	}
 	for _, f := range out.Folders {
-		what := "ignore"
-		if f.Policy.Action == config.ActionArchive {
-			what = fmt.Sprintf("archive, keep %d days on server", f.Policy.KeepDays)
-		}
-		if err := p.say("    %-24s %s", sanitize(f.Folder), what); err != nil {
+		if err := p.say("    %-24s %s", sanitize(f.Folder), describePolicy(f.Policy)); err != nil {
 			return err
 		}
 	}
