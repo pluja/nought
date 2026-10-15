@@ -4,6 +4,7 @@ package render
 
 import (
 	"flag"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -185,4 +186,46 @@ func TestMisleadingLinks(t *testing.T) {
 			t.Errorf("Misleading(%+v) = %v, want %v", tt.link, got, tt.want)
 		}
 	}
+}
+
+func TestCleanURL(t *testing.T) {
+	tests := []struct {
+		in        string
+		want      string
+		removed   string
+		unwrapped string
+		opaque    bool
+	}{
+		{"https://shop.example/item?id=7&utm_source=news&utm_medium=email&fbclid=x", "https://shop.example/item?id=7", "fbclid utm_medium utm_source", "", false},
+		{"https://example.org/post", "https://example.org/post", "", "", false},
+		{"https://example.org/s?b=2&a=1", "https://example.org/s?b=2&a=1", "", "", false},
+		{"https://click.track.example/r?url=https%3A%2F%2Freal.example%2Fa%3Fid%3D1%26utm_campaign%3Dx", "https://real.example/a?id=1", "utm_campaign", "click.track.example", false},
+		{"https://email.mg-d1.substack.com/c/eJxMkk2O2zAMhU9DeVfLtFXMXJkjnPXGJjJ7O1Fz", "https://email.mg-d1.substack.com/c/eJxMkk2O2zAMhU9DeVfLtFXMXJkjnPXGJjJ7O1Fz", "", "", true},
+		{"https://example.org/#utm_source=x", "https://example.org/", "", "", false},
+		{"mailto:a@example.org?subject=hi", "mailto:a@example.org?subject=hi", "", "", false},
+		{"javascript:alert(1)", "javascript:alert(1)", "", "", false},
+	}
+	for _, tt := range tests {
+		got := CleanURL(tt.in)
+		if got.URL != tt.want || strings.Join(got.Removed, " ") != tt.removed || got.Unwrapped != tt.unwrapped || got.Opaque != tt.opaque {
+			t.Errorf("CleanURL(%q) = %+v", tt.in, got)
+		}
+	}
+	// A redirect pointing to a non-web scheme is not followed.
+	if got := CleanURL("https://r.example/?url=javascript%3Aalert(1)"); got.Unwrapped != "" || strings.Contains(got.URL, "javascript") && !strings.HasPrefix(got.URL, "https://r.example") {
+		t.Errorf("followed a javascript redirect: %+v", got)
+	}
+}
+
+func FuzzCleanURL(f *testing.F) {
+	f.Add("https://a.example/?url=https%3A%2F%2Fb.example%2F%3Futm_x%3D1")
+	f.Fuzz(func(t *testing.T, s string) {
+		got := CleanURL(s)
+		if got.Changed(s) {
+			u, err := url.Parse(got.URL)
+			if err != nil || (u.Scheme != "http" && u.Scheme != "https") {
+				t.Fatalf("cleaned %q into a non-web URL %q", s, got.URL)
+			}
+		}
+	})
 }

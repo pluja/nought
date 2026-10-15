@@ -408,7 +408,8 @@ func (m Model) renderHelp() string {
   u                read / unread     S                sync now
   s                flag / unflag     z                undo the last change
   l, t             tags: +add -remove                  ?  help      q  quit
-  o                open a link (asks first)   L      show / hide the message's links
+  o                open a link: asks first, can open or copy it without tracking
+  L                show / hide the message's links
 
 Where messages live (every message is in your local archive):
   ◐ (S)  also on a server, stays there (deletion off)

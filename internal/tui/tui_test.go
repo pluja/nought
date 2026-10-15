@@ -528,7 +528,7 @@ func withLinksMessage(t *testing.T, m Model) Model {
 	}
 	raw := "From: News <news@example.org>\r\nMessage-ID: <links@x>\r\nDate: Thu, 15 Oct 2026 09:00:00 +0000\r\n" +
 		"Subject: With links\r\nContent-Type: text/html\r\n\r\n" +
-		`<p>Read <a href="https://example.org/post?track=123">the post</a> or log in at ` +
+		`<p>Read <a href="https://example.org/post?track=123&utm_source=news">the post</a> or log in at ` +
 		`<a href="https://evil.example/login">paypal.com</a>.</p>` + "\r\n"
 	if err := os.WriteFile(filepath.Join(dir, "l.eml"), []byte(raw), 0o600); err != nil {
 		t.Fatal(err)
@@ -582,8 +582,13 @@ func TestOpenLinkAsksFirst(t *testing.T) {
 		t.Errorf("cancel: pick %d opened %v notice %q", m.linkPick, opened, m.notice)
 	}
 
-	m = drive(t, m, key("o"), key("1"), key("enter"), key("o"))
-	if len(opened) != 1 || opened[0] != "https://example.org/post?track=123" {
+	m = drive(t, m, key("o"), key("1"), key("enter"))
+	if s := screen(m); !strings.Contains(s, "Without tracking") || !strings.Contains(s, "removed: utm_source") {
+		t.Errorf("no clean option:\n%s", s)
+	}
+	m = drive(t, m, key("o"), key("o"), key("1"), key("enter"), key("O"))
+	if len(opened) != 2 || opened[0] != "https://example.org/post?track=123&utm_source=news" ||
+		opened[1] != "https://example.org/post?track=123" {
 		t.Errorf("opened = %v", opened)
 	}
 

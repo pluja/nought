@@ -75,20 +75,30 @@ func (m Model) pickLink(value string) (Model, tea.Cmd) {
 // linkKey handles the confirmation box: open, copy, or cancel.
 func (m Model) linkKey(key string) (Model, tea.Cmd) {
 	link := m.links[m.linkPick-1]
+	clean := render.CleanURL(link.URL).URL
 	m.linkPick = 0
 	switch key {
 	case "o", "y", "enter":
-		if err := m.openURL(link.URL); err != nil {
-			m.notice, m.noticeErr = "could not open the link: "+err.Error(), true
-			return m, nil
-		}
-		m.notice = "opened " + link.Host()
-		return m, nil
+		return m.openLink(link.URL, "opened ")
+	case "O":
+		return m.openLink(clean, "opened without tracking: ")
 	case "c":
 		m.notice = "copied link to the clipboard"
 		return m, tea.SetClipboard(link.URL)
+	case "C":
+		m.notice = "copied the link without tracking"
+		return m, tea.SetClipboard(clean)
 	}
 	m.notice = "link not opened"
+	return m, nil
+}
+
+func (m Model) openLink(link, what string) (Model, tea.Cmd) {
+	if err := m.openURL(link); err != nil {
+		m.notice, m.noticeErr = "could not open the link: "+err.Error(), true
+		return m, nil
+	}
+	m.notice = what + render.Link{URL: link}.Host()
 	return m, nil
 }
 
@@ -115,10 +125,28 @@ func (m Model) renderLinkBox() string {
 	if link.Misleading() {
 		lines = append(lines, m.st.errText.Render("Warning: the text names a different site than the link goes to."), "")
 	}
+	clean := render.CleanURL(link.URL)
+	switch {
+	case clean.Changed(link.URL):
+		what := "Without tracking:"
+		if clean.Unwrapped != "" {
+			what = "Without tracking (skips the redirect via " + render.SanitizeLine(clean.Unwrapped) + "):"
+		}
+		lines = append(lines, m.st.local.Render(ansi.Truncate(what, inner, "…")),
+			m.st.dim.Render(ansi.Truncate(render.SanitizeLine(clean.URL), inner, "…")))
+		if len(clean.Removed) > 0 {
+			lines = append(lines, m.st.dim.Render(ansi.Truncate("removed: "+render.SanitizeLine(strings.Join(clean.Removed, ", ")), inner, "…")))
+		}
+		lines = append(lines, "")
+	case clean.Opaque:
+		lines = append(lines, m.st.warn.Render("This goes through a tracking redirect; the real destination"),
+			m.st.warn.Render("is hidden, so it cannot be cleaned."), "")
+	}
 	lines = append(lines,
 		m.st.dim.Render("Opening it tells the sender you clicked (links often track you)."),
 		"",
-		m.st.accent.Render("[o]")+" open in browser   "+m.st.accent.Render("[c]")+" copy   "+m.st.accent.Render("[esc]")+" cancel")
+		m.st.accent.Render("[o]")+" open   "+m.st.accent.Render("[O]")+" open clean   "+
+			m.st.accent.Render("[c]")+" copy   "+m.st.accent.Render("[C]")+" copy clean   "+m.st.accent.Render("[esc]"))
 	box := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("6")).
 		Padding(0, 1).Width(w).Render(strings.Join(lines, "\n"))
 	return box
