@@ -4,6 +4,7 @@ package index
 
 import (
 	"errors"
+	"maps"
 	"slices"
 	"strings"
 	"testing"
@@ -163,7 +164,7 @@ func TestOnServerAndStatus(t *testing.T) {
 }
 
 func TestFolderNameBackfill(t *testing.T) {
-	ix, path := openIndex(t)
+	ix, _ := openIndex(t)
 	ctx := t.Context()
 	if err := ix.SetSyncState(ctx, "a", "Archive.2024", SyncState{UIDValidity: 1}); err != nil {
 		t.Fatal(err)
@@ -177,18 +178,16 @@ func TestFolderNameBackfill(t *testing.T) {
 	if err != nil || len(on[hash(1)]) != 1 || on[hash(1)][0].FolderName != "Archive.2024" {
 		t.Fatalf("fallback = %+v, %v", on, err)
 	}
-	// Re-running migration 0004 fills the column itself.
-	if _, err := ix.db.ExecContext(ctx, "PRAGMA user_version = 3"); err != nil {
-		t.Fatal(err)
-	}
-	_ = ix.Close()
-	again, err := Open(ctx, path)
+	// Migration 0004 fills the column itself.
+	script, err := migrations.ReadFile("migrations/0004_folder_name_backfill.sql")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = again.Close() }()
+	if _, err := ix.db.ExecContext(ctx, string(script)); err != nil {
+		t.Fatal(err)
+	}
 	var name string
-	if err := again.db.QueryRowContext(ctx, "SELECT folder_name FROM server_copies").Scan(&name); err != nil || name != "Archive.2024" {
+	if err := ix.db.QueryRowContext(ctx, "SELECT folder_name FROM server_copies").Scan(&name); err != nil || name != "Archive.2024" {
 		t.Errorf("backfilled name = %q, %v", name, err)
 	}
 }
@@ -253,5 +252,55 @@ func TestExpiryTagsMustBeDates(t *testing.T) {
 	}
 	if err := ValidateTag("delete-after:2026-10-15"); err != nil {
 		t.Error(err)
+	}
+}
+
+func TestVanishedAndHandledCopies(t *testing.T) {
+	ix, _ := openIndex(t)
+	ctx := t.Context()
+	now := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
+	add := func(hash string, tags []string, uid uint32) {
+		t.Helper()
+		if _, _, err := ix.AddMessage(ctx, Message{Account: "a", Hash: hash, Tags: tags}, "", now); err != nil {
+			t.Fatal(err)
+		}
+		if err := ix.SetSyncState(ctx, "a", "INBOX", SyncState{UIDValidity: 1, LastUID: uid}); err != nil {
+			t.Fatal(err)
+		}
+		if err := ix.RecordCopy(ctx, ServerCopy{Account: "a", Folder: "INBOX", UIDValidity: 1, UID: uid, Hash: hash,
+			Size: 10, InternalDate: now.Add(-48 * time.Hour)}, now); err != nil {
+			t.Fatal(err)
+		}
+	}
+	inbox, archived := strings.Repeat("a", 64), strings.Repeat("b", 64)
+	add(inbox, []string{"inbox"}, 1)
+	add(archived, nil, 2)
+
+	handled, err := ix.HandledCopies(ctx, "a", "INBOX", 1, now)
+	if err != nil || len(handled) != 1 || handled[0].Hash != archived {
+		t.Fatalf("handled = %+v, %v", handled, err)
+	}
+	if h, _ := ix.HandledCopies(ctx, "a", "INBOX", 1, now.Add(-72*time.Hour)); len(h) != 0 {
+		t.Errorf("keep_days not respected: %+v", h)
+	}
+	live, _ := ix.LiveCopies(ctx, "a", "INBOX", 1)
+	if len(live) != 2 {
+		t.Fatalf("live = %+v", live)
+	}
+	if f, _ := ix.TrackedFolders(ctx, "a"); !maps.Equal(f, map[string]uint32{"INBOX": 1}) {
+		t.Errorf("tracked = %v", f)
+	}
+	if err := ix.MarkVanished(ctx, live, now); err != nil {
+		t.Fatal(err)
+	}
+	live, _ = ix.LiveCopies(ctx, "a", "INBOX", 1)
+	handled, _ = ix.HandledCopies(ctx, "a", "INBOX", 1, now)
+	due, _ := ix.DueCopies(ctx, "a", "INBOX", 1, now)
+	on, _ := ix.OnServer(ctx, "a", []string{inbox, archived})
+	st, _ := ix.ServerStatus(ctx, "a")
+	tracked, _ := ix.TrackedFolders(ctx, "a")
+	if len(live)+len(handled)+len(due)+len(on)+st.OnServer+len(tracked) != 0 {
+		t.Errorf("vanished copies still counted: live %d handled %d due %d on %v status %d tracked %v",
+			len(live), len(handled), len(due), on, st.OnServer, tracked)
 	}
 }

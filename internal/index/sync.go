@@ -114,26 +114,89 @@ func (ix *Index) RecordCopy(ctx context.Context, c ServerCopy, now time.Time) er
 	})
 }
 
+// live is the SQL condition for a copy still on the server: neither
+// deleted by nought nor moved or deleted by another client.
+const live = `expunged_at IS NULL AND vanished_at IS NULL`
+
 // DueCopies lists a folder's copies still on the server that the server
 // received at or before cutoff.
 func (ix *Index) DueCopies(ctx context.Context, account, folder string, uidValidity uint32, cutoff time.Time) ([]ServerCopy, error) {
+	return ix.copies(ctx, `account = ? AND folder = ? AND uidvalidity = ? AND `+live+` AND internal_date <= ?`,
+		account, folder, uidValidity, cutoff.Unix())
+}
+
+// LiveCopies lists a folder's copies still on the server.
+func (ix *Index) LiveCopies(ctx context.Context, account, folder string, uidValidity uint32) ([]ServerCopy, error) {
+	return ix.copies(ctx, `account = ? AND folder = ? AND uidvalidity = ? AND `+live, account, folder, uidValidity)
+}
+
+// HandledCopies lists a folder's copies still on the server, received at or
+// before cutoff, whose message is no longer in the inbox (archived or
+// deleted, here or on another client).
+func (ix *Index) HandledCopies(ctx context.Context, account, folder string, uidValidity uint32, cutoff time.Time) ([]ServerCopy, error) {
+	return ix.copies(ctx, `account = ? AND folder = ? AND uidvalidity = ? AND `+live+` AND internal_date <= ?
+		AND NOT EXISTS (SELECT 1 FROM messages m JOIN accounts a ON a.id = m.account_id JOIN tags t ON t.message_id = m.id
+		                WHERE a.name = server_copies.account AND m.hash = server_copies.hash AND t.tag = 'inbox')`,
+		account, folder, uidValidity, cutoff.Unix())
+}
+
+// copies lists the server copies matching where, in UID order.
+func (ix *Index) copies(ctx context.Context, where string, args ...any) ([]ServerCopy, error) {
+	//nolint:gosec // G202: callers pass constant conditions; values are "?" arguments.
 	rows, err := ix.db.QueryContext(ctx, `
-		SELECT uid, hash, size, internal_date FROM server_copies
-		WHERE account = ? AND folder = ? AND uidvalidity = ? AND expunged_at IS NULL AND internal_date <= ?
-		ORDER BY uid`, account, folder, uidValidity, cutoff.Unix())
+		SELECT account, folder, folder_name, uidvalidity, uid, hash, size, internal_date FROM server_copies
+		WHERE `+where+` ORDER BY uid`, args...)
 	if err != nil {
-		return nil, fmt.Errorf("list due copies: %w", err)
+		return nil, fmt.Errorf("list server copies: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
 	var out []ServerCopy
 	for rows.Next() {
-		c := ServerCopy{Account: account, Folder: folder, UIDValidity: uidValidity}
+		var c ServerCopy
 		var date int64
-		if err := rows.Scan(&c.UID, &c.Hash, &c.Size, &date); err != nil {
+		if err := rows.Scan(&c.Account, &c.Folder, &c.FolderName, &c.UIDValidity, &c.UID, &c.Hash, &c.Size, &date); err != nil {
 			return nil, err
 		}
 		c.InternalDate = time.Unix(date, 0).UTC()
+		c.FolderName = cmp.Or(c.FolderName, c.Folder)
 		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+// MarkVanished records copies that another client moved or deleted.
+func (ix *Index) MarkVanished(ctx context.Context, copies []ServerCopy, at time.Time) error {
+	return ix.tx(ctx, func(tx *sql.Tx) error {
+		for _, c := range copies {
+			if _, err := tx.ExecContext(ctx, `UPDATE server_copies SET vanished_at = ?
+				WHERE account = ? AND folder = ? AND uidvalidity = ? AND uid = ?`,
+				at.Unix(), c.Account, c.Folder, c.UIDValidity, c.UID); err != nil {
+				return fmt.Errorf("mark vanished: %w", err)
+			}
+		}
+		return nil
+	})
+}
+
+// TrackedFolders returns the account's folders that have copies still on
+// the server, with the UIDVALIDITY those copies were recorded under.
+func (ix *Index) TrackedFolders(ctx context.Context, account string) (map[string]uint32, error) {
+	rows, err := ix.db.QueryContext(ctx, `
+		SELECT DISTINCT c.folder, c.uidvalidity FROM server_copies c JOIN sync_state s
+		  ON s.account = c.account AND s.folder = c.folder AND s.uidvalidity = c.uidvalidity
+		WHERE c.account = ? AND `+live, account)
+	if err != nil {
+		return nil, fmt.Errorf("tracked folders: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	out := map[string]uint32{}
+	for rows.Next() {
+		var folder string
+		var validity uint32
+		if err := rows.Scan(&folder, &validity); err != nil {
+			return nil, err
+		}
+		out[folder] = validity
 	}
 	return out, rows.Err()
 }
@@ -200,7 +263,7 @@ func (ix *Index) OnServer(ctx context.Context, account string, hashes []string) 
 		//nolint:gosec // G202: only "?" placeholders are concatenated.
 		rows, err := ix.db.QueryContext(ctx, `
 			SELECT folder, folder_name, uidvalidity, uid, hash, size, internal_date FROM server_copies
-			WHERE account = ? AND expunged_at IS NULL AND hash IN (`+strings.Join(marks, ",")+`)
+			WHERE account = ? AND `+live+` AND hash IN (`+strings.Join(marks, ",")+`)
 			  AND uidvalidity = (SELECT s.uidvalidity FROM sync_state s
 			                     WHERE s.account = server_copies.account AND s.folder = server_copies.folder)
 			ORDER BY folder_name`, args...)
@@ -239,7 +302,7 @@ func (ix *Index) ServerStatus(ctx context.Context, account string) (AccountServe
 	err := ix.db.QueryRowContext(ctx, `
 		SELECT (SELECT count(DISTINCT c.hash) FROM server_copies c JOIN sync_state s
 		          ON s.account = c.account AND s.folder = c.folder AND s.uidvalidity = c.uidvalidity
-		        WHERE c.account = ? AND c.expunged_at IS NULL),
+		        WHERE c.account = ? AND `+live+`),
 		       COALESCE((SELECT min(synced_at) FROM sync_state WHERE account = ? AND synced_at > 0), 0)`,
 		account, account).Scan(&st.OnServer, &last)
 	if err != nil {
@@ -256,26 +319,8 @@ func (ix *Index) ServerStatus(ctx context.Context, account string) (AccountServe
 // come: sync removes these regardless of the folder's keep_days and the
 // account's automatic deletion setting.
 func (ix *Index) DeletionRequested(ctx context.Context, account, folder string, uidValidity uint32, today string) ([]ServerCopy, error) {
-	rows, err := ix.db.QueryContext(ctx, `
-		SELECT c.uid, c.hash, c.size, c.internal_date FROM server_copies c
-		WHERE c.account = ? AND c.folder = ? AND c.uidvalidity = ? AND c.expunged_at IS NULL
-		  AND EXISTS (SELECT 1 FROM messages m JOIN accounts a ON a.id = m.account_id JOIN tags t ON t.message_id = m.id
-		              WHERE a.name = c.account AND m.hash = c.hash
-		                AND (t.tag = 'deleted' OR `+dueTag+`))
-		ORDER BY c.uid`, account, folder, uidValidity, today)
-	if err != nil {
-		return nil, fmt.Errorf("deletion requests: %w", err)
-	}
-	defer func() { _ = rows.Close() }()
-	var out []ServerCopy
-	for rows.Next() {
-		c := ServerCopy{Account: account, Folder: folder, UIDValidity: uidValidity}
-		var date int64
-		if err := rows.Scan(&c.UID, &c.Hash, &c.Size, &date); err != nil {
-			return nil, err
-		}
-		c.InternalDate = time.Unix(date, 0).UTC()
-		out = append(out, c)
-	}
-	return out, rows.Err()
+	return ix.copies(ctx, `account = ? AND folder = ? AND uidvalidity = ? AND `+live+`
+		AND EXISTS (SELECT 1 FROM messages m JOIN accounts a ON a.id = m.account_id JOIN tags t ON t.message_id = m.id
+		            WHERE a.name = server_copies.account AND m.hash = server_copies.hash
+		              AND (t.tag = 'deleted' OR `+dueTag+`))`, account, folder, uidValidity, today)
 }

@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -57,9 +58,13 @@ func sample(t *testing.T, ix *Index) {
 
 func TestOpenCreatesPrivateFileAndMigrates(t *testing.T) {
 	ix, path := openIndex(t)
+	files, err := fs.Glob(migrations, "migrations/*.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
 	var version int
-	if err := ix.db.QueryRowContext(t.Context(), "PRAGMA user_version").Scan(&version); err != nil || version != 4 {
-		t.Fatalf("user_version = %d, %v", version, err)
+	if err := ix.db.QueryRowContext(t.Context(), "PRAGMA user_version").Scan(&version); err != nil || version != len(files) {
+		t.Fatalf("user_version = %d, want %d (one per migration), %v", version, len(files), err)
 	}
 	if runtime.GOOS != "windows" {
 		info, err := os.Stat(path)
