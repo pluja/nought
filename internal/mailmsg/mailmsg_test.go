@@ -3,6 +3,7 @@
 package mailmsg
 
 import (
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -71,6 +72,38 @@ body
 	}
 }
 
+func TestParseHugeHeaderKeepsOtherFields(t *testing.T) {
+	raw := "Subject: still here\r\nX-Big: " + strings.Repeat("a", 2<<20) + "\r\nMessage-ID: <id@x>\r\n\r\nbody\r\n"
+	h, _ := Parse([]byte(raw))
+	if h.Subject != "still here" || h.MessageID != "id@x" {
+		t.Errorf("header = %+v", h)
+	}
+	c, _ := Bodies([]byte(raw))
+	if strings.TrimSpace(c.Plain) != "body" {
+		t.Errorf("body = %q", c.Plain)
+	}
+}
+
+func TestParseCapsFields(t *testing.T) {
+	var to strings.Builder
+	for i := range maxAddresses + 10 {
+		fmt.Fprintf(&to, "u%d@example.org, ", i)
+	}
+	raw := "Subject: " + strings.Repeat("s", maxField*2) + "\r\nTo: " + to.String() + "z@example.org\r\n" +
+		"Message-ID: <" + strings.Repeat("i", maxMsgID+1) + "@x>\r\n\r\n"
+	h, _ := Parse([]byte(raw))
+	if len([]rune(h.Subject)) != maxField || len(h.To) != maxAddresses || h.MessageID != "" {
+		t.Errorf("subject %d runes, %d addresses, id %q", len([]rune(h.Subject)), len(h.To), h.MessageID[:min(len(h.MessageID), 10)])
+	}
+}
+
+func TestJunkReferencesIgnored(t *testing.T) {
+	h, _ := Parse(crlf("References: see my previous mail\nIn-Reply-To: <parent@x>\nMessage-ID: <me@x>\n\n"))
+	if len(h.References) != 0 || ThreadKey(h, "x") != "parent@x" {
+		t.Errorf("refs = %v, thread = %q", h.References, ThreadKey(h, "x"))
+	}
+}
+
 func TestParseEmptyAndGarbage(t *testing.T) {
 	for _, raw := range []string{"", "\r\n\r\n", "no colon here\r\n\r\nbody"} {
 		h, _ := Parse([]byte(raw))
@@ -104,6 +137,7 @@ func TestNormalizeMessageID(t *testing.T) {
 		"a@b":       "a@b",
 		"":          "",
 		"<>":        "",
+		"<a\x00b>":  "",
 	} {
 		if got := NormalizeMessageID(in); got != want {
 			t.Errorf("NormalizeMessageID(%q) = %q, want %q", in, got, want)

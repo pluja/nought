@@ -105,7 +105,8 @@ const dumpHeader = "# nought tag dump v1 (notmuch batch-tag format)"
 func (ix *Index) Dump(ctx context.Context, w io.Writer) error {
 	rows, err := ix.db.QueryContext(ctx, `
 		SELECT a.name, m.hash, m.message_id,
-		       (SELECT count(*) FROM messages d WHERE d.account_id = m.account_id AND d.message_id = m.message_id),
+		       CASE WHEN m.message_id = '' THEN 0 ELSE
+		           (SELECT count(*) FROM messages d WHERE d.account_id = m.account_id AND d.message_id = m.message_id) END,
 		       COALESCE((SELECT group_concat(tag, char(31)) FROM (SELECT tag FROM tags WHERE message_id = m.id ORDER BY tag)), '')
 		FROM messages m JOIN accounts a ON a.id = m.account_id
 		ORDER BY a.name, m.message_id, m.hash`)
@@ -138,7 +139,7 @@ func (ix *Index) Dump(ctx context.Context, w io.Writer) error {
 			}
 		}
 		line.WriteString("-- ")
-		if msgID != "" && sameID == 1 {
+		if msgID != "" && sameID == 1 && len(msgID) <= maxDumpID && !hasControl(msgID) {
 			line.WriteString("id:" + quoteID(msgID))
 		} else {
 			line.WriteString("hash:" + hash)
@@ -155,12 +156,18 @@ func (ix *Index) Dump(ctx context.Context, w io.Writer) error {
 
 // RestoreResult reports what a restore did.
 type RestoreResult struct {
-	Applied int `json:"applied"`
-	Missing int `json:"missing"`
+	Applied     int `json:"applied"`
+	Missing     int `json:"missing"`
+	SkippedTags int `json:"skipped_tags"` // tags nought cannot represent (e.g. with spaces)
 }
 
-// MaxDumpLine bounds one dump line.
-const MaxDumpLine = 1 << 20
+// MaxDumpLine bounds one dump line. Dump never writes longer lines: long
+// Message-IDs fall back to hash keys.
+const MaxDumpLine = 4 << 20
+
+// maxDumpID is the longest Message-ID written as an id: key (RFC 5322 line
+// length limit).
+const maxDumpID = 998
 
 // Restore reads a dump and sets each listed message's tags exactly. Lines for
 // messages not in the index are counted as missing.
@@ -181,10 +188,11 @@ func (ix *Index) Restore(ctx context.Context, r io.Reader) (RestoreResult, error
 			if line == "" || strings.HasPrefix(line, "#") {
 				continue
 			}
-			tags, key, err := parseDumpLine(line)
+			tags, invalid, key, err := parseDumpLine(line)
 			if err != nil {
 				return fmt.Errorf("line %d: %w", lineNo, err)
 			}
+			res.SkippedTags += len(invalid)
 			n, err := setTags(ctx, tx, account, key, tags)
 			if err != nil {
 				return fmt.Errorf("line %d: %w", lineNo, err)
@@ -204,40 +212,60 @@ type dumpKey struct {
 	value string
 }
 
-func parseDumpLine(line string) ([]string, dumpKey, error) {
-	left, right, ok := strings.Cut(line, "-- ")
-	if !ok {
-		return nil, dumpKey{}, errors.New(`missing "-- " separator`)
+// parseDumpLine splits "+tag ... -- key". The separator is the first
+// whitespace-delimited "--" token; tags always start with "+", so a tag can
+// never be mistaken for it. Tags that are not valid nought tags are returned
+// separately so restore can skip them instead of failing.
+func parseDumpLine(line string) (tags, invalid []string, key dumpKey, err error) {
+	sep := separatorIndex(line)
+	if sep < 0 {
+		return nil, nil, dumpKey{}, errors.New(`missing "--" separator`)
 	}
-	var tags []string
-	for _, f := range strings.Fields(left) {
+	for _, f := range strings.Fields(line[:sep]) {
 		enc, ok := strings.CutPrefix(f, "+")
 		if !ok {
-			return nil, dumpKey{}, fmt.Errorf("tag operation %q is not supported", f)
+			return nil, nil, dumpKey{}, fmt.Errorf("tag operation %q is not supported", f)
 		}
 		tag, err := decodeTag(enc)
 		if err != nil {
-			return nil, dumpKey{}, err
+			return nil, nil, dumpKey{}, err
 		}
-		if err := ValidateTag(tag); err != nil {
-			return nil, dumpKey{}, err
+		tag = strings.ToLower(tag)
+		if ValidateTag(tag) != nil {
+			invalid = append(invalid, tag)
+			continue
 		}
 		tags = append(tags, tag)
 	}
-	right = strings.TrimSpace(right)
+	right := strings.TrimSpace(line[sep+2:])
 	switch {
 	case strings.HasPrefix(right, "id:"):
 		id, err := unquoteID(right[3:])
-		return tags, dumpKey{"id", id}, err
+		return tags, invalid, dumpKey{"id", id}, err
 	case strings.HasPrefix(right, "hash:"):
 		h := right[5:]
-		if len(h) != 64 || !isHex(h) {
-			return nil, dumpKey{}, fmt.Errorf("bad hash %q", h)
+		if !validHash(h) {
+			return nil, nil, dumpKey{}, fmt.Errorf("bad hash %q", h)
 		}
-		return tags, dumpKey{"hash", h}, nil
+		return tags, invalid, dumpKey{"hash", h}, nil
 	default:
-		return nil, dumpKey{}, fmt.Errorf("unsupported query %q", right)
+		return nil, nil, dumpKey{}, fmt.Errorf("unsupported query %q", right)
 	}
+}
+
+// separatorIndex finds the first "--" that is a whole whitespace-separated token.
+func separatorIndex(line string) int {
+	for i := 0; i+1 < len(line); i++ {
+		if line[i] != '-' || line[i+1] != '-' {
+			continue
+		}
+		before := i == 0 || line[i-1] == ' ' || line[i-1] == '\t'
+		after := i+2 == len(line) || line[i+2] == ' ' || line[i+2] == '\t'
+		if before && after {
+			return i
+		}
+	}
+	return -1
 }
 
 // setTags replaces the tags of every message matching key and returns how
@@ -341,3 +369,7 @@ func unquoteID(s string) (string, error) {
 	}
 	return id, nil
 }
+
+func hasControl(s string) bool { return strings.IndexFunc(s, unicode.IsControl) >= 0 }
+
+func validHash(h string) bool { return len(h) == 64 && isHex(h) }

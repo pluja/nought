@@ -13,6 +13,8 @@ import (
 	"mime"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/emersion/go-message"
 	_ "github.com/emersion/go-message/charset" // decode legacy charsets (ISO-8859-*, Windows-125x, ...)
@@ -31,16 +33,25 @@ type Header struct {
 	InReplyTo  string
 }
 
-// Limits keep hostile messages from using unbounded memory or time.
+// Limits keep hostile messages from using unbounded memory or time, and
+// keep index rows reasonable.
 const (
-	maxParts    = 1000
-	maxTextPart = 4 << 20 // bytes of decoded text kept per part
+	maxParts     = 1000
+	maxTextPart  = 4 << 20 // bytes of decoded text kept per part
+	maxField     = 2000    // runes kept of a header field such as Subject
+	maxAddresses = 200     // To + Cc addresses kept
+	maxMsgID     = 998     // RFC 5322 line length; longer IDs are ignored
 )
+
+// readOptions lifts go-message's 1 MiB header limit: the raw message is
+// already in memory and size-limited by the caller, and a single huge header
+// must not hide every other field.
+var readOptions = &message.ReadOptions{MaxHeaderBytes: -1}
 
 // Parse reads the header of raw. It returns whatever it could parse; a
 // non-nil error only explains what was skipped.
 func Parse(raw []byte) (Header, error) {
-	e, err := message.Read(bytes.NewReader(raw))
+	e, err := message.ReadWithOptions(bytes.NewReader(raw), readOptions)
 	if e == nil {
 		return Header{}, fmt.Errorf("parse header: %w", err)
 	}
@@ -65,6 +76,9 @@ func Parse(raw []byte) (Header, error) {
 	out.Subject = text(h, "Subject")
 	out.From = firstAddress(h, "From")
 	out.To = append(addresses(h, "To"), addresses(h, "Cc")...)
+	if len(out.To) > maxAddresses {
+		out.To = out.To[:maxAddresses]
+	}
 	out.References = msgIDs(h, "References")
 	if ids := msgIDs(h, "In-Reply-To"); len(ids) > 0 {
 		out.InReplyTo = ids[0]
@@ -112,8 +126,14 @@ func formatAddress(a *mail.Address) string {
 func msgIDs(h mail.Header, key string) []string {
 	ids, err := h.MsgIDList(key)
 	if err != nil {
-		// Be lenient: split on whitespace and strip brackets.
-		ids = strings.Fields(h.Get(key))
+		// Be lenient, but only with tokens that look like IDs, so prose
+		// such as "see my previous mail" does not become a thread key.
+		ids = nil
+		for _, f := range strings.Fields(h.Get(key)) {
+			if strings.Contains(f, "@") || strings.HasPrefix(f, "<") && strings.HasSuffix(f, ">") {
+				ids = append(ids, f)
+			}
+		}
 	}
 	var out []string
 	for _, id := range ids {
@@ -125,12 +145,17 @@ func msgIDs(h mail.Header, key string) []string {
 }
 
 // NormalizeMessageID trims whitespace and angle brackets. Message-IDs are
-// otherwise compared byte for byte, as notmuch does.
+// otherwise compared byte for byte, as notmuch does. IDs that are too long or
+// contain control characters are treated as missing.
 func NormalizeMessageID(id string) string {
 	id = strings.TrimSpace(id)
 	id = strings.TrimPrefix(id, "<")
 	id = strings.TrimSuffix(id, ">")
-	return strings.TrimSpace(id)
+	id = strings.TrimSpace(id)
+	if len(id) > maxMsgID || strings.IndexFunc(id, unicode.IsControl) >= 0 || !utf8.ValidString(id) {
+		return ""
+	}
+	return id
 }
 
 // ThreadKey groups a message with its conversation: the root of its
@@ -168,7 +193,7 @@ var errTooManyParts = errors.New("too many MIME parts")
 // attachments, decoded to UTF-8, plus a list of attachments.
 func Bodies(raw []byte) (Content, error) {
 	var c Content
-	e, err := message.Read(bytes.NewReader(raw))
+	e, err := message.ReadWithOptions(bytes.NewReader(raw), readOptions)
 	if e == nil {
 		return c, fmt.Errorf("parse message: %w", err)
 	}
@@ -230,8 +255,13 @@ func decodeWord(s string) string {
 	return s
 }
 
-// oneLine collapses folded header values and strips invalid UTF-8.
+// oneLine collapses folded header values, strips invalid UTF-8, and caps
+// the length.
 func oneLine(s string) string {
 	s = strings.ToValidUTF8(s, "�")
-	return strings.Join(strings.Fields(s), " ")
+	s = strings.Join(strings.Fields(s), " ")
+	if utf8.RuneCountInString(s) > maxField {
+		s = string([]rune(s)[:maxField])
+	}
+	return s
 }

@@ -16,8 +16,9 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
-	_ "modernc.org/sqlite" // registers the "sqlite" driver
+	"modernc.org/sqlite" // also registers the "sqlite" driver
 )
 
 //go:embed migrations/*.sql
@@ -29,13 +30,15 @@ type Index struct {
 }
 
 // pragmas are fixed: they are applied by the driver to every connection.
-const pragmas = "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)" +
+// busy_timeout comes first so it already applies while switching to WAL.
+const pragmas = "?_pragma=busy_timeout(10000)&_pragma=journal_mode(WAL)" +
 	"&_pragma=foreign_keys(1)&_pragma=synchronous(NORMAL)&_txlock=immediate"
 
 // Open opens (creating if needed) the index at path and applies migrations.
 func Open(ctx context.Context, path string) (*Index, error) {
-	if strings.ContainsAny(path, "?#") {
-		return nil, fmt.Errorf("index path must not contain '?' or '#': %s", path)
+	// The path becomes a file: URI, where these characters are special.
+	if strings.ContainsAny(path, "?#%") {
+		return nil, fmt.Errorf("index path must not contain '?', '#' or '%%': %s", path)
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, fmt.Errorf("create index directory: %w", err)
@@ -71,36 +74,56 @@ func (ix *Index) Close() error { return ix.db.Close() }
 // each in its own transaction. Migration files are named NNNN_name.sql and
 // are never edited once released.
 func (ix *Index) migrate(ctx context.Context) error {
-	var version int
-	if err := ix.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
-		return fmt.Errorf("read schema version: %w", err)
-	}
 	names, err := fs.Glob(migrations, "migrations/*.sql")
 	if err != nil {
 		return err
 	}
 	slices.Sort(names)
-	if version > len(names) {
-		return fmt.Errorf("index schema version %d is newer than this nou supports (%d); upgrade nou", version, len(names))
-	}
-	for i, name := range names[version:] {
-		script, err := migrations.ReadFile(name)
-		if err != nil {
-			return err
-		}
-		next := version + i + 1
-		err = ix.tx(ctx, func(tx *sql.Tx) error {
-			if _, err := tx.ExecContext(ctx, string(script)); err != nil {
+	for attempt := 0; ; attempt++ {
+		// Read the version inside the (immediate, write-locked) transaction
+		// so concurrent first opens cannot both apply the same migration.
+		done := false
+		err := ix.tx(ctx, func(tx *sql.Tx) error {
+			var version int
+			if err := tx.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
+				return fmt.Errorf("read schema version: %w", err)
+			}
+			if version > len(names) {
+				return fmt.Errorf("index schema version %d is newer than this nou supports (%d); upgrade nou", version, len(names))
+			}
+			if version == len(names) {
+				done = true
+				return nil
+			}
+			script, err := migrations.ReadFile(names[version])
+			if err != nil {
 				return err
 			}
-			_, err := tx.ExecContext(ctx, fmt.Sprintf("PRAGMA user_version = %d", next))
+			if _, err := tx.ExecContext(ctx, string(script)); err != nil {
+				return fmt.Errorf("apply migration %s: %w", filepath.Base(names[version]), err)
+			}
+			_, err = tx.ExecContext(ctx, fmt.Sprintf("PRAGMA user_version = %d", version+1))
 			return err
 		})
-		if err != nil {
-			return fmt.Errorf("apply migration %s: %w", filepath.Base(name), err)
+		// Concurrent first opens can see SQLITE_BUSY while another process
+		// switches the new database to WAL; the busy handler does not cover
+		// that, so retry briefly.
+		if isBusy(err) && attempt < 50 {
+			time.Sleep(time.Duration(20+attempt*10) * time.Millisecond)
+			continue
+		}
+		if err != nil || done {
+			return err
 		}
 	}
-	return nil
+}
+
+// sqliteBusy is SQLITE_BUSY's primary result code.
+const sqliteBusy = 5
+
+func isBusy(err error) bool {
+	e, ok := errors.AsType[*sqlite.Error](err)
+	return ok && e.Code()&0xff == sqliteBusy
 }
 
 // tx runs fn in a transaction, committing on success.

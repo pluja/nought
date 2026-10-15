@@ -54,8 +54,12 @@ type Query struct {
 	Groups [][]Term
 }
 
-// MaxLen bounds query size so hostile input cannot cost much.
-const MaxLen = 4096
+// MaxLen and MaxTerms bound query size so hostile input cannot cost much
+// (and stays far below SQLite's expression depth limit).
+const (
+	MaxLen   = 4096
+	MaxTerms = 64
+)
 
 // Parse parses s.
 func Parse(s string) (Query, error) {
@@ -65,13 +69,16 @@ func Parse(s string) (Query, error) {
 	if !utf8.ValidString(s) {
 		return Query{}, errors.New("query is not valid UTF-8")
 	}
+	if strings.IndexFunc(s, func(r rune) bool { return unicode.IsControl(r) && !unicode.IsSpace(r) }) >= 0 {
+		return Query{}, errors.New("query contains control characters")
+	}
 	toks, err := tokenize(s)
 	if err != nil {
 		return Query{}, err
 	}
 	var q Query
 	var group []Term
-	expectTerm := true
+	expectTerm, terms := true, 0
 	for _, tok := range toks {
 		if tok.or {
 			if expectTerm {
@@ -80,9 +87,12 @@ func Parse(s string) (Query, error) {
 			expectTerm = true
 			continue
 		}
-		t, err := parseTerm(tok.text, tok.literal)
+		t, err := parseTerm(tok)
 		if err != nil {
 			return Query{}, err
+		}
+		if terms++; terms > MaxTerms {
+			return Query{}, fmt.Errorf("query has more than %d terms", MaxTerms)
 		}
 		if !expectTerm { // implicit AND: close the current group
 			q.Groups = append(q.Groups, group)
@@ -104,21 +114,22 @@ type token struct {
 	text    string
 	quoted  bool // some part was quoted, so the token is not the OR operator
 	literal bool // the term itself was quoted ("tag:x" or -"x"): plain text
+	negated bool // a literal term preceded by "-"
 	or      bool
 }
 
 func tokenize(s string) ([]token, error) {
 	var toks []token
 	var b strings.Builder
-	inQuote, quoted, literal, started := false, false, false, false
+	inQuote, quoted, literal, negated, started := false, false, false, false, false
 	flush := func() {
 		if !started {
 			return
 		}
 		text := b.String()
-		toks = append(toks, token{text: text, quoted: quoted, literal: literal, or: !quoted && text == "OR"})
+		toks = append(toks, token{text: text, quoted: quoted, literal: literal, negated: negated, or: !quoted && text == "OR"})
 		b.Reset()
-		quoted, literal, started = false, false, false
+		quoted, literal, negated, started = false, false, false, false
 	}
 	runes := []rune(s)
 	for i := 0; i < len(runes); i++ {
@@ -128,8 +139,9 @@ func tokenize(s string) ([]token, error) {
 			i++
 			b.WriteRune(runes[i])
 		case r == '"':
-			if !inQuote && (b.Len() == 0 || b.String() == "-") {
-				literal = true
+			if !inQuote && !literal && (b.Len() == 0 || b.String() == "-") {
+				literal, negated = true, b.Len() == 1
+				b.Reset()
 			}
 			inQuote = !inQuote
 			quoted, started = true, true
@@ -147,17 +159,21 @@ func tokenize(s string) ([]token, error) {
 	return toks, nil
 }
 
-func parseTerm(text string, literal bool) (Term, error) {
+func parseTerm(tok token) (Term, error) {
+	text := tok.text
+	if tok.literal {
+		if text == "" {
+			return Term{}, errors.New("empty term")
+		}
+		return Term{Field: Text, Value: text, Not: tok.negated}, nil
+	}
 	var t Term
 	if strings.HasPrefix(text, "-") && len(text) > 1 {
 		t.Not = true
 		text = text[1:]
 	}
-	if text == "" {
-		return Term{}, errors.New("empty term")
-	}
 	field, value, hasField := strings.Cut(text, ":")
-	if literal || !hasField || field == "" {
+	if !hasField || field == "" {
 		t.Field, t.Value = Text, text
 		return t, nil
 	}
@@ -175,6 +191,11 @@ func parseTerm(text string, literal bool) (Term, error) {
 			return Term{}, fmt.Errorf("is:%s: expected one of unread, flagged, inbox, replied", value)
 		}
 		t.Value = strings.ToLower(value)
+	case ID:
+		t.Value = strings.TrimSuffix(strings.TrimPrefix(strings.TrimSpace(value), "<"), ">")
+		if t.Value == "" {
+			return Term{}, errors.New("id: needs a value")
+		}
 	case Date:
 		since, before, err := parseDateRange(value)
 		if err != nil {

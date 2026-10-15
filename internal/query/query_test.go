@@ -35,6 +35,9 @@ func TestParse(t *testing.T) {
 		{`"tag:not a field"`, Query{[][]Term{{{Field: Text, Value: "tag:not a field"}}}}},
 		{`-"re: hello"`, Query{[][]Term{{{Field: Text, Value: "re: hello", Not: true}}}}},
 		{`"OR"`, Query{[][]Term{{{Field: Text, Value: "OR"}}}}},
+		{`"-5 degrees"`, Query{[][]Term{{{Field: Text, Value: "-5 degrees"}}}}},
+		{`-"-5 degrees"`, Query{[][]Term{{{Field: Text, Value: "-5 degrees", Not: true}}}}},
+		{"id:<abc@x>", Query{[][]Term{{{Field: ID, Value: "abc@x"}}}}},
 		{`"say \"hi\""`, Query{[][]Term{{{Field: Text, Value: `say "hi"`}}}}},
 		{"id:abc:def@x", Query{[][]Term{{{Field: ID, Value: "abc:def@x"}}}}},
 		{"FROM:bob", Query{[][]Term{{{Field: From, Value: "bob"}}}}},
@@ -88,6 +91,7 @@ func TestStringRoundTrip(t *testing.T) {
 	for _, in := range []string{
 		`tag:a OR tag:b -from:"Bob Smith" "re: hi" -"-dash" "OR" date:2026-01-01..`,
 		`subject:"back\\slash" id:x@y is:inbox`,
+		`"-literal" -"-negated literal" -word`,
 	} {
 		q, err := Parse(in)
 		if err != nil {

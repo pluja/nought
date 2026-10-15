@@ -45,6 +45,9 @@ type Message struct {
 // account already has a message with this hash, nothing changes and created
 // is false.
 func (ix *Index) AddMessage(ctx context.Context, m Message, body string, now time.Time) (id int64, created bool, err error) {
+	if !validHash(m.Hash) {
+		return 0, false, fmt.Errorf("invalid hash %q", m.Hash)
+	}
 	for _, t := range m.Tags {
 		if err := ValidateTag(t); err != nil {
 			return 0, false, err
@@ -160,7 +163,7 @@ func (ix *Index) Resolve(ctx context.Context, account, prefix string) (Message, 
 	default:
 		amb := &AmbiguousError{Prefix: prefix}
 		for _, m := range msgs {
-			amb.Candidates = append(amb.Candidates, m.Account+"/"+m.Hash[:16])
+			amb.Candidates = append(amb.Candidates, m.Account+"/"+m.Hash[:min(len(m.Hash), 16)])
 		}
 		return Message{}, amb
 	}

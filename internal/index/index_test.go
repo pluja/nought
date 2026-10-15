@@ -93,8 +93,10 @@ func TestOpenRejectsNewerSchema(t *testing.T) {
 }
 
 func TestOpenRejectsDSNCharacters(t *testing.T) {
-	if _, err := Open(t.Context(), filepath.Join(t.TempDir(), "a?b.db")); err == nil {
-		t.Fatal("accepted '?' in path")
+	for _, name := range []string{"a?b.db", "a#b.db", "a%41b.db"} {
+		if _, err := Open(t.Context(), filepath.Join(t.TempDir(), name)); err == nil {
+			t.Errorf("accepted %q", name)
+		}
 	}
 }
 
@@ -352,16 +354,92 @@ func allTags(t *testing.T, ix *Index) []string {
 	return out
 }
 
+func TestDumpRestoreTricky(t *testing.T) {
+	ix, _ := openIndex(t)
+	longID := strings.Repeat(`"`, 2000) + "@x"
+	add(t, ix, Message{Account: "a", Hash: hash(1), MessageID: "ok@x", Tags: []string{"a--", "b--c", "x%y", "z-"}}, "")
+	add(t, ix, Message{Account: "a", Hash: hash(2), MessageID: longID, Tags: []string{"long"}}, "")
+	add(t, ix, Message{Account: "a", Hash: hash(3), MessageID: "has space@x", Tags: []string{"sp"}}, "")
+	var dump bytes.Buffer
+	if err := ix.Dump(t.Context(), &dump); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(dump.String(), longID[:100]) {
+		t.Error("long Message-ID written as id: key")
+	}
+	before := allTags(t, ix)
+
+	fresh, _ := openIndex(t)
+	add(t, fresh, Message{Account: "a", Hash: hash(1), MessageID: "ok@x"}, "")
+	add(t, fresh, Message{Account: "a", Hash: hash(2), MessageID: longID}, "")
+	add(t, fresh, Message{Account: "a", Hash: hash(3), MessageID: "has space@x"}, "")
+	res, err := fresh.Restore(t.Context(), &dump)
+	if err != nil {
+		t.Fatalf("restore: %v", err)
+	}
+	if res.Applied != 3 || res.Missing != 0 {
+		t.Errorf("restore = %+v", res)
+	}
+	if after := allTags(t, fresh); !slices.Equal(before, after) {
+		t.Errorf("tags differ:\n%v\n%v", before, after)
+	}
+}
+
+func TestRestoreSkipsUnrepresentableTags(t *testing.T) {
+	ix, _ := openIndex(t)
+	add(t, ix, Message{Account: "a", Hash: hash(1), MessageID: "x@y"}, "")
+	// A notmuch dump with an uppercase tag and a tag containing a space.
+	res, err := ix.Restore(t.Context(), strings.NewReader("+Inbox +with%20space -- id:x@y\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Applied != 1 || res.SkippedTags != 1 {
+		t.Errorf("restore = %+v", res)
+	}
+	m, _ := ix.Resolve(t.Context(), "", hash(1)[:6])
+	if !slices.Equal(m.Tags, []string{"inbox"}) {
+		t.Errorf("tags = %v", m.Tags)
+	}
+}
+
+func TestConcurrentFirstOpen(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "index.db")
+	errs := make(chan error, 8)
+	for range 8 {
+		go func() {
+			ix, err := Open(context.Background(), path)
+			if err == nil {
+				err = ix.Close()
+			}
+			errs <- err
+		}()
+	}
+	for range 8 {
+		if err := <-errs; err != nil {
+			t.Errorf("concurrent open: %v", err)
+		}
+	}
+}
+
+func TestAddMessageRejectsBadHash(t *testing.T) {
+	ix, _ := openIndex(t)
+	for _, h := range []string{"short", strings.Repeat("A", 64), strings.Repeat("g", 64)} {
+		if _, _, err := ix.AddMessage(t.Context(), Message{Account: "a", Hash: h}, "", now); err == nil {
+			t.Errorf("accepted hash %q", h)
+		}
+	}
+}
+
 func TestRestoreErrors(t *testing.T) {
 	ix, _ := openIndex(t)
 	for _, line := range []string{
 		"+inbox id:x",
 		"-inbox -- id:x",
-		"+Bad -- id:x",
 		"+a%zz -- id:x",
 		"+a%2 -- id:x",
 		"+a -- thread:x",
 		"+a -- hash:abc",
+		"+a--b id:x",
 		`+a -- id:"open`,
 		"+a -- id:",
 	} {
@@ -384,7 +462,7 @@ func FuzzRestoreLine(f *testing.F) {
 	f.Add("+inbox +a%20b -- id:\"x y\"")
 	f.Add("-- hash:" + hash(1))
 	f.Fuzz(func(t *testing.T, line string) {
-		tags, key, err := parseDumpLine(line)
+		tags, _, key, err := parseDumpLine(line)
 		if err != nil {
 			return
 		}
