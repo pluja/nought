@@ -128,6 +128,20 @@ func printMessage(w io.Writer, out ops.ShowOut) error {
 			return err
 		}
 	}
+	if len(m.Server) == 0 {
+		if err := printf(w, "Where:   local only (no longer on any server)\n"); err != nil {
+			return err
+		}
+	}
+	for _, loc := range m.Server {
+		when := "stays (deletion is off)"
+		if loc.LeavesAt != nil {
+			when = "leaves the server on " + loc.LeavesAt.Local().Format("Mon, 02 Jan 2006")
+		}
+		if err := printf(w, "Where:   on server, %s (%s); %s\n", sanitize(loc.Folder), m.Account, when); err != nil {
+			return err
+		}
+	}
 	for _, att := range out.Attachments {
 		if err := printf(w, "Attach:  %s (%s, %d bytes)\n", sanitize(att.Filename), sanitize(att.ContentType), att.Size); err != nil {
 			return err
