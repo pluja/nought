@@ -417,3 +417,49 @@ func (d *deadlineConn) current() time.Duration {
 	}
 	return defaultIOTimeout
 }
+
+// maxHeader bounds a header block fetched for verification.
+const maxHeader = 1 << 20
+
+// Headers fetches the header block (BODY.PEEK[HEADER], without setting
+// \Seen) of each UID. UIDs no longer on the server, or with headers larger
+// than the limit, are absent from the result.
+func (c *Conn) Headers(uids []uint32) (map[uint32][]byte, error) {
+	if c.selected == "" {
+		return nil, errors.New("no folder selected")
+	}
+	out := make(map[uint32][]byte, len(uids))
+	section := &imap.FetchItemBodySection{Specifier: imap.PartSpecifierHeader, Peek: true}
+	for batch := range slices.Chunk(uids, MaxBatch) {
+		cmd := c.c.Fetch(uidSet(batch), &imap.FetchOptions{UID: true, BodySection: []*imap.FetchItemBodySection{section}})
+		for msg := cmd.Next(); msg != nil; msg = cmd.Next() {
+			var uid uint32
+			var header []byte
+			for item := msg.Next(); item != nil; item = msg.Next() {
+				switch item := item.(type) {
+				case imapclient.FetchItemDataUID:
+					uid = uint32(item.UID)
+				case imapclient.FetchItemDataBodySection:
+					b, err := io.ReadAll(io.LimitReader(item.Literal, maxHeader+1))
+					if err != nil {
+						return nil, errors.Join(fmt.Errorf("fetch headers: %w", err), cmd.Close())
+					}
+					if len(b) > maxHeader {
+						if _, err := io.Copy(io.Discard, item.Literal); err != nil {
+							return nil, errors.Join(fmt.Errorf("fetch headers: %w", err), cmd.Close())
+						}
+						b = nil
+					}
+					header = b
+				}
+			}
+			if header != nil && slices.Contains(batch, uid) {
+				out[uid] = header
+			}
+		}
+		if err := cmd.Close(); err != nil {
+			return nil, fmt.Errorf("fetch headers: %w", err)
+		}
+	}
+	return out, nil
+}

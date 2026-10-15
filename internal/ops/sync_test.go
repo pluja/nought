@@ -489,3 +489,55 @@ func TestSyncKnownMessageGainsFolderTagNotInbox(t *testing.T) {
 		t.Errorf("known message re-added to the inbox: %v", got)
 	}
 }
+
+func TestSyncNeverDeletesADifferentMessageUnderTheSameUID(t *testing.T) {
+	env, srv := syncEnv(t, imaptest.Options{}, true)
+	archived := mail("1@x", "aaaa")
+	onServer := mail("2@x", "bbbb") // same size, different message
+	if len(archived) != len(onServer) {
+		t.Fatal("test messages must have the same size")
+	}
+	uid := srv.Append(t, "INBOX", onServer, daysAgo(env, 30))
+	// The archive believes this UID holds the other message (as after a
+	// server reused or renumbered UIDs).
+	if _, _, err := archive(t.Context(), env, "personal", []byte(archived), "", nil); err != nil {
+		t.Fatal(err)
+	}
+	ix, _ := env.Index(t.Context())
+	validity := inboxValidity(t, srv)
+	if err := ix.SetSyncState(t.Context(), "personal", "INBOX", index.SyncState{UIDValidity: validity, LastUID: uid}); err != nil {
+		t.Fatal(err)
+	}
+	if err := ix.RecordCopy(t.Context(), index.ServerCopy{Account: "personal", Folder: "INBOX", UIDValidity: validity,
+		UID: uid, Hash: store.Hash([]byte(archived)), Size: int64(len(archived)), InternalDate: daysAgo(env, 30)}, env.Now()); err != nil {
+		t.Fatal(err)
+	}
+	out, err := Call(t.Context(), env, Delete, SyncRun, SyncIn{})
+	if !errors.Is(err, ErrPartial) {
+		t.Fatalf("sync = %v", err)
+	}
+	if f := folder(t, out, "INBOX"); f.Expunged != 0 || !strings.Contains(strings.Join(f.Notes, " "), "not the archived one") {
+		t.Errorf("INBOX = %+v", f)
+	}
+	if len(srv.UIDs(t, "INBOX")) != 1 {
+		t.Fatal("deleted a message that was never archived")
+	}
+}
+
+func TestSameHeader(t *testing.T) {
+	raw := []byte("From: a\r\nSubject: x\r\n\r\nbody\r\n")
+	for _, tt := range []struct {
+		server string
+		want   bool
+	}{
+		{"From: a\r\nSubject: x\r\n\r\n", true},
+		{"From: a\nSubject: x\n\n", true}, // line endings differ
+		{"From: a\r\nSubject: y\r\n\r\n", false},
+		{"From: a\r\n\r\n", false},
+		{"", false},
+	} {
+		if got := sameHeader([]byte(tt.server), raw); got != tt.want {
+			t.Errorf("sameHeader(%q) = %v, want %v", tt.server, got, tt.want)
+		}
+	}
+}

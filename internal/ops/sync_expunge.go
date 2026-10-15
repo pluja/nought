@@ -3,6 +3,7 @@
 package ops
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"slices"
@@ -13,6 +14,7 @@ import (
 	"nought/internal/imapsync"
 	"nought/internal/index"
 	"nought/internal/journal"
+	"nought/internal/store"
 )
 
 // expungeDue deletes from the server the folder's messages that are old
@@ -86,6 +88,13 @@ func checkBeforeExpunge(env *Env, conn *imapsync.Conn, account string,
 	if err != nil {
 		return nil, nil, nil, err
 	}
+	// The message under each UID must still be the archived one: its header
+	// block is compared with the local copy's. UIDs alone are not trusted,
+	// because some servers renumber or reuse them.
+	headers, err := conn.Headers(uids)
+	if err != nil {
+		return nil, nil, nil, err
+	}
 	for _, c := range batch {
 		info, ok := onServer[c.UID]
 		switch {
@@ -94,14 +103,37 @@ func checkBeforeExpunge(env *Env, conn *imapsync.Conn, account string,
 		case info.Size != c.Size:
 			bad = append(bad, fmt.Sprintf("uid %d changed on the server", c.UID))
 		default:
-			if err := st.Verify(c.Hash); err != nil {
+			raw, err := st.Get(c.Hash)
+			if err == nil && store.Hash(raw) != c.Hash {
+				err = store.ErrCorrupt
+			}
+			if err != nil {
 				bad = append(bad, fmt.Sprintf("uid %d: local copy %s %v", c.UID, c.Hash[:IDLen], err))
+				continue
+			}
+			if !sameHeader(headers[c.UID], raw) {
+				bad = append(bad, fmt.Sprintf("uid %d: the message on the server is not the archived one", c.UID))
 				continue
 			}
 			verified = append(verified, c)
 		}
 	}
 	return verified, gone, bad, nil
+}
+
+// sameHeader reports whether a header block fetched from the server is the
+// header of raw, ignoring line-ending differences (servers that store LF
+// send CRLF).
+func sameHeader(serverHeader, raw []byte) bool {
+	if len(serverHeader) == 0 {
+		return false
+	}
+	norm := func(b []byte) []byte { return bytes.TrimRight(bytes.ReplaceAll(b, []byte("\r\n"), []byte("\n")), "\n") }
+	local := norm(raw)
+	if i := bytes.Index(local, []byte("\n\n")); i >= 0 {
+		local = local[:i]
+	}
+	return bytes.Equal(norm(serverHeader), local)
 }
 
 // expungeBatch journals, deletes, and records one batch. Once the server

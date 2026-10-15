@@ -323,3 +323,20 @@ func TestHasFlagIgnoresCase(t *testing.T) {
 		t.Error("hasFlag")
 	}
 }
+
+func TestHeaders(t *testing.T) {
+	s := imaptest.Start(t, imaptest.Options{})
+	uid := s.Append(t, "INBOX", raw, time.Now())
+	c := dial(t, s)
+	if _, err := c.Select("INBOX", false); err != nil {
+		t.Fatal(err)
+	}
+	h, err := c.Headers([]uint32{uid, 9999})
+	if err != nil || len(h) != 1 || !strings.HasPrefix(string(h[uid]), "From: a@example.org") || strings.Contains(string(h[uid]), "body") {
+		t.Fatalf("headers = %v, %v", h, err)
+	}
+	infos, _ := c.Infos([]uint32{uid})
+	if infos[0].Seen {
+		t.Error("fetching headers set \\Seen")
+	}
+}
