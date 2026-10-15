@@ -25,7 +25,7 @@ func newAccountCmd(a *app) *cobra.Command {
 		RunE:  func(cmd *cobra.Command, _ []string) error { return cmd.Help() },
 	}
 	cmd.AddCommand(newAccountAddCmd(a), newAccountListCmd(a), newAccountShowCmd(a),
-		newAccountSetCmd(a), newAccountRemoveCmd(a))
+		newAccountSetCmd(a), newAccountRemoveCmd(a), newAccountTestCmd(a))
 	return cmd
 }
 

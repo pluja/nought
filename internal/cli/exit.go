@@ -17,6 +17,7 @@ const (
 	exitPartial    = 3
 	exitPermission = 4
 	exitNotFound   = 5
+	exitBusy       = 6
 	// exitInterrupted follows the shell convention 128 + SIGINT.
 	exitInterrupted = 130
 )
@@ -37,6 +38,8 @@ func exitCode(err error) (code int, name string) {
 		return exitNotFound, "ambiguous"
 	case errors.Is(err, ops.ErrNotFound):
 		return exitNotFound, "not_found"
+	case errors.Is(err, ops.ErrBusy):
+		return exitBusy, "busy"
 	default:
 		return exitInternal, "internal"
 	}

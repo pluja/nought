@@ -8,12 +8,14 @@ tool (
 )
 
 require (
+	github.com/emersion/go-imap/v2 v2.0.0-beta.8
 	github.com/emersion/go-message v0.18.2
 	github.com/pelletier/go-toml/v2 v2.4.3
 	github.com/rogpeppe/go-internal v1.16.0
 	github.com/spf13/cobra v1.10.2
 	github.com/zalando/go-keyring v0.2.8
 	golang.org/x/net v0.61.0
+	golang.org/x/sys v0.49.0
 	golang.org/x/term v0.47.0
 	modernc.org/sqlite v1.60.1
 )
@@ -22,6 +24,7 @@ require (
 	github.com/BurntSushi/toml v1.4.1-0.20240526193622-a339e1f7089c // indirect
 	github.com/danieljoos/wincred v1.2.3 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
+	github.com/emersion/go-sasl v0.0.0-20241020182733-b788ff22d5a6 // indirect
 	github.com/godbus/dbus/v5 v5.2.2 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
@@ -32,7 +35,6 @@ require (
 	golang.org/x/exp/typeparams v0.0.0-20231108232855-2478ac86f678 // indirect
 	golang.org/x/mod v0.42.0 // indirect
 	golang.org/x/sync v0.24.0 // indirect
-	golang.org/x/sys v0.49.0 // indirect
 	golang.org/x/telemetry v0.0.0-20261010193011-f71dc92da45e // indirect
 	golang.org/x/text v0.43.0 // indirect
 	golang.org/x/tools v0.52.0 // indirect

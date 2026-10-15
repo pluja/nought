@@ -4,6 +4,8 @@ package cli
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -14,9 +16,11 @@ import (
 	"path/filepath"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/rogpeppe/go-internal/testscript"
 
+	"nought/internal/imaptest"
 	"nought/internal/ops"
 	"nought/internal/secret"
 )
@@ -30,6 +34,7 @@ func TestMain(m *testing.M) {
 			code := Run(ctx, Options{
 				Args: os.Args[1:], Stdin: os.Stdin, Stdout: os.Stdout, Stderr: os.Stderr,
 				Getenv: os.Getenv, Version: "test", Secrets: fileSecrets(os.Getenv("NOU_TEST_KEYRING")),
+				TLS: testTLS(os.Getenv("NOU_TEST_CA")),
 			})
 			stop()
 			os.Exit(code)
@@ -38,16 +43,65 @@ func TestMain(m *testing.M) {
 }
 
 func TestScripts(t *testing.T) {
+	// One IMAP test server for all scripts; only sync scripts use it.
+	srv := imaptest.Start(t, imaptest.Options{})
 	testscript.Run(t, testscript.Params{
 		Dir:           filepath.Join("testdata", "script"),
 		UpdateScripts: *update,
-		Cmds:          map[string]func(*testscript.TestScript, bool, []string){"code": cmdCode},
+		Cmds: map[string]func(*testscript.TestScript, bool, []string){
+			"code":       cmdCode,
+			"imapappend": func(ts *testscript.TestScript, neg bool, args []string) { cmdIMAPAppend(t, srv, ts, neg, args) },
+			"imapcount":  func(ts *testscript.TestScript, neg bool, args []string) { cmdIMAPCount(t, srv, ts, neg, args) },
+		},
 		Setup: func(e *testscript.Env) error {
 			e.Setenv("NOUGHT_HOME", filepath.Join(e.WorkDir, "home"))
 			e.Setenv("NOU_TEST_KEYRING", filepath.Join(e.WorkDir, "keyring.json"))
-			return nil
+			ca := filepath.Join(e.WorkDir, "test-ca.pem")
+			e.Setenv("NOU_TEST_CA", ca)
+			e.Setenv("IMAP_PORT", strconv.Itoa(srv.Port))
+			return os.WriteFile(ca, srv.CAPEM, 0o600)
 		},
 	})
+}
+
+// testTLS trusts the test server's certificate in nou subprocesses.
+func testTLS(caFile string) *tls.Config {
+	if caFile == "" {
+		return nil
+	}
+	pem, err := os.ReadFile(caFile)
+	if err != nil {
+		return nil
+	}
+	pool := x509.NewCertPool()
+	pool.AppendCertsFromPEM(pem)
+	return &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}
+}
+
+// cmdIMAPAppend appends a script file to a mailbox:
+//
+//	imapappend INBOX 30 mail.eml     (received 30 days ago)
+func cmdIMAPAppend(t *testing.T, srv *imaptest.Server, ts *testscript.TestScript, neg bool, args []string) {
+	if neg || len(args) != 3 {
+		ts.Fatalf("usage: imapappend <mailbox> <days-ago> <file>")
+	}
+	days, err := strconv.Atoi(args[1])
+	if err != nil {
+		ts.Fatalf("bad days %q", args[1])
+	}
+	srv.Append(t, args[0], ts.ReadFile(args[2]), time.Now().Add(-time.Duration(days)*24*time.Hour))
+}
+
+// cmdIMAPCount checks how many messages a mailbox holds:
+//
+//	imapcount INBOX 2
+func cmdIMAPCount(t *testing.T, srv *imaptest.Server, ts *testscript.TestScript, neg bool, args []string) {
+	if neg || len(args) != 2 {
+		ts.Fatalf("usage: imapcount <mailbox> <n>")
+	}
+	if got := strconv.Itoa(len(srv.UIDs(t, args[0]))); got != args[1] {
+		ts.Fatalf("%s has %s messages, want %s", args[0], got, args[1])
+	}
 }
 
 // cmdCode runs a command and checks its exit status:
@@ -85,6 +139,8 @@ func TestExitCode(t *testing.T) {
 		{fmt.Errorf("x: %w", ops.ErrPermission), exitPermission, "permission"},
 		{fmt.Errorf("x: %w", ops.ErrAmbiguous), exitNotFound, "ambiguous"},
 		{fmt.Errorf("x: %w", ops.ErrNotFound), exitNotFound, "not_found"},
+		{fmt.Errorf("x: %w", ops.ErrBusy), exitBusy, "busy"},
+		{fmt.Errorf("x: %w", context.Canceled), exitInterrupted, "interrupted"},
 		{errors.New("boom"), exitInternal, "internal"},
 	}
 	for _, tt := range tests {

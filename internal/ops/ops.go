@@ -68,6 +68,7 @@ var (
 	ErrAmbiguous  = errors.New("ambiguous")
 	ErrPermission = errors.New("permission denied")
 	ErrPartial    = errors.New("partial failure")
+	ErrBusy       = errors.New("busy")
 )
 
 func usageError(format string, args ...any) error {

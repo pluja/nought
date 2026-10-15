@@ -14,6 +14,7 @@ import (
 	"nought/internal/atomicfile"
 	"nought/internal/config"
 	"nought/internal/index"
+	"nought/internal/lock"
 	"nought/internal/query"
 	"nought/internal/store"
 )
@@ -116,6 +117,14 @@ var IndexRebuild = Op[struct{}, ReindexOut]{
 
 func runReindex(ctx context.Context, env *Env, _ struct{}) (ReindexOut, error) {
 	var out ReindexOut
+	l, err := lock.Acquire(env.Paths.LockFile)
+	if errors.Is(err, lock.ErrLocked) {
+		return out, fmt.Errorf("a sync or another reindex is running: %w", ErrBusy)
+	}
+	if err != nil {
+		return out, err
+	}
+	defer func() { _ = l.Release() }()
 	if err := refreshDumpBeforeReindex(ctx, env); err != nil {
 		return out, err
 	}

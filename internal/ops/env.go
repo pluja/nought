@@ -4,6 +4,7 @@ package ops
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"log/slog"
 	"sync"
@@ -30,6 +31,9 @@ type Env struct {
 	Now     func() time.Time
 	Build   BuildInfo
 	Secrets secret.Store
+	// TLS is the base TLS configuration for mail servers; nil means the
+	// system's trusted roots. Tests use it to trust a test certificate.
+	TLS *tls.Config
 
 	mu     sync.Mutex
 	config *config.Config

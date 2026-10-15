@@ -7,6 +7,7 @@ package cli
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"io"
 	"log/slog"
@@ -31,6 +32,7 @@ type Options struct {
 	Getenv  func(string) string
 	Version string
 	Secrets secret.Store // nil means the OS keyring
+	TLS     *tls.Config  // base TLS config for mail servers; nil means system roots
 }
 
 // app is the state shared by all commands during one invocation.
@@ -97,6 +99,7 @@ func (a *app) setup(cmd *cobra.Command, _ []string) error {
 		secrets = secret.Keyring()
 	}
 	a.env = ops.NewEnv(paths, log, time.Now, buildInfo(a.opts.Version), secrets)
+	a.env.TLS = a.opts.TLS
 	return nil
 }
 

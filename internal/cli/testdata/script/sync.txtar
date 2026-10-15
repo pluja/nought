@@ -1,0 +1,61 @@
+# Mail on the server: an old read message, a fresh one, and spam.
+imapappend INBOX 30 old.eml
+imapappend INBOX 1 fresh.eml
+imapappend Trash 1 trash.eml
+
+# Add the account, check it, and sync. Deletion starts disabled.
+stdin password.txt
+exec nou account add test --email me@example.org --imap-host 127.0.0.1 --imap-port $IMAP_PORT --password-stdin
+exec nou account test test
+stdout '^UIDPLUS: yes$'
+stdout 'INBOX +archive, keep 7 days on server'
+stdout 'Trash +ignore'
+
+exec nou sync --dry-run
+stdout 'INBOX +2 new, 0 due for deletion'
+
+exec nou sync
+stdout '^test \(deletion disabled\)$'
+stdout 'INBOX +archived 2, deleted 0, 1 due but kept \(keep 7d\)'
+stdout 'deletion is disabled for this account'
+stdout 'Trash +ignored'
+imapcount INBOX 2
+
+# The archive is searchable; Trash was never archived.
+exec nou search tag:inbox
+stdout -count=2 'folder:inbox inbox unread'
+! stdout 'spam'
+
+# Enable deletion: the old message leaves the server, the fresh one stays.
+exec nou account set test --deletion enabled
+exec nou sync --json
+stdout '"folder":"INBOX","action":"archive","keep_days":7,"new":0,"fetched":0,"due":1,"expunged":1'
+imapcount INBOX 1
+imapcount Trash 1
+grep '"phase":"intent"' home/data/expunge.journal
+grep '"phase":"done"' home/data/expunge.journal
+
+# Still in the archive.
+exec nou search subject:old
+stdout 'old newsletter'
+
+-- password.txt --
+test-password
+-- old.eml --
+From: News <news@example.org>
+Message-ID: <old@example.org>
+Subject: old newsletter
+
+old
+-- fresh.eml --
+From: Alice <alice@example.org>
+Message-ID: <fresh@example.org>
+Subject: fresh tag
+
+fresh
+-- trash.eml --
+From: Spam <spam@example.org>
+Message-ID: <trash@example.org>
+Subject: spam offer
+
+buy
