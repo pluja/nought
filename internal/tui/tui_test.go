@@ -3,6 +3,7 @@
 package tui
 
 import (
+	"errors"
 	"flag"
 	"io"
 	"log/slog"
@@ -435,28 +436,90 @@ func TestGPrefix(t *testing.T) {
 	}
 }
 
-func TestSyncConfirmationAndQuit(t *testing.T) {
+func TestSyncRunsWithoutAsking(t *testing.T) {
 	m := newTestModel(t, 120, 30)
 	m.status = []ops.AccountStatusOut{{Account: "personal", Deletion: true}}
-	m = drive(t, m, key("S"))
-	if m.inputKind != inputConfirmSync || !strings.Contains(screen(m), "Continue? (y/N)") {
-		t.Fatalf("no confirmation: %v", m.inputKind)
-	}
-	m = drive(t, m, key("n"))
-	if m.syncing || m.notice != "sync cancelled" {
-		t.Errorf("sync started without a yes: %v %q", m.syncing, m.notice)
+	next, cmd := m.Update(key("S"))
+	m = next.(Model)
+	if !m.syncing || m.syncAuto || cmd == nil || m.inputKind != inputNone {
+		t.Fatalf("S: syncing %v auto %v cmd %v input %v", m.syncing, m.syncAuto, cmd != nil, m.inputKind)
 	}
 
 	// Quitting while a sync runs stops it first; a second request forces.
 	cancelled := false
 	m.syncing, m.syncCancel = true, func() { cancelled = true }
-	next, cmd := m.Update(key("q"))
+	next, cmd = m.Update(key("q"))
 	m = next.(Model)
 	if cmd != nil || !m.quitting || !cancelled {
 		t.Fatalf("quit during sync: cmd %v quitting %v cancelled %v", cmd != nil, m.quitting, cancelled)
 	}
 	if _, cmd := m.Update(syncDoneMsg{}); cmd == nil {
 		t.Error("no quit after the sync stopped")
+	}
+}
+
+func TestNextSyncDelay(t *testing.T) {
+	for _, c := range []struct {
+		every    time.Duration
+		failures int
+		want     time.Duration
+	}{
+		{10 * time.Minute, 0, 10 * time.Minute},
+		{10 * time.Minute, 1, 20 * time.Minute},
+		{10 * time.Minute, 3, time.Hour},
+		{10 * time.Minute, 1000, time.Hour},
+		{2 * time.Hour, 0, 2 * time.Hour},
+		{2 * time.Hour, 5, 2 * time.Hour},
+	} {
+		if got := nextSyncDelay(c.every, c.failures); got != c.want {
+			t.Errorf("nextSyncDelay(%v, %d) = %v, want %v", c.every, c.failures, got, c.want)
+		}
+	}
+}
+
+func TestAutoSyncSchedule(t *testing.T) {
+	m := newTestModel(t, 120, 30)
+	if m.syncEvery != 0 {
+		t.Fatal("no accounts: auto-sync must be off")
+	}
+	m.syncEvery = 10 * time.Minute
+
+	// A tick from an old schedule does nothing; the current one syncs.
+	m, _ = m.autoSync(autoSyncMsg{gen: m.syncSchedule - 1})
+	if m.syncing {
+		t.Fatal("stale tick started a sync")
+	}
+	m, cmd := m.autoSync(autoSyncMsg{gen: m.syncSchedule})
+	if !m.syncing || !m.syncAuto || cmd == nil {
+		t.Fatal("tick did not start an automatic sync")
+	}
+	if again, _ := m.autoSync(autoSyncMsg{gen: m.syncSchedule}); again.notice == "already syncing" {
+		t.Error("a tick during a sync must stay quiet")
+	}
+
+	// Nothing new: quiet, and a new schedule starts.
+	m.notice = "earlier"
+	gen := m.syncSchedule
+	m, _ = m.syncDone(syncDoneMsg{})
+	if m.notice != "earlier" || m.syncSchedule != gen+1 || m.syncFailures != 0 {
+		t.Errorf("quiet sync: notice %q schedule %d failures %d", m.notice, m.syncSchedule, m.syncFailures)
+	}
+
+	// Failures are told and back off; another sync running is not a failure.
+	m.syncing, m.syncAuto = true, true
+	m, _ = m.syncDone(syncDoneMsg{err: errors.New("offline")})
+	if m.syncFailures != 1 || !m.noticeErr || !strings.Contains(m.notice, "1 problems") {
+		t.Errorf("failed sync: failures %d notice %q", m.syncFailures, m.notice)
+	}
+	m.syncing, m.syncAuto = true, true
+	m, _ = m.syncDone(syncDoneMsg{err: ops.ErrBusy})
+	if m.syncFailures != 1 {
+		t.Errorf("busy counted as a failure: %d", m.syncFailures)
+	}
+	m.syncing, m.syncAuto = true, true
+	m, _ = m.syncDone(syncDoneMsg{out: ops.SyncOut{Accounts: []ops.AccountSyncOut{{Folders: []ops.FolderSyncOut{{Fetched: 2, Expunged: 1}}}}}})
+	if m.syncFailures != 0 || m.notice != "synced: 2 new, 1 left the server" {
+		t.Errorf("news: failures %d notice %q", m.syncFailures, m.notice)
 	}
 }
 

@@ -7,7 +7,6 @@ import (
 	"context"
 	"fmt"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
@@ -220,28 +219,6 @@ func previewAfter(seq int, wait time.Duration) tea.Cmd {
 		return func() tea.Msg { return previewMsg{seq: seq} }
 	}
 	return tea.Tick(wait, func(time.Time) tea.Msg { return previewMsg{seq: seq} })
-}
-
-// syncSummary condenses a sync result into one line.
-func syncSummary(out ops.SyncOut, err error) string {
-	fetched, expunged, problems := 0, 0, 0
-	for _, a := range out.Accounts {
-		if a.Error != "" {
-			problems++
-		}
-		for _, f := range a.Folders {
-			fetched += f.Fetched
-			expunged += f.Expunged
-			if f.Error != "" {
-				problems++
-			}
-		}
-	}
-	s := "synced: archived " + strconv.Itoa(fetched) + ", deleted " + strconv.Itoa(expunged) + " from servers"
-	if problems > 0 || err != nil {
-		s += fmt.Sprintf("; %d problems (run 'nou sync' for details)", max(problems, 1))
-	}
-	return s
 }
 
 // parseTagInput reads "+a -b c" (a bare word adds).

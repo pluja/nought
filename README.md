@@ -61,6 +61,11 @@ By default, mail stays on the server for 7 days after it arrives (so your phone 
 mail). Drafts, templates, junk, spam and trash are never archived or deleted. Each account's
 folder rules are in the config file, and `nou account show <name>` lists them.
 
+The TUI (`nou tui`) syncs when it starts and then every 10 minutes, quietly unless something
+changed. After a failure (say, you are offline) it waits twice as long each time, up to an hour.
+Set the interval with `sync_every = "30m"` under `[tui]`, or turn it off with `"0"`; `S` syncs
+at any time.
+
 ## Deleting mail
 
 Some mail is not worth keeping anywhere: a login code, a shipping notice. Deleting it removes it

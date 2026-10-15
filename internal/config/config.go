@@ -13,6 +13,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"time"
 	"unicode"
 
 	"github.com/pelletier/go-toml/v2"
@@ -80,6 +81,26 @@ type TUI struct {
 	Searches []SavedSearch `toml:"search,omitempty"`
 	// Hints shows a line of useful keys for the current screen (default true).
 	Hints *bool `toml:"hints,omitempty"`
+	// SyncEvery is how often the TUI syncs while open, after a first sync
+	// on start: a Go duration like "10m" (the default); "0" turns it off.
+	SyncEvery string `toml:"sync_every,omitempty"`
+}
+
+// Automatic sync limits.
+const (
+	DefaultSyncEvery = 10 * time.Minute
+	MinSyncEvery     = time.Minute
+	MaxSyncEvery     = 24 * time.Hour
+)
+
+// SyncInterval returns how often the TUI syncs; 0 means never. Validate
+// has checked the value.
+func (t TUI) SyncInterval() time.Duration {
+	if t.SyncEvery == "" {
+		return DefaultSyncEvery
+	}
+	d, _ := time.ParseDuration(t.SyncEvery)
+	return d
 }
 
 // ShowHints reports whether the key hints line is shown.
@@ -237,6 +258,13 @@ func (c *Config) Validate() error {
 			if t == "deleted" || strings.HasPrefix(t, "delete-after:") {
 				return fmt.Errorf("rule %d: tag %q is reserved; use expire_days", i+1, t)
 			}
+		}
+	}
+	if s := c.TUI.SyncEvery; s != "" {
+		d, err := time.ParseDuration(s)
+		if err != nil || d != 0 && (d < MinSyncEvery || d > MaxSyncEvery) {
+			return fmt.Errorf("tui sync_every %q: use a duration like \"10m\" between %v and %v, or \"0\" to turn it off",
+				s, MinSyncEvery, MaxSyncEvery)
 		}
 	}
 	for _, s := range c.TUI.Searches {

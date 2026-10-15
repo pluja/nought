@@ -387,8 +387,6 @@ func (m Model) renderPromptLine() string {
 	case m.inputKind == inputConfirmDelete:
 		q := "Delete permanently, here and on the server? (y/N) "
 		return fit(m.st.errText.Render(q)+render.SanitizeLine(m.deleting.Subject), m.width, 1)
-	case m.inputKind == inputConfirmSync:
-		return fit(m.st.warn.Bold(true).Render("Sync may delete mail from servers (accounts with deletion on). Continue? (y/N)"), m.width, 1)
 	case m.syncing:
 		line := "syncing…"
 		if len(m.syncLines) > 0 {
@@ -411,7 +409,7 @@ func (m Model) renderHints() string {
 	switch {
 	case m.inputKind == inputLinkNumber:
 		hints = [][2]string{{"1-" + strconv.Itoa(len(m.links)), "link"}, {"enter", "confirm"}, {"esc", "cancel"}}
-	case m.inputKind == inputConfirmSync || m.inputKind == inputConfirmDelete:
+	case m.inputKind == inputConfirmDelete:
 		hints = [][2]string{{"y", "yes"}, {"any other key", "no"}}
 	case m.inputKind != inputNone:
 		hints = [][2]string{{"enter", "confirm"}, {"esc", "cancel"}}

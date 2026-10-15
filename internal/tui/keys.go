@@ -83,7 +83,7 @@ func (m Model) key(k tea.KeyPressMsg) (Model, tea.Cmd) {
 	case ":":
 		return m.startInput(inputPalette, "")
 	case "S":
-		return m.askSync()
+		return m.startSync(false)
 	case "z":
 		return m.undoLast()
 	case "o":
@@ -255,19 +255,6 @@ func (m Model) moveOpen(delta int) (Model, tea.Cmd) {
 	return m.openSelected()
 }
 
-// askSync confirms before a sync that may delete mail from servers.
-func (m Model) askSync() (Model, tea.Cmd) {
-	if m.syncing {
-		m.notice = "already syncing"
-		return m, nil
-	}
-	if !m.needsSyncConfirmation() {
-		return m.startSync()
-	}
-	m.inputKind = inputConfirmSync
-	return m, nil
-}
-
 func (m Model) startInput(kind inputKind, value string) (Model, tea.Cmd) {
 	if kind == inputTags {
 		if _, ok := m.selected(); !ok {
@@ -282,15 +269,7 @@ func (m Model) startInput(kind inputKind, value string) (Model, tea.Cmd) {
 }
 
 func (m Model) inputKey(k tea.KeyPressMsg) (Model, tea.Cmd) {
-	switch m.inputKind {
-	case inputConfirmSync:
-		m.inputKind = inputNone
-		if strings.EqualFold(k.String(), "y") {
-			return m.startSync()
-		}
-		m.notice = "sync cancelled"
-		return m, nil
-	case inputConfirmDelete:
+	if m.inputKind == inputConfirmDelete {
 		m.inputKind = inputNone
 		if k.String() != "y" && k.String() != "Y" {
 			m.notice = "not deleted"
@@ -359,7 +338,7 @@ func (m Model) command(line string) (Model, tea.Cmd) {
 	case "q", "quit":
 		return m.requestQuit()
 	case "sync":
-		return m.askSync()
+		return m.startSync(false)
 	case "search", "s":
 		return m.goTo(arg)
 	case "inbox":

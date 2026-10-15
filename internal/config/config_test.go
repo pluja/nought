@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func env(vars map[string]string) func(string) string {
@@ -347,6 +348,27 @@ func TestGlob(t *testing.T) {
 	for _, bad := range []string{"[abc", "{a,b", "{a,{b}}", `trail\`, "[]", strings.Repeat("a", 300)} {
 		if _, err := compileGlob(bad); err == nil {
 			t.Errorf("compileGlob(%q) accepted", bad)
+		}
+	}
+}
+
+func TestSyncEvery(t *testing.T) {
+	for value, want := range map[string]time.Duration{"": DefaultSyncEvery, "5m": 5 * time.Minute, "0": 0, "2h": 2 * time.Hour} {
+		cfg := "\n[tui]\nsync_every = \"" + value + "\"\n"
+		if value == "" {
+			cfg = ""
+		}
+		c, err := Load(writeConfig(t, validTOML+cfg))
+		if err != nil {
+			t.Fatalf("%q: %v", value, err)
+		}
+		if got := c.TUI.SyncInterval(); got != want {
+			t.Errorf("%q: interval %v, want %v", value, got, want)
+		}
+	}
+	for _, bad := range []string{"10", "30s", "48h", "-5m", "soon"} {
+		if _, err := Load(writeConfig(t, validTOML+"\n[tui]\nsync_every = \""+bad+"\"\n")); err == nil {
+			t.Errorf("accepted %q", bad)
 		}
 	}
 }

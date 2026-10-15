@@ -54,7 +54,6 @@ const (
 	inputSearch
 	inputTags
 	inputPalette
-	inputConfirmSync
 	inputLinkNumber
 	inputConfirmDelete
 )
@@ -163,12 +162,18 @@ type Model struct {
 	noticeErr   bool           // the notice reports a failure
 	deleting    ops.MessageOut // the message D asks about
 	syncing     bool
-	syncCancel  context.CancelFunc
-	quitting    bool
-	syncLines   []string
-	help        bool
-	pendingG    bool
-	undo        []undoEntry
+	syncAuto    bool // the running sync was started by the schedule
+	syncEvery   time.Duration
+	// syncSchedule numbers schedules: a manual sync starts a new one, and
+	// ticks of older ones are ignored.
+	syncSchedule int
+	syncFailures int // in a row; the wait doubles with each
+	syncCancel   context.CancelFunc
+	quitting     bool
+	syncLines    []string
+	help         bool
+	pendingG     bool
+	undo         []undoEntry
 }
 
 // Options configure Run.
@@ -230,11 +235,19 @@ func newModel(ctx context.Context, env *ops.Env) Model {
 	}
 	if cfg, err := env.Config(); err == nil {
 		m.prefs = cfg.TUI
+		if len(cfg.Accounts) > 0 {
+			m.syncEvery = cfg.TUI.SyncInterval()
+		}
 	}
 	return m
 }
 
 // Init loads the first view.
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(m.search(m.query, m.searchGen), m.loadStatus(), m.loadSidebar())
+	cmds := []tea.Cmd{m.search(m.query, m.searchGen), m.loadStatus(), m.loadSidebar()}
+	if m.syncEvery > 0 {
+		gen := m.syncSchedule
+		cmds = append(cmds, func() tea.Msg { return autoSyncMsg{gen: gen} }) // sync on start
+	}
+	return tea.Batch(cmds...)
 }

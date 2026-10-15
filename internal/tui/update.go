@@ -109,17 +109,10 @@ func (m Model) update(msg tea.Msg) (Model, tea.Cmd) {
 		return m, nil
 
 	case syncDoneMsg:
-		m.syncing, m.syncLines = false, nil
-		if m.syncCancel != nil {
-			m.syncCancel()
-			m.syncCancel = nil
-		}
-		if m.quitting {
-			return m, tea.Quit
-		}
-		m.notice = syncSummary(msg.out, msg.err)
-		m.noticeErr = msg.err != nil
-		return m.refresh()
+		return m.syncDone(msg)
+
+	case autoSyncMsg:
+		return m.autoSync(msg)
 
 	case deleteDoneMsg:
 		switch {
@@ -321,18 +314,14 @@ func (m Model) goTo(query string) (Model, tea.Cmd) {
 	return m, m.search(query, m.searchGen)
 }
 
-// needsSyncConfirmation reports whether a sync could delete server mail.
-func (m Model) needsSyncConfirmation() bool {
-	return slices.ContainsFunc(m.status, func(s ops.AccountStatusOut) bool { return s.Deletion })
-}
-
-func (m Model) startSync() (Model, tea.Cmd) {
+// startSync runs a sync in the background; auto syncs report only news.
+func (m Model) startSync(auto bool) (Model, tea.Cmd) {
 	if m.syncing {
 		m.notice = "already syncing"
 		return m, nil
 	}
 	ctx, cancel := context.WithCancel(m.ctx)
-	m.syncing, m.syncLines, m.syncCancel = true, nil, cancel
+	m.syncing, m.syncAuto, m.syncLines, m.syncCancel = true, auto, nil, cancel
 	return m, m.sync(ctx)
 }
 
