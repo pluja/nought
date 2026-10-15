@@ -1,7 +1,7 @@
 nought  tag:inbox  3 messages                                                                                           
- Inbox            3 ▌● • Oct 14 Alice (example.org)    Lunch on Friday?    │From:    Alice <alice@example.org>          
- Unread           3  ● • Oct 13 Bob (example.org)      Invoice 2026-114    │To:      me@example.org                     
- Flagged             ● • Oct 12 Mallory (example.org)  evil red            │Date:    Wed, 14 Oct 2026 09:00             
+ Inbox            3 ▌● ◆ Oct 14 Alice (example.org)    Lunch on Friday?    │From:    Alice <alice@example.org>          
+ Unread           3  ● ◆ Oct 13 Bob (example.org)      Invoice 2026-114    │To:      me@example.org                     
+ Flagged             ● ◆ Oct 12 Mallory (example.org)  evil red            │Date:    Wed, 14 Oct 2026 09:00             
  All mail                                                                  │Subject: Lunch on Friday?                   
  #folder:inbox    3                                                        │Tags:    folder:inbox inbox unread          
                                                                            │Local only: no longer on any server; kept   

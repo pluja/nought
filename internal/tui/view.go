@@ -175,8 +175,10 @@ func (m Model) renderListLine(msg ops.MessageOut, selected bool, w int) string {
 		}
 		return s
 	}
+	// Read mail recedes; unread mail stands out at full brightness. Bold
+	// alone is too subtle in many terminal fonts.
 	unread := slices.Contains(msg.Tags, ops.TagUnread)
-	text := m.st.plain
+	text := m.st.dim
 	if unread {
 		text = m.st.bold
 	}
@@ -189,7 +191,7 @@ func (m Model) renderListLine(msg ops.MessageOut, selected bool, w int) string {
 	case slices.Contains(msg.Tags, ops.TagFlagged):
 		state, stateStyle = "★", m.st.flag
 	case unread:
-		state, stateStyle = "•", m.st.unreadDot
+		state, stateStyle = m.glyph("◆", "*"), m.st.unreadDot
 	}
 	date := ""
 	if msg.Date != nil {
@@ -399,7 +401,7 @@ Where messages live (every message is in your local archive):
   ◐ (S)  also on a server, stays there (deletion off)
   ◕ (-)  also on a server, leaves it soon (deletion on)
   ● (L)  local only: no longer on any server
-  •  unread    ★  flagged    #tag  your tags
+  ◆  unread (read mail is dimmed)    ★  flagged    #tag  your tags
 
 Archiving (e) only removes the inbox tag in your archive. Nothing in this
 interface deletes mail from a server: that happens only during sync, for

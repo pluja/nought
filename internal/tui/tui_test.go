@@ -482,7 +482,7 @@ func TestListShowsStateAndTags(t *testing.T) {
 	m = drive(t, m, key("s"), key("l"))
 	m = drive(t, m, append(keys("+todo"), key("enter"))...)
 	s := screen(m)
-	for _, want := range []string{"★", "•", "#todo", "●"} {
+	for _, want := range []string{"★", "◆", "#todo", "●"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("list lacks %q:\n%s", want, s)
 		}
@@ -493,6 +493,19 @@ func TestListShowsStateAndTags(t *testing.T) {
 	}
 	if !strings.Contains(m.render(), "\x1b[") {
 		t.Error("no color in the output")
+	}
+}
+
+func TestReadRowsAreDimmed(t *testing.T) {
+	m := newTestModel(t, 120, 30)
+	unread := m.renderListLine(m.msgs[1], false, 120)
+	m = drive(t, m, key("j"), key("u")) // mark the second one read
+	read := m.renderListLine(m.msgs[1], false, 120)
+	if !strings.Contains(unread, "\x1b[1mBob") || !strings.Contains(unread, "◆") {
+		t.Errorf("unread row not bold with a marker: %q", unread)
+	}
+	if !strings.Contains(read, "\x1b[2mBob") || strings.Contains(read, "◆") {
+		t.Errorf("read row not dimmed: %q", read)
 	}
 }
 
