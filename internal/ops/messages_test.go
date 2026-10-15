@@ -4,6 +4,7 @@ package ops
 
 import (
 	"errors"
+	"fmt"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -244,5 +245,39 @@ func TestShowPrefersHTMLWithoutHiddenText(t *testing.T) {
 	}
 	if _, err := Call(t.Context(), env, Read, MsgShow, ShowIn{ID: id, Prefer: "pdf"}); !errors.Is(err, ErrUsage) {
 		t.Errorf("bad prefer = %v", err)
+	}
+}
+
+func TestShowFallsBackToPlainWhenHTMLShowsNothing(t *testing.T) {
+	env := newTestEnv(t)
+	root := filepath.Join(t.TempDir(), "export")
+	for i, html := range []string{`<img src="https://t.example/p.gif">`, strings.Repeat("<div>", 600) + "x"} {
+		writeFile(t, filepath.Join(root, "Inbox", "cur", fmt.Sprintf("%d:2,S", i)), fmt.Sprintf("From: a@example.org\r\n"+
+			"Message-ID: <fb%d@x>\r\nSubject: fallback %d\r\nMIME-Version: 1.0\r\nContent-Type: multipart/alternative; boundary=b\r\n\r\n"+
+			"--b\r\nContent-Type: text/plain\r\n\r\nthe real text\r\n--b\r\nContent-Type: text/html\r\n\r\n%s\r\n--b--\r\n", i, i, html))
+	}
+	if _, err := Call(t.Context(), env, Delete, ImportRun, ImportIn{Path: root, Account: "personal"}); err != nil {
+		t.Fatal(err)
+	}
+	for i := range 2 {
+		out, err := Call(t.Context(), env, Read, MsgShow, ShowIn{ID: idOf(t, env, fmt.Sprintf(`subject:"fallback %d"`, i))})
+		if err != nil || out.BodyFrom != "text/plain" || !strings.Contains(out.Body, "the real text") || out.Alternative != "text/html" {
+			t.Errorf("message %d: %+v, %v", i, out, err)
+		}
+	}
+}
+
+func TestExplicitHTMLIsShownEvenIfEmpty(t *testing.T) {
+	env := newTestEnv(t)
+	root := filepath.Join(t.TempDir(), "export")
+	writeFile(t, filepath.Join(root, "Inbox", "cur", "1:2,S"), "From: a@example.org\r\nMessage-ID: <e@x>\r\nSubject: pixel\r\n"+
+		"MIME-Version: 1.0\r\nContent-Type: multipart/alternative; boundary=b\r\n\r\n--b\r\nContent-Type: text/plain\r\n\r\ntext\r\n"+
+		"--b\r\nContent-Type: text/html\r\n\r\n<img src=\"https://t.example/p.gif\">\r\n--b--\r\n")
+	if _, err := Call(t.Context(), env, Delete, ImportRun, ImportIn{Path: root, Account: "personal"}); err != nil {
+		t.Fatal(err)
+	}
+	out, err := Call(t.Context(), env, Read, MsgShow, ShowIn{ID: idOf(t, env, "subject:pixel"), Prefer: "html"})
+	if err != nil || out.BodyFrom != "text/html" || out.Alternative != "text/plain" {
+		t.Errorf("%+v, %v", out, err)
 	}
 }

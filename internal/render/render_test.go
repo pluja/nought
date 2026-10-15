@@ -260,6 +260,52 @@ func TestHiddenParagraphWithoutEndTag(t *testing.T) {
 }
 
 func TestDeepNestingIsBounded(t *testing.T) {
-	got := HTMLToText(strings.Repeat("<div>", 5000) + "deep" + "<p>x")
-	_ = got // must simply return
+	if got := HTMLToText(strings.Repeat("<div>", 5000) + "deep" + "<p>x"); got != Unreadable {
+		t.Errorf("got %q", got)
+	}
+}
+
+func TestHiddenStyleVariants(t *testing.T) {
+	for _, style := range []string{
+		"font-size:0", "font-size: 0px", "opacity:0", "opacity: 0.0",
+		"height:0;overflow:hidden", "width:0px; overflow:hidden", "max-width:0;overflow:hidden",
+		"text-indent:-9999px", "position:absolute;left:-5000px", "margin-left:-3000px",
+		"color:transparent", "display:/**/none", "display:none ! important", `display:none\9`,
+		"DISPLAY : NONE", "visibility:collapse",
+	} {
+		got := HTMLToText(`<p>shown</p><div style="` + style + `">secret</div>`)
+		if strings.Contains(got, "secret") || !strings.Contains(got, "shown") {
+			t.Errorf("style %q: %q", style, got)
+		}
+	}
+	// Ordinary styles keep their text: white text is normal on dark
+	// backgrounds, and Outlook-only hiding hides nothing elsewhere.
+	for _, style := range []string{"color:#fff", "mso-hide:all", "height:0", "font-size:10px",
+		"opacity:0.5", "left:-10px", "text-indent:-1em", "max-height:0px"} {
+		if got := HTMLToText(`<div style="` + style + `">kept</div>`); got != "kept" {
+			t.Errorf("style %q hid text: %q", style, got)
+		}
+	}
+}
+
+// Nesting deeper than the parser accepts (512) is refused as a whole: a
+// partial conversion might show hidden text.
+func TestTooDeepHTMLIsRefused(t *testing.T) {
+	got := HTMLToText(strings.Repeat("<div>", 600) + "DEEP<p style=\"display:none\">secret</p>")
+	if got != Unreadable {
+		t.Errorf("got %q", got)
+	}
+}
+
+func TestSanitizeDropsInvisibleCharacters(t *testing.T) {
+	// Zero-width spaces, word joiner, BOM, soft hyphen and Unicode tag
+	// characters (used to smuggle invisible instructions to AI).
+	in := "bunny.\ufeffnet a\u200bb\u2060c\u00add" + string(rune(0xE0041)) + string(rune(0xE0042)) + "e"
+	if got := Sanitize(in); got != "bunny.net abcde" {
+		t.Errorf("Sanitize = %q", got)
+	}
+	// Joiners shape scripts and emoji: kept.
+	if got := Sanitize("می\u200cخواهم 👩\u200d💻"); got != "می\u200cخواهم 👩\u200d💻" {
+		t.Errorf("joiners dropped: %q", got)
+	}
 }

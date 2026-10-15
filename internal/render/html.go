@@ -4,6 +4,7 @@ package render
 
 import (
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -31,6 +32,9 @@ var blocks = map[atom.Atom]bool{
 var headings = map[atom.Atom]bool{
 	atom.H1: true, atom.H2: true, atom.H3: true, atom.H4: true, atom.H5: true, atom.H6: true,
 }
+
+// Unreadable replaces HTML that cannot be converted safely.
+const Unreadable = "[nought could not convert this HTML part: it is nested too deeply]"
 
 // Limits that keep hostile HTML cheap to convert.
 const (
@@ -82,19 +86,19 @@ func HTMLToStyled(s string, st Styler) (string, []Link) {
 	// Scripting off: <noscript> content is parsed as markup (and skipped).
 	doc, err := html.ParseWithOptions(strings.NewReader(s), html.ParseOptionEnableScripting(false))
 	if err != nil {
-		return "", nil
+		// Too deeply nested to convert. A partial conversion could show
+		// text that is hidden in a mail client, so none is shown.
+		return Unreadable, nil
 	}
 	var open []int // link number of each open <a> (0: not listed)
-	w.walk(doc, 0, &open)
+	w.walk(doc, &open)
 	return w.result(), w.links
 }
 
-// maxDepth bounds recursion on hostile, deeply nested HTML; deeper content
-// is dropped.
-const maxDepth = 512
-
-func (w *textWriter) walk(n *html.Node, depth int, open *[]int) {
-	if depth > maxDepth || w.b.Len() >= MaxTextOutput {
+// walk converts a subtree. Its recursion is bounded: the parser rejects
+// documents nested deeper than 512 elements.
+func (w *textWriter) walk(n *html.Node, open *[]int) {
+	if w.b.Len() >= MaxTextOutput {
 		return
 	}
 	switch n.Type {
@@ -108,13 +112,13 @@ func (w *textWriter) walk(n *html.Node, depth int, open *[]int) {
 		tok := html.Token{Type: html.StartTagToken, DataAtom: n.DataAtom, Data: n.Data, Attr: n.Attr}
 		w.start(n.DataAtom, tok, html.StartTagToken, open)
 		for c := n.FirstChild; c != nil; c = c.NextSibling {
-			w.walk(c, depth+1, open)
+			w.walk(c, open)
 		}
 		w.end(n.DataAtom, open)
 		return
 	case html.DocumentNode:
 		for c := n.FirstChild; c != nil; c = c.NextSibling {
-			w.walk(c, depth+1, open)
+			w.walk(c, open)
 		}
 	}
 }
@@ -122,7 +126,9 @@ func (w *textWriter) walk(n *html.Node, depth int, open *[]int) {
 // hidden reports whether an element is invisible in a mail client: the
 // hidden attribute, or inline styles that hide it. Newsletters use these for
 // preheaders and duplicate mobile layouts; phishing and prompt injection use
-// them to show machines text that people never see.
+// them to show machines text that people never see. Styles in <style>
+// blocks are not applied (there is no CSS engine), so class-based hiding
+// is not detected.
 func hidden(n *html.Node) bool {
 	var style string
 	for _, a := range n.Attr {
@@ -136,23 +142,65 @@ func hidden(n *html.Node) bool {
 	if style == "" {
 		return false
 	}
-	decl := map[string]string{}
-	for _, d := range strings.Split(strings.ToLower(style), ";") {
-		k, v, ok := strings.Cut(d, ":")
+	d := declarations(style)
+	clipped := d["overflow"] == "hidden" &&
+		(isZero(d["max-height"]) || isZero(d["height"]) || isZero(d["width"]) || isZero(d["max-width"]))
+	return d["display"] == "none" || d["visibility"] == "hidden" || d["visibility"] == "collapse" ||
+		isZero(d["opacity"]) || isZero(d["font-size"]) || d["color"] == "transparent" || clipped ||
+		offscreen(d["text-indent"]) || offscreen(d["left"]) || offscreen(d["top"]) ||
+		offscreen(d["margin-left"]) || offscreen(d["margin-top"])
+}
+
+var (
+	cssComment   = regexp.MustCompile(`/\*.*?\*/`)
+	cssImportant = regexp.MustCompile(`!\s*important\s*$`)
+	cssHack      = regexp.MustCompile(`\\[0-9]+\s*$`) // e.g. "none\9", an old IE hack browsers still honour
+	cssNumber    = regexp.MustCompile(`^(-?[0-9]*\.?[0-9]+)([a-z%]*)$`)
+)
+
+// declarations parses an inline style into property: value, lowercased,
+// without comments, !important or hacks. Later declarations win.
+func declarations(style string) map[string]string {
+	out := map[string]string{}
+	for _, decl := range strings.Split(cssComment.ReplaceAllString(strings.ToLower(style), ""), ";") {
+		k, v, ok := strings.Cut(decl, ":")
 		if !ok {
 			continue
 		}
-		v = strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(v), "!important"))
-		decl[strings.TrimSpace(k)] = v
+		v = strings.TrimSpace(v)
+		v = strings.TrimSpace(cssImportant.ReplaceAllString(v, ""))
+		v = strings.TrimSpace(cssHack.ReplaceAllString(v, ""))
+		out[strings.TrimSpace(k)] = v
 	}
+	return out
+}
+
+// cssLength parses "12px", "0", "-3.5em".
+func cssLength(v string) (float64, string, bool) {
+	m := cssNumber.FindStringSubmatch(v)
+	if m == nil {
+		return 0, "", false
+	}
+	f, err := strconv.ParseFloat(m[1], 64)
+	return f, m[2], err == nil
+}
+
+func isZero(v string) bool {
+	f, _, ok := cssLength(v)
+	return ok && f == 0
+}
+
+// offscreen reports a position far outside any window.
+func offscreen(v string) bool {
+	f, unit, ok := cssLength(v)
 	switch {
-	case decl["display"] == "none", decl["visibility"] == "hidden":
-		return true
-	case decl["overflow"] == "hidden":
-		h := decl["max-height"]
-		return h == "0" || h == "0px"
+	case !ok:
+		return false
+	case unit == "em" || unit == "rem":
+		return f <= -100
+	default:
+		return f <= -1000
 	}
-	return false
 }
 
 func (w *textWriter) start(a atom.Atom, tok html.Token, tt html.TokenType, open *[]int) {

@@ -314,8 +314,9 @@ func (m Model) renderReader(w int) string {
 	return fit(m.reader.View(), w, m.bodyHeight())
 }
 
-// readerContent is the open message, fully sanitized; HTML arrives as text.
-func (m Model) readerContent() string {
+// readerContent is the open message with its styled body, fully
+// sanitized; HTML arrives as text.
+func (m Model) readerContent(body string) string {
 	if m.open == nil {
 		return ""
 	}
@@ -348,7 +349,6 @@ func (m Model) readerContent() string {
 		b.WriteString(wrap.Render(where.Render(glyph+" "+line)) + "\n")
 	}
 	b.WriteString(m.st.dim.Render(strings.Repeat("─", w)) + "\n")
-	body, _ := m.styledBody(o)
 	b.WriteString(wrap.Render(body))
 	b.WriteString(m.linksFooter(w))
 	return b.String()

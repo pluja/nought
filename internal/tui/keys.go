@@ -393,10 +393,10 @@ func (m Model) switchBody() (Model, tea.Cmd) {
 		m.notice = "this message has only one version"
 		return m, nil
 	}
-	m.bodyPrefer, m.notice = "plain", "plain-text version (v switches back)"
+	prefer := "plain"
 	if m.open.Alternative == "text/html" {
-		m.bodyPrefer, m.notice = "html", "HTML version, as text (v switches back)"
+		prefer = "html"
 	}
 	m.showGen++
-	return m, m.show(sel, m.showGen)
+	return m, m.showVersion(sel, m.showGen, prefer)
 }

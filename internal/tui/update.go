@@ -44,6 +44,13 @@ func (m Model) update(msg tea.Msg) (Model, tea.Cmd) {
 		// The list holds the newest tags (changes apply there at once).
 		msg.out.Message.Tags = sel.Tags
 		m.open = &msg.out
+		if msg.prefer != "" {
+			m.bodyPrefer = msg.prefer
+			m.notice = "plain-text version (v switches back)"
+			if msg.prefer == "html" {
+				m.notice = "HTML version, as text (v switches back)"
+			}
+		}
 		return m, nil
 
 	case previewMsg:
@@ -381,12 +388,14 @@ func (m *Model) relayout() {
 			m.showLinks, m.linkPick = false, 0
 			key = strings.TrimSuffix(key, "/links")
 		}
+		// Converting a large HTML body is the costly part: done once here.
+		var body string
 		m.links = nil
 		if m.open != nil {
-			_, m.links = m.styledBody(m.open)
+			body, m.links = m.styledBody(m.open)
 		}
 		m.openKey = key
-		m.reader.SetContent(m.readerContent())
+		m.reader.SetContent(m.readerContent(body))
 		if !sameMessage {
 			m.reader.GotoTop()
 		}

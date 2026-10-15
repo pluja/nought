@@ -3,6 +3,7 @@
 package tui
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"slices"
@@ -23,10 +24,11 @@ type (
 		err error
 	}
 	showDoneMsg struct {
-		gen int
-		id  string
-		out ops.ShowOut
-		err error
+		gen    int
+		id     string
+		prefer string // the version asked for with v; "" for ordinary shows
+		out    ops.ShowOut
+		err    error
 	}
 	previewMsg struct{ seq int }
 	tagDoneMsg struct {
@@ -68,10 +70,15 @@ func (m Model) search(query string, gen int) tea.Cmd {
 	}
 }
 
-func (m Model) show(msg ops.MessageOut, gen int) tea.Cmd {
+func (m Model) show(msg ops.MessageOut, gen int) tea.Cmd { return m.showVersion(msg, gen, "") }
+
+// showVersion shows a message; prefer, when set, asks for one version and
+// becomes the session's choice once it is shown.
+func (m Model) showVersion(msg ops.MessageOut, gen int, prefer string) tea.Cmd {
+	in := ops.ShowIn{ID: msg.ID, Account: msg.Account, Prefer: cmp.Or(prefer, m.bodyPrefer)}
 	return func() tea.Msg {
-		out, err := ops.Call(m.ctx, m.env, permTag, ops.MsgShow, ops.ShowIn{ID: msg.ID, Account: msg.Account, Prefer: m.bodyPrefer})
-		return showDoneMsg{gen: gen, id: msg.ID, out: out, err: err}
+		out, err := ops.Call(m.ctx, m.env, permTag, ops.MsgShow, in)
+		return showDoneMsg{gen: gen, id: msg.ID, prefer: prefer, out: out, err: err}
 	}
 }
 

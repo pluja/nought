@@ -29,7 +29,7 @@ func Sanitize(s string) string {
 		switch {
 		case r == '\n' || r == '\t':
 			return r
-		case unicode.IsControl(r), isBidiControl(r):
+		case unicode.IsControl(r), isBidiControl(r), isInvisible(r):
 			return -1
 		default:
 			return r
@@ -41,6 +41,14 @@ func Sanitize(s string) string {
 // newlines and tabs become spaces.
 func SanitizeLine(s string) string {
 	return strings.Join(strings.Fields(Sanitize(s)), " ")
+}
+
+// isInvisible reports format characters that render as nothing: zero-width
+// spaces, word joiners, BOM, soft hyphens, and Unicode tag characters (a
+// way to smuggle invisible text to AI). The zero-width joiner and
+// non-joiner are kept: scripts like Persian and emoji sequences need them.
+func isInvisible(r rune) bool {
+	return unicode.Is(unicode.Cf, r) && r != 0x200C && r != 0x200D
 }
 
 func isBidiControl(r rune) bool {

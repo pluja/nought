@@ -181,10 +181,18 @@ var MsgShow = Op[ShowIn, ShowOut]{
 		if err != nil {
 			return ShowOut{}, err
 		}
-		useHTML := content.HTML != "" && (prefer == config.BodyHTML || content.Plain == "")
+		var htmlText string
+		wantHTML := content.HTML != "" && (prefer == config.BodyHTML || content.Plain == "")
+		if wantHTML {
+			htmlText = render.HTMLToText(content.HTML)
+		}
+		// Unless asked for explicitly, HTML that shows nothing (images
+		// only, all hidden) or cannot be converted gives way to the plain
+		// version, if there is one.
+		htmlUsable := in.Prefer == config.BodyHTML || strings.TrimSpace(htmlText) != "" && htmlText != render.Unreadable
 		switch {
-		case useHTML:
-			out.Body, out.BodyFrom, out.Source = render.HTMLToText(content.HTML), "text/html", content.HTML
+		case wantHTML && (htmlUsable || content.Plain == ""):
+			out.Body, out.BodyFrom, out.Source = htmlText, "text/html", content.HTML
 			if content.Plain != "" {
 				out.Alternative = "text/plain"
 			}
