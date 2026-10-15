@@ -8,9 +8,12 @@ package cli
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
+	"os"
 	"runtime"
 	"runtime/debug"
 	"time"
@@ -85,6 +88,13 @@ const noPaths = "nopaths"
 
 // setup builds the Env once flags are parsed.
 func (a *app) setup(cmd *cobra.Command, _ []string) error {
+	tlsConfig, err := a.devMode()
+	if err != nil {
+		return err
+	}
+	if tlsConfig != nil {
+		a.opts.TLS = tlsConfig
+	}
 	paths, err := config.ResolvePaths(runtime.GOOS, a.opts.Getenv)
 	if err != nil && cmd.Annotations[noPaths] == "" {
 		return err
@@ -101,6 +111,35 @@ func (a *app) setup(cmd *cobra.Command, _ []string) error {
 	a.env = ops.NewEnv(paths, log, time.Now, buildInfo(a.opts.Version), secrets)
 	a.env.TLS = a.opts.TLS
 	return nil
+}
+
+// devMode applies NOU_DEV=1, used while developing nought: it refuses to run
+// without NOUGHT_HOME, so a development run can never touch the user's real
+// mail, and it trusts the test server's certificate from NOU_DEV_CA (in
+// addition to the system roots).
+func (a *app) devMode() (*tls.Config, error) {
+	if a.opts.Getenv("NOU_DEV") != "1" {
+		return nil, nil
+	}
+	if a.opts.Getenv("NOUGHT_HOME") == "" {
+		return nil, fmt.Errorf("NOU_DEV=1 requires NOUGHT_HOME (development must never use your real data): %w", ops.ErrUsage)
+	}
+	caFile := a.opts.Getenv("NOU_DEV_CA")
+	if caFile == "" {
+		return nil, nil
+	}
+	pem, err := os.ReadFile(caFile)
+	if err != nil {
+		return nil, fmt.Errorf("NOU_DEV_CA: %w", err)
+	}
+	pool, err := x509.SystemCertPool()
+	if err != nil {
+		pool = x509.NewCertPool()
+	}
+	if !pool.AppendCertsFromPEM(pem) {
+		return nil, fmt.Errorf("NOU_DEV_CA: no certificate in %s: %w", caFile, ops.ErrUsage)
+	}
+	return &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}, nil
 }
 
 func buildInfo(version string) ops.BuildInfo {

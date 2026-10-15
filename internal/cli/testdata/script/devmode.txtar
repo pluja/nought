@@ -1,0 +1,18 @@
+# NOU_DEV=1 refuses to run without NOUGHT_HOME.
+env NOU_DEV=1
+env NOUGHT_HOME=
+code 2 nou paths
+stderr 'NOU_DEV=1 requires NOUGHT_HOME'
+
+# With NOUGHT_HOME it runs, and a bad CA file is an error.
+env NOUGHT_HOME=$WORK/home
+exec nou paths
+env NOU_DEV_CA=missing.pem
+code 1 nou paths
+stderr 'NOU_DEV_CA'
+env NOU_DEV_CA=notacert.pem
+code 2 nou paths
+stderr 'no certificate'
+
+-- notacert.pem --
+hello

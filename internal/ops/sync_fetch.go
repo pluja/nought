@@ -47,10 +47,18 @@ func fetchInfos(ctx context.Context, env *Env, ix *index.Index, conn *imapsync.C
 		case err != nil:
 			return err
 		default:
-			// Tags only apply to new messages: a message already archived
-			// (and maybe already triaged) keeps its tags.
-			if _, _, err := archive(ctx, env, account, raw, flagsOf(info), tags); err != nil {
+			// A new message gets the folder's tags. A message already
+			// archived (seen in another folder, or fetched again after a
+			// reindex) only gains the folder tag: re-adding "inbox" would
+			// undo triage.
+			m, created, err := archive(ctx, env, account, raw, flagsOf(info), tags)
+			if err != nil {
 				return fmt.Errorf("archive uid %d: %w", info.UID, err)
+			}
+			if !created {
+				if err := ix.ModifyTags(ctx, []int64{m.ID}, tags[:1], nil); err != nil { // idempotent
+					return err
+				}
 			}
 			out.Fetched++
 			// Only a copy whose size matches what the server reports may

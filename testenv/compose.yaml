@@ -1,0 +1,16 @@
+# Local IMAP server for nought development. Always run with the project name
+# "nought-testenv" (see the Makefile); it publishes ports on 127.0.0.1 only.
+name: nought-testenv
+services:
+  dovecot:
+    image: docker.io/dovecot/dovecot:2.4.5
+    container_name: nought-testenv-dovecot
+    ports:
+      - "127.0.0.1:10143:31143"   # IMAP + STARTTLS
+      - "127.0.0.1:10993:31993"   # IMAP over TLS
+    volumes:
+      - ./dovecot.conf:/etc/dovecot/dovecot.conf:ro,Z
+      - ./certs:/etc/dovecot/ssl:ro,Z
+      - nought-testenv-mail:/srv/vmail
+volumes:
+  nought-testenv-mail:
