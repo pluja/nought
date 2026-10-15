@@ -28,6 +28,9 @@ import (
 //go:embed ispdb.json.gz
 var ispdb []byte
 
+// onlineTimeout bounds all online steps together.
+const onlineTimeout = 45 * time.Second
+
 // Sources, in the order they are tried.
 const (
 	SourceBuiltIn  = "built-in provider list"
@@ -72,8 +75,12 @@ func DefaultNetwork() Network {
 		LookupMX:  r.LookupMX,
 		HTTP: &http.Client{
 			Timeout: 10 * time.Second,
+			// Redirects must stay on HTTPS and within the original domain.
 			CheckRedirect: func(req *http.Request, via []*http.Request) error {
-				if req.URL.Scheme != "https" || len(via) >= 3 {
+				orig := via[0].URL.Hostname()
+				host := req.URL.Hostname()
+				base := strings.TrimPrefix(orig, "autoconfig.")
+				if req.URL.Scheme != "https" || len(via) >= 3 || host != base && !strings.HasSuffix(host, "."+base) {
 					return errors.New("refusing redirect")
 				}
 				return nil
@@ -115,12 +122,17 @@ func Discover(ctx context.Context, email string, online bool, network Network) (
 		return Result{}, ErrNotFound
 	}
 
+	ctx, cancel := context.WithTimeout(ctx, onlineTimeout)
+	defer cancel()
 	var contacted []string
 	if res, ok := fromSRV(ctx, network, domain, local, &contacted); ok {
 		return res, nil
 	}
 	if p, ok := fromMX(ctx, network, db, domain, &contacted); ok {
-		return fromProvider(p, SourceMX, local, domain, contacted)
+		res, err := fromProvider(p, SourceMX, local, domain, contacted)
+		if err == nil || errors.Is(err, ErrOAuthOnly) {
+			return res, err
+		}
 	}
 	if p, ok := fromProviderFile(ctx, network, domain, &contacted); ok {
 		res, err := fromProvider(p, SourceProvider, local, domain, contacted)
@@ -216,7 +228,26 @@ func passwordAuth(auth []string) bool {
 
 func expand(template, local, domain string) string {
 	r := strings.NewReplacer("%EMAILADDRESS%", local+"@"+domain, "%EMAILLOCALPART%", local, "%EMAILDOMAIN%", domain)
-	return r.Replace(template)
+	if out := r.Replace(template); validUsernameTemplate(out) {
+		return out
+	}
+	return local + "@" + domain
+}
+
+// Trusted reports whether the settings come from nought's built-in list or
+// point at hosts within the email's own domain on standard ports. Anything
+// else (unauthenticated DNS answers, redirected files) deserves a warning
+// before a password is sent there.
+func (r Result) Trusted(domain string) bool {
+	if r.Source == SourceBuiltIn || r.Source == SourceMX {
+		return true
+	}
+	inDomain := func(host string) bool { return host == domain || strings.HasSuffix(host, "."+domain) }
+	standard := map[int]bool{993: true, 143: true, 465: true, 587: true}
+	if !inDomain(r.IMAP.Host) || !standard[r.IMAP.Port] {
+		return false
+	}
+	return r.SMTP.Host == "" || inDomain(r.SMTP.Host) && standard[r.SMTP.Port]
 }
 
 // fromSRV implements RFC 6186 and RFC 8314.

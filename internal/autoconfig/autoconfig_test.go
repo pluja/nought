@@ -253,3 +253,70 @@ func FuzzParseXML(f *testing.F) {
 		}
 	})
 }
+
+func TestValidHost(t *testing.T) {
+	for _, h := range []string{"imap.example.org", "mx-1.mail.example.co.uk", "a.b"} {
+		if !validHost(h) {
+			t.Errorf("validHost(%q) = false", h)
+		}
+	}
+	for _, h := range []string{"", "localhost", "10.0.0.1", "127.0.0.1", "a..b", "-.-", "-a.example", "a-.example",
+		"exa mple.org", "example.org:993", "1.2.3", "imap.%EMAILDOMAIN%", strings.Repeat("a", 64) + ".org"} {
+		if validHost(h) {
+			t.Errorf("validHost(%q) = true", h)
+		}
+	}
+}
+
+func TestHostileUsernameIsReplaced(t *testing.T) {
+	doc := strings.Replace(providerXML, "<username>%EMAILADDRESS%</username>",
+		"<username>&#x9B;31mfake\nline</username>", 1)
+	p, err := ParseXML(strings.NewReader(doc))
+	if err != nil || len(p.IMAP) != 1 || p.IMAP[0].Username != "%EMAILADDRESS%" {
+		t.Fatalf("username = %+v, %v", p.IMAP, err)
+	}
+	if got := expand("%EMAILLOCALPART% x", "me", "example.org"); got != "me@example.org" {
+		t.Errorf("expand with a space = %q", got)
+	}
+}
+
+func TestMXFallsThroughWhenUnusable(t *testing.T) {
+	// The MX points to a provider whose IMAP is plaintext only; discovery
+	// must go on to the guess.
+	f := fake{
+		mx:    map[string][]*net.MX{"hosted.example": {{Host: "mx.posteo.de."}}},
+		probe: map[string]bool{"imap.hosted.example:993": true},
+	}
+	res, err := Discover(t.Context(), "me@hosted.example", true, f.network())
+	if err != nil || res.Source != SourceMX {
+		t.Fatalf("usable MX = %+v, %v", res, err)
+	}
+	f.mx = map[string][]*net.MX{"hosted.example": {{Host: "mx.nobody.example."}}}
+	res, err = Discover(t.Context(), "me@hosted.example", true, f.network())
+	if err != nil || res.Source != SourceGuess {
+		t.Fatalf("fall-through = %+v, %v", res, err)
+	}
+}
+
+func TestTrusted(t *testing.T) {
+	in := func(host string, port int) config.Server {
+		return config.Server{Host: host, Port: port, TLS: "implicit"}
+	}
+	tests := []struct {
+		r    Result
+		want bool
+	}{
+		{Result{Source: SourceBuiltIn, IMAP: in("imap.elsewhere.example", 993)}, true},
+		{Result{Source: SourceSRV, IMAP: in("mail.example.org", 993)}, true},
+		{Result{Source: SourceSRV, IMAP: in("mail.example.org", 6379)}, false},
+		{Result{Source: SourceSRV, IMAP: in("imap.evil.example", 993)}, false},
+		{Result{Source: SourceProvider, IMAP: in("example.org", 993), SMTP: in("smtp.evil.example", 465)}, false},
+		{Result{Source: SourceGuess, IMAP: in("imap.example.org", 993), SMTP: in("smtp.example.org", 465)}, true},
+		{Result{Source: SourceSRV, IMAP: in("notexample.org", 993)}, false},
+	}
+	for _, tt := range tests {
+		if got := tt.r.Trusted("example.org"); got != tt.want {
+			t.Errorf("Trusted(%+v) = %v, want %v", tt.r, got, tt.want)
+		}
+	}
+}

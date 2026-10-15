@@ -4,6 +4,7 @@ package cli
 
 import (
 	"io"
+	"strconv"
 
 	"github.com/spf13/cobra"
 
@@ -13,6 +14,7 @@ import (
 
 func newAccountDiscoverCmd(a *app) *cobra.Command {
 	var in ops.DiscoverIn
+	var online bool
 	cmd := &cobra.Command{
 		Use:   "discover <email>",
 		Short: ops.AccountDiscover.Summary,
@@ -24,14 +26,18 @@ func newAccountDiscoverCmd(a *app) *cobra.Command {
 		Args: exactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			in.Email = args[0]
-			out, err := ops.Call(cmd.Context(), a.env, callerPerm, ops.AccountDiscover, in)
+			op := ops.AccountDiscover
+			if online {
+				op = ops.AccountDiscoverOnline
+			}
+			out, err := ops.Call(cmd.Context(), a.env, callerPerm, op, in)
 			if err != nil {
 				return err
 			}
 			return a.emit(cmd, out, func(w io.Writer) error { return printDiscovery(w, out) })
 		},
 	}
-	cmd.Flags().BoolVar(&in.Online, "online", false, "allow DNS lookups and contacting the provider")
+	cmd.Flags().BoolVar(&online, "online", false, "allow DNS lookups and contacting the provider")
 	return cmd
 }
 
@@ -64,5 +70,5 @@ func serverLine(host string, port int, tlsMode string) string {
 	if tlsMode == "starttls" {
 		mode = "STARTTLS"
 	}
-	return sanitize(host) + ":" + itoa(port) + " (" + mode + ")"
+	return sanitize(host) + ":" + strconv.Itoa(port) + " (" + mode + ")"
 }

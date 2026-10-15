@@ -4,6 +4,7 @@ package cli
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -25,23 +26,49 @@ var errQuit = errors.New("quit")
 
 // prompter asks questions on the terminal.
 type prompter struct {
-	a  *app
-	in *bufio.Reader
-	w  io.Writer
+	a   *app
+	ctx context.Context
+	in  *bufio.Reader
+	w   io.Writer
+}
+
+// readLine reads one line, giving up (errQuit) at end of input or when the
+// user presses Ctrl-C.
+func (p *prompter) readLine() (string, error) {
+	type result struct {
+		line string
+		err  error
+	}
+	done := make(chan result, 1)
+	go func() {
+		line, err := p.in.ReadString('\n')
+		done <- result{line, err}
+	}()
+	select {
+	case <-p.ctx.Done():
+		_, _ = fmt.Fprintln(p.w)
+		return "", errQuit
+	case r := <-done:
+		if r.err != nil && (r.line == "" || !errors.Is(r.err, io.EOF)) {
+			return "", errQuit // end of input: stop without saving
+		}
+		return r.line, nil
+	}
 }
 
 // ask shows a question with a default and returns the answer (or the
-// default for an empty answer).
+// default for an empty answer). Defaults may come from discovered
+// settings, so they are sanitized for display.
 func (p *prompter) ask(question, def string) (string, error) {
 	if def != "" {
-		question += " [" + def + "]"
+		question += " [" + sanitize(def) + "]"
 	}
 	if _, err := fmt.Fprintf(p.w, "%s: ", question); err != nil {
 		return "", err
 	}
-	line, err := p.in.ReadString('\n')
-	if err != nil && (line == "" || !errors.Is(err, io.EOF)) {
-		return "", errQuit // end of input: stop without saving
+	line, err := p.readLine()
+	if err != nil {
+		return "", err
 	}
 	if answer := strings.TrimSpace(line); answer != "" {
 		return answer, nil
@@ -69,21 +96,43 @@ func (p *prompter) yes(question string, def bool) (bool, error) {
 	}
 }
 
-// secret reads a password without echo on a terminal.
+// secret reads a password without echo on a terminal. If input was pasted
+// ahead (already buffered), it is read from the buffer to keep the order.
 func (p *prompter) secret(question string) (string, error) {
 	if _, err := fmt.Fprintf(p.w, "%s: ", question); err != nil {
 		return "", err
 	}
-	if f, ok := p.a.opts.Stdin.(*os.File); ok && isTerminal(f) {
-		pw, err := term.ReadPassword(int(f.Fd())) //nolint:gosec // G115: file descriptors fit in int
+	f, ok := p.a.opts.Stdin.(*os.File)
+	if !ok || !isTerminal(f) || p.in.Buffered() > 0 {
+		line, err := p.readLine()
+		return strings.TrimRight(line, "\r\n"), err
+	}
+	fd := int(f.Fd()) //nolint:gosec // G115: file descriptors fit in int
+	state, err := term.GetState(fd)
+	if err != nil {
+		return "", err
+	}
+	type result struct {
+		pw  []byte
+		err error
+	}
+	done := make(chan result, 1)
+	go func() {
+		pw, err := term.ReadPassword(fd)
+		done <- result{pw, err}
+	}()
+	select {
+	case <-p.ctx.Done():
+		_ = term.Restore(fd, state) // turn echo back on
 		_, _ = fmt.Fprintln(p.w)
-		return string(pw), err
-	}
-	line, err := p.in.ReadString('\n')
-	if err != nil && line == "" {
 		return "", errQuit
+	case r := <-done:
+		_, _ = fmt.Fprintln(p.w)
+		if r.err != nil {
+			return "", errQuit // Ctrl-D or a closed terminal
+		}
+		return string(r.pw), nil
 	}
-	return strings.TrimRight(line, "\r\n"), nil
 }
 
 func (p *prompter) say(format string, args ...any) error {
@@ -94,7 +143,7 @@ func (p *prompter) say(format string, args ...any) error {
 // accountWizard walks the user through adding an account. Nothing is saved
 // until they confirm at the end.
 func (a *app) accountWizard(cmd *cobra.Command) error {
-	p := &prompter{a: a, in: bufio.NewReader(a.opts.Stdin), w: cmd.OutOrStdout()}
+	p := &prompter{a: a, ctx: cmd.Context(), in: bufio.NewReader(a.opts.Stdin), w: cmd.OutOrStdout()}
 	err := a.runWizard(cmd, p)
 	if errors.Is(err, errQuit) {
 		_ = p.say("Nothing was saved.")
@@ -115,8 +164,8 @@ func (a *app) runWizard(cmd *cobra.Command, p *prompter) error {
 		if err != nil {
 			return err
 		}
-		if _, perr := mail.ParseAddress(email); perr == nil && !strings.ContainsAny(email, "<>") {
-			in.Email = email
+		if addr, perr := mail.ParseAddress(email); perr == nil && !strings.ContainsAny(email, "<>()") {
+			in.Email = addr.Address
 			break
 		}
 		if err := p.say("  That is not an email address like me@example.org."); err != nil {
@@ -129,10 +178,18 @@ func (a *app) runWizard(cmd *cobra.Command, p *prompter) error {
 		return err
 	}
 	if found != nil {
+		trusted := found.Trusted(domainOf(in.Email))
+		if !trusted {
+			if err := p.say("\n  WARNING: these servers are outside %s or use unusual ports, and the answer came\n"+
+				"  from DNS or a web server that could have been tampered with. Your password\n"+
+				"  would be sent there. Use them only if you know your provider uses them.", domainOf(in.Email)); err != nil {
+				return err
+			}
+		}
 		in.IMAPHost, in.IMAPPort, in.IMAPTLS = found.IMAP.Host, found.IMAP.Port, found.IMAP.TLS
 		in.SMTPHost, in.SMTPPort, in.SMTPTLS = found.SMTP.Host, found.SMTP.Port, found.SMTP.TLS
 		in.Username = found.Username
-		ok, err := p.yes("Use these settings?", true)
+		ok, err := p.yes("Use these settings?", trusted)
 		if err != nil {
 			return err
 		}
@@ -197,6 +254,7 @@ func (a *app) checkUntilAccepted(cmd *cobra.Command, p *prompter, in *ops.Accoun
 			return err
 		}
 		switch strings.ToLower(choice) {
+		case "r", "retry":
 		case "e", "edit":
 			if err := editServers(p, in); err != nil {
 				return err
@@ -208,6 +266,10 @@ func (a *app) checkUntilAccepted(cmd *cobra.Command, p *prompter, in *ops.Accoun
 			return nil
 		case "q", "quit":
 			return errQuit
+		default:
+			if err := p.say("  Please answer r, e, s or q."); err != nil {
+				return err
+			}
 		}
 	}
 }
@@ -216,15 +278,18 @@ func (a *app) checkUntilAccepted(cmd *cobra.Command, p *prompter, in *ops.Accoun
 func (a *app) discover(cmd *cobra.Command, p *prompter, email string) (*autoconfig.Result, error) {
 	res, err := ops.Call(cmd.Context(), a.env, callerPerm, ops.AccountDiscover, ops.DiscoverIn{Email: email})
 	if errors.Is(err, ops.ErrNotFound) {
-		domain := email[strings.LastIndex(email, "@")+1:]
-		if err := p.say("Not in nought's built-in provider list."); err != nil {
+		domain := domainOf(email)
+		if err := p.say("Not in nought's built-in provider list.\n"+
+			"Looking it up online means: your DNS resolver sees %s; nou fetches\n"+
+			"https://autoconfig.%s/... and https://%s/.well-known/...; and it tries TLS\n"+
+			"connections to imap., mail. and smtp.%s. Your address is not sent.", domain, domain, domain, domain); err != nil {
 			return nil, err
 		}
-		online, askErr := p.yes("Look up the settings online? This queries DNS and contacts "+domain+"'s servers", false)
+		online, askErr := p.yes("Look up the settings online?", false)
 		if askErr != nil || !online {
 			return nil, askErr
 		}
-		res, err = ops.Call(cmd.Context(), a.env, callerPerm, ops.AccountDiscover, ops.DiscoverIn{Email: email, Online: true})
+		res, err = ops.Call(cmd.Context(), a.env, callerPerm, ops.AccountDiscoverOnline, ops.DiscoverIn{Email: email})
 	}
 	switch {
 	case errors.Is(err, ops.ErrNotFound):
@@ -240,7 +305,7 @@ func (a *app) discover(cmd *cobra.Command, p *prompter, email string) (*autoconf
 
 // editServers asks for the IMAP (and optional SMTP) settings.
 func editServers(p *prompter, in *ops.AccountIn) error {
-	domain := in.Email[strings.LastIndex(in.Email, "@")+1:]
+	domain := domainOf(in.Email)
 	knownBefore := in.IMAPHost != ""
 	var err error
 	if in.IMAPHost, err = p.ask("IMAP server", fallback(in.IMAPHost, "imap."+domain)); err != nil {
@@ -342,7 +407,7 @@ func askName(cmd *cobra.Command, a *app, p *prompter, email string) (string, err
 }
 
 func suggestName(email string, taken map[string]bool) string {
-	domain := strings.ToLower(email[strings.LastIndex(email, "@")+1:])
+	domain := domainOf(email)
 	base := strings.Map(func(r rune) rune {
 		if r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '-' {
 			return r
@@ -404,11 +469,15 @@ func printCheck(p *prompter, out ops.AccountTestOut) error {
 	return nil
 }
 
+// domainOf returns the lowercased domain of a normalized address.
+func domainOf(email string) string {
+	_, domain, _ := strings.Cut(strings.ToLower(email), "@")
+	return domain
+}
+
 func fallback(v, def string) string {
 	if v != "" {
 		return v
 	}
 	return def
 }
-
-func itoa(n int) string { return strconv.Itoa(n) }

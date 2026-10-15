@@ -3,10 +3,12 @@
 package autoconfig
 
 import (
+	"bytes"
 	"encoding/xml"
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"strings"
 )
 
@@ -62,7 +64,7 @@ func ParseXML(r io.Reader) (Provider, error) {
 		return Provider{}, errors.New("autoconfig document too large")
 	}
 	var doc clientConfig
-	dec := xml.NewDecoder(strings.NewReader(string(data)))
+	dec := xml.NewDecoder(bytes.NewReader(data))
 	dec.Strict = true
 	if err := dec.Decode(&doc); err != nil {
 		return Provider{}, fmt.Errorf("parse autoconfig: %w", err)
@@ -101,6 +103,9 @@ func entry(s server) (Entry, bool) {
 		Socket:   strings.ToUpper(strings.TrimSpace(s.Socket)),
 		Username: strings.TrimSpace(s.Username),
 	}
+	if !validUsernameTemplate(e.Username) {
+		e.Username = "%EMAILADDRESS%"
+	}
 	for _, a := range s.Auth {
 		e.Auth = append(e.Auth, strings.TrimSpace(a))
 	}
@@ -110,17 +115,40 @@ func entry(s server) (Entry, bool) {
 	return e, true
 }
 
-// validHost accepts plain DNS names (no placeholders, no ports, no URLs).
+// validHost accepts DNS host names only: no IP literals, ports, URLs or
+// placeholders, and every label well-formed.
 func validHost(h string) bool {
-	if h == "" || len(h) > 253 || strings.Trim(h, ".") != h {
+	if len(h) > 253 || !strings.Contains(h, ".") || net.ParseIP(h) != nil {
 		return false
 	}
-	for _, r := range h {
-		if !isHostRune(r) {
+	for _, label := range strings.Split(h, ".") {
+		if len(label) == 0 || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
+			return false
+		}
+		for _, r := range label {
+			if !isHostRune(r) || r == '.' {
+				return false
+			}
+		}
+	}
+	// A purely numeric top-level label is not a host name.
+	tld := h[strings.LastIndex(h, ".")+1:]
+	return strings.Trim(tld, "0123456789") != ""
+}
+
+// validUsernameTemplate accepts the placeholders and plain address text;
+// anything with spaces or control characters (a hostile file trying to
+// inject text into prompts) is replaced by the default.
+func validUsernameTemplate(u string) bool {
+	if u == "" || len(u) > 254 {
+		return false
+	}
+	for _, r := range u {
+		if r <= ' ' || r == 0x7f || r >= 0x80 && r <= 0x9f || r == '<' || r == '>' {
 			return false
 		}
 	}
-	return strings.Contains(h, ".")
+	return true
 }
 
 func isHostRune(r rune) bool {

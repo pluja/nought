@@ -27,6 +27,12 @@ exec nou account show example
 stdout 'imap: +127.0.0.1:'
 stdout 'deletion: +disabled'
 
+# End of input during the password prompt saves nothing and is not an error.
+stdin eof.txt
+exec nou account add
+stdout 'Nothing was saved'
+! grep eof keyring.json
+
 # Quitting saves nothing.
 stdin quit.txt
 exec nou account add
@@ -65,3 +71,13 @@ other
 k
 pw
 q
+-- eof.txt --
+eof@nought.invalid
+n
+127.0.0.1
+tls
+1
+-
+eof
+
+k

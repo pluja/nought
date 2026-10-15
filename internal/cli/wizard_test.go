@@ -54,7 +54,7 @@ func TestWizardDiscoverOnline(t *testing.T) {
 		{"n\n", ""},
 	} {
 		var out strings.Builder
-		p := &prompter{a: a, in: bufio.NewReader(strings.NewReader(tt.answer)), w: &out}
+		p := &prompter{a: a, ctx: t.Context(), in: bufio.NewReader(strings.NewReader(tt.answer)), w: &out}
 		res, err := a.discover(cmd, p, "me@custom.example")
 		if err != nil {
 			t.Fatal(err)
