@@ -20,6 +20,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"nought/internal/autoconfig"
 	"nought/internal/config"
 	"nought/internal/ops"
 	"nought/internal/secret"
@@ -36,6 +37,8 @@ type Options struct {
 	Version string
 	Secrets secret.Store // nil means the OS keyring
 	TLS     *tls.Config  // base TLS config for mail servers; nil means system roots
+	// Interactive overrides terminal detection for prompts (tests only).
+	Interactive *bool
 }
 
 // app is the state shared by all commands during one invocation.
@@ -110,6 +113,7 @@ func (a *app) setup(cmd *cobra.Command, _ []string) error {
 	}
 	a.env = ops.NewEnv(paths, log, time.Now, buildInfo(a.opts.Version), secrets)
 	a.env.TLS = a.opts.TLS
+	a.env.Network = autoconfig.DefaultNetwork()
 	return nil
 }
 
@@ -160,4 +164,14 @@ func buildInfo(version string) ops.BuildInfo {
 		b.Version = "dev"
 	}
 	return b
+}
+
+// interactive reports whether nou may prompt: only when both stdin and
+// stdout are terminals, never in scripts or for agents.
+func (a *app) interactive() bool {
+	if a.opts.Interactive != nil {
+		return *a.opts.Interactive
+	}
+	in, ok := a.opts.Stdin.(*os.File)
+	return ok && isTerminal(in) && isTerminal(a.opts.Stdout)
 }

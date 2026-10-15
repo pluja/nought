@@ -34,8 +34,10 @@ go build -trimpath -o nou ./cmd/nou      # Go 1.26+, no cgo needed
 nou import ~/thunderbird-export --account personal --dry-run
 nou import ~/thunderbird-export --account personal
 
-# 2. Add your IMAP account. The password goes to the OS keyring (or use --password-command).
-nou account add personal --email me@example.org --imap-host imap.example.org
+# 2. Add your IMAP account: a wizard finds the server settings from your address
+#    (offline first; online only if you agree), tests them and saves.
+#    The password goes to the OS keyring (or use a password command).
+nou account add
 nou account test personal       # shows what sync will do with each server folder
 
 # 3. Archive your mail. Deletion is off until you turn it on.

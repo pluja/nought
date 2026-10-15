@@ -25,7 +25,7 @@ func newAccountCmd(a *app) *cobra.Command {
 		RunE:  func(cmd *cobra.Command, _ []string) error { return cmd.Help() },
 	}
 	cmd.AddCommand(newAccountAddCmd(a), newAccountListCmd(a), newAccountShowCmd(a),
-		newAccountSetCmd(a), newAccountRemoveCmd(a), newAccountTestCmd(a))
+		newAccountSetCmd(a), newAccountRemoveCmd(a), newAccountTestCmd(a), newAccountDiscoverCmd(a))
 	return cmd
 }
 
@@ -33,9 +33,11 @@ func newAccountAddCmd(a *app) *cobra.Command {
 	var in ops.AccountIn
 	var passwordStdin bool
 	cmd := &cobra.Command{
-		Use:   "add <name> --email ADDRESS --imap-host HOST",
+		Use:   "add [<name> --email ADDRESS --imap-host HOST]",
 		Short: ops.AccountAdd.Summary,
 		Long: ops.AccountAdd.Summary + ".\n\n" +
+			"Without arguments, on a terminal, a wizard asks for your email address, finds the\n" +
+			"server settings (offline first; online only if you agree), tests them, and saves.\n\n" +
 			"The password goes to the OS keyring: you are prompted for it, or it is read\n" +
 			"from stdin with --password-stdin. On headless systems use --password-command\n" +
 			"(e.g. 'pass show mail/personal'); its first output line is the password.\n" +
@@ -44,8 +46,15 @@ func newAccountAddCmd(a *app) *cobra.Command {
 			"enable it with: nou account set <name> --deletion enabled",
 		Example: "  nou account add personal --email me@example.org --imap-host imap.example.org\n" +
 			"  pass show mail/work | nou account add work --email me@corp.example --imap-host mail.corp.example --password-stdin",
-		Args: exactArgs(1),
+		Args: rangeArgs(0, 1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 0 {
+				if !a.interactive() || a.json {
+					return fmt.Errorf("give an account name and flags (see 'nou account add --help'), "+
+						"or run 'nou account add' on a terminal for the wizard: %w", ops.ErrUsage)
+				}
+				return a.accountWizard(cmd)
+			}
 			in.Name = args[0]
 			if in.PasswordCommand == "" {
 				pw, err := a.readPassword(cmd, in.Name, passwordStdin)

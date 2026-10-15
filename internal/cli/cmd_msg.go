@@ -190,8 +190,8 @@ func printTagOut(w io.Writer, out ops.TagOut) error {
 	return printf(w, "matched %d, %s %d\n", out.Matched, verb, out.Changed)
 }
 
-// isTerminal reports whether w is an interactive terminal.
-func isTerminal(w io.Writer) bool {
-	f, ok := w.(*os.File)
+// isTerminal reports whether v (a reader or writer) is an interactive terminal.
+func isTerminal(v any) bool {
+	f, ok := v.(*os.File)
 	return ok && term.IsTerminal(int(f.Fd())) //nolint:gosec // G115: file descriptors fit in int
 }

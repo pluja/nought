@@ -180,14 +180,6 @@ func syncAccount(ctx context.Context, env *Env, a config.Account, password strin
 	return out
 }
 
-func connect(ctx context.Context, env *Env, a *config.Account) (*imapsync.Conn, error) {
-	pw, err := secret.Password(ctx, env.Secrets, a.Name, a.PasswordCommand)
-	if err != nil {
-		return nil, err
-	}
-	return imapsync.Dial(ctx, a.IMAP, env.TLS, a.Login(), pw, env.IMAPTimeout)
-}
-
 // syncFolder archives a folder's new messages, then deletes its due ones.
 // State and server copies are keyed by the server's raw folder name, so two
 // folders whose display names collide never share state.
@@ -263,20 +255,30 @@ var AccountTest = Op[AccountName, AccountTestOut]{
 		if err != nil {
 			return AccountTestOut{}, err
 		}
-		conn, err := connect(ctx, env, a)
+		pw, err := secret.Password(ctx, env.Secrets, a.Name, a.PasswordCommand)
 		if err != nil {
 			return AccountTestOut{}, err
 		}
-		defer func() { _ = conn.Close() }()
-		folders, err := conn.Folders()
-		if err != nil {
-			return AccountTestOut{}, err
-		}
-		out := AccountTestOut{Account: a.Name, Capabilities: conn.Capabilities(), UIDPlus: conn.HasUIDPlus(),
-			Folders: []FolderPolicyOut{}}
-		for _, f := range folders {
-			out.Folders = append(out.Folders, FolderPolicyOut{Folder: f.Name, Policy: a.Policy(f.Name)})
-		}
-		return out, nil
+		return testServer(ctx, env, a, pw)
 	},
+}
+
+// testServer logs in to an account's IMAP server and lists its folders
+// with their policies. Nothing on the server changes.
+func testServer(ctx context.Context, env *Env, a *config.Account, password string) (AccountTestOut, error) {
+	conn, err := imapsync.Dial(ctx, a.IMAP, env.TLS, a.Login(), password, env.IMAPTimeout)
+	if err != nil {
+		return AccountTestOut{}, err
+	}
+	defer func() { _ = conn.Close() }()
+	folders, err := conn.Folders()
+	if err != nil {
+		return AccountTestOut{}, err
+	}
+	out := AccountTestOut{Account: a.Name, Capabilities: conn.Capabilities(), UIDPlus: conn.HasUIDPlus(),
+		Folders: []FolderPolicyOut{}}
+	for _, f := range folders {
+		out.Folders = append(out.Folders, FolderPolicyOut{Folder: f.Name, Policy: a.Policy(f.Name)})
+	}
+	return out, nil
 }

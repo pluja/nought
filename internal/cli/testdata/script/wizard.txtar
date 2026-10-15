@@ -1,0 +1,67 @@
+# Without a terminal, account add without arguments explains what to do.
+code 2 nou account add
+stderr 'or run .nou account add. on a terminal for the wizard'
+
+# Discovery from the built-in list never touches the network.
+exec nou account discover someone@posteo.de
+stdout '^Found Posteo \(built-in provider list\)$'
+stdout '^  IMAP  posteo.de:993 \(TLS\)$'
+! stdout 'contacted'
+code 5 nou account discover me@unknown.example
+code 2 nou account discover not-an-address
+
+# The wizard: an unknown domain, no online lookup, settings typed in, a
+# failed connection fixed by editing, then saved.
+env NOU_TEST_INTERACTIVE=1
+expandenv answers.txt
+stdin answers.txt
+exec nou account add
+stdout 'Not in nought.s built-in provider list'
+stdout 'Could not connect'
+stdout 'Connected. Folders:'
+stdout 'INBOX +archive, keep 7 days on server'
+stdout 'Trash +ignore'
+stdout 'Saved example\. Server deletion is off\.'
+grep '"example":"test-password"' keyring.json
+exec nou account show example
+stdout 'imap: +127.0.0.1:'
+stdout 'deletion: +disabled'
+
+# Quitting saves nothing.
+stdin quit.txt
+exec nou account add
+stdout 'Nothing was saved'
+exec nou account list
+! stdout other
+
+-- answers.txt --
+me@example.org
+n
+127.0.0.1
+tls
+1
+-
+example
+
+k
+test-password
+e
+127.0.0.1
+tls
+${IMAP_PORT}
+
+k
+test-password
+
+-- quit.txt --
+other@nought.invalid
+n
+127.0.0.1
+tls
+1
+-
+other
+
+k
+pw
+q

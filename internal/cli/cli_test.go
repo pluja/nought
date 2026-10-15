@@ -34,7 +34,7 @@ func TestMain(m *testing.M) {
 			code := Run(ctx, Options{
 				Args: os.Args[1:], Stdin: os.Stdin, Stdout: os.Stdout, Stderr: os.Stderr,
 				Getenv: os.Getenv, Version: "test", Secrets: fileSecrets(os.Getenv("NOU_TEST_KEYRING")),
-				TLS: testTLS(os.Getenv("NOU_TEST_CA")),
+				TLS: testTLS(os.Getenv("NOU_TEST_CA")), Interactive: testInteractive(),
 			})
 			stop()
 			os.Exit(code)
@@ -52,6 +52,7 @@ func TestScripts(t *testing.T) {
 			"code":       cmdCode,
 			"imapappend": func(ts *testscript.TestScript, neg bool, args []string) { cmdIMAPAppend(t, srv, ts, neg, args) },
 			"imapcount":  func(ts *testscript.TestScript, neg bool, args []string) { cmdIMAPCount(t, srv, ts, neg, args) },
+			"expandenv":  cmdExpandEnv,
 		},
 		Setup: func(e *testscript.Env) error {
 			e.Setenv("NOUGHT_HOME", filepath.Join(e.WorkDir, "home"))
@@ -62,6 +63,26 @@ func TestScripts(t *testing.T) {
 			return os.WriteFile(ca, srv.CAPEM, 0o600)
 		},
 	})
+}
+
+// cmdExpandEnv replaces $VARS in a script file with their values:
+//
+//	expandenv answers.txt
+func cmdExpandEnv(ts *testscript.TestScript, neg bool, args []string) {
+	if neg || len(args) != 1 {
+		ts.Fatalf("usage: expandenv <file>")
+	}
+	expanded := os.Expand(ts.ReadFile(args[0]), ts.Getenv)
+	ts.Check(os.WriteFile(ts.MkAbs(args[0]), []byte(expanded), 0o600))
+}
+
+// testInteractive lets scripts drive the wizard through stdin.
+func testInteractive() *bool {
+	if os.Getenv("NOU_TEST_INTERACTIVE") != "1" {
+		return nil
+	}
+	yes := true
+	return &yes
 }
 
 // testTLS trusts the test server's certificate in nou subprocesses.

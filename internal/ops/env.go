@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"nought/internal/autoconfig"
 	"nought/internal/config"
 	"nought/internal/index"
 	"nought/internal/secret"
@@ -37,6 +38,8 @@ type Env struct {
 	// IMAPTimeout bounds each read and write to a mail server; 0 means the
 	// default. Tests shorten it.
 	IMAPTimeout time.Duration
+	// Network is used by account discovery; tests replace it.
+	Network autoconfig.Network
 
 	mu     sync.Mutex
 	config *config.Config
