@@ -130,6 +130,14 @@ func (f *fixture) sync(dryRun bool) ops.SyncOut {
 	return out
 }
 
+// archive archives messages in nought, which makes their server copies due.
+func (f *fixture) archive(q string) {
+	f.t.Helper()
+	if _, err := ops.Call(f.t.Context(), f.env, ops.Tag, ops.MsgArchive, ops.ArchiveIn{Query: q}); err != nil {
+		f.t.Fatal(err)
+	}
+}
+
 func (f *fixture) subjects(q string) []string {
 	f.t.Helper()
 	ix, err := f.env.Index(f.t.Context())
@@ -186,6 +194,7 @@ func TestArchiveThenDeleteOnDovecot(t *testing.T) {
 				ops.AccountSetIn{Name: "it", Deletion: "enabled"}); err != nil {
 				t.Fatal(err)
 			}
+			f.archive(`subject:"old mail"`) // dealt with; "new mail" is still in the inbox
 			f.sync(false)
 			if got := []uint32{f.count("INBOX"), f.count("Archive.2024"), f.count("Drafts")}; !slices.Equal(got, []uint32{1, 0, 1}) {
 				t.Errorf("server counts INBOX/Archive.2024/Drafts = %v, want [1 0 1]", got)
@@ -201,6 +210,7 @@ func TestDamagedArchiveKeepsServerCopy(t *testing.T) {
 	f := setup(t, config.TLSImplicit, 10993)
 	f.append("INBOX", "old", "precious", 30*day)
 	f.sync(false)
+	f.archive("subject:precious")
 	entries, err := os.ReadDir(f.env.Paths.AccountArchive("it") + "/cur")
 	if err != nil || len(entries) != 1 {
 		t.Fatalf("archive: %v %v", entries, err)
@@ -245,5 +255,63 @@ func TestDeletedMailLeavesDovecot(t *testing.T) {
 	}
 	if got := f.subjects(""); !slices.Equal(got, []string{"keep me", "trash me"}) {
 		t.Errorf("local = %v, want the kept and the trashed one", got)
+	}
+}
+
+// phoneMove moves a message (found by Message-ID) as a phone's mail app
+// would, over its own IMAP connection.
+func (f *fixture) phoneMove(id, to string) {
+	f.t.Helper()
+	c := f.client()
+	defer func() { _ = c.Close() }()
+	_ = c.Create(to, nil).Wait() // may exist
+	if _, err := c.Select("INBOX", nil).Wait(); err != nil {
+		f.t.Fatal(err)
+	}
+	found, err := c.UIDSearch(&imap.SearchCriteria{
+		Header: []imap.SearchCriteriaHeaderField{{Key: "Message-ID", Value: "<" + id + "@it>"}},
+	}, nil).Wait()
+	if err != nil || len(found.AllUIDs()) != 1 {
+		f.t.Fatalf("find %s: %v, %v", id, found, err)
+	}
+	if _, err := c.Move(imap.UIDSetNum(found.AllUIDs()[0]), to).Wait(); err != nil {
+		f.t.Fatal(err)
+	}
+}
+
+// TestPhoneAndNoughtAgreeOnDovecot: what a phone does to the INBOX is
+// mirrored, mail archived in nought leaves the server, and the server's
+// trash (SPECIAL-USE \Trash on Dovecot) is emptied of archived mail.
+func TestPhoneAndNoughtAgreeOnDovecot(t *testing.T) {
+	f := setup(t, config.TLSImplicit, 10993)
+	if _, err := ops.Call(t.Context(), f.env, ops.Delete, ops.AccountSet,
+		ops.AccountSetIn{Name: "it", Deletion: "enabled"}); err != nil {
+		t.Fatal(err)
+	}
+	f.append("INBOX", "keep", "still to do", time.Hour)
+	f.append("INBOX", "arch", "archived on the phone", time.Hour)
+	f.append("INBOX", "del", "deleted on the phone", time.Hour)
+	f.append("INBOX", "mine", "archived in nought", time.Hour)
+	f.sync(false)
+
+	f.phoneMove("arch", "Archive")
+	f.phoneMove("del", "Trash")
+	f.archive(`subject:"archived in nought"`)
+	out := f.sync(false)
+	if a := out.Accounts[0]; a.ArchivedElsewhere != 1 || a.DeletedElsewhere != 1 || a.TrashCleaned != 1 {
+		t.Errorf("first sync = %+v", a)
+	}
+	f.sync(false) // deletes the copy that reached Archive, now handled
+	if got := []uint32{f.count("INBOX"), f.count("Archive"), f.count("Trash")}; !slices.Equal(got, []uint32{1, 0, 0}) {
+		t.Errorf("server INBOX/Archive/Trash = %v, want [1 0 0]", got)
+	}
+	if got := f.subjects("tag:inbox"); !slices.Equal(got, []string{"still to do"}) {
+		t.Errorf("nought inbox = %v", got)
+	}
+	if got := f.subjects("tag:deleted"); !slices.Equal(got, []string{"deleted on the phone"}) {
+		t.Errorf("nought trash = %v", got)
+	}
+	if got := f.subjects(""); len(got) != 4 {
+		t.Errorf("archive lost mail: %v", got)
 	}
 }
