@@ -8,6 +8,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"nought/internal/index"
 )
 
 func importSample(t *testing.T, env *Env) {
@@ -153,6 +155,8 @@ func TestMsgTagAndArchive(t *testing.T) {
 
 	for _, bad := range []TagIn{
 		{Add: []string{"x"}},
+		{Query: "   ", Add: []string{"x"}},
+		{Query: "tag:x", Account: "personal", Add: []string{"x"}},
 		{Query: "tag:x"},
 		{Query: "tag:x", Add: []string{"Bad Tag"}},
 		{Query: "bogus:x", Add: []string{"x"}},
@@ -163,5 +167,41 @@ func TestMsgTagAndArchive(t *testing.T) {
 	}
 	if _, err := Call(t.Context(), env, Read, MsgArchive, ArchiveIn{Query: "x"}); !errors.Is(err, ErrPermission) {
 		t.Errorf("read-only archive = %v", err)
+	}
+}
+
+func TestBareIDMustBeUnique(t *testing.T) {
+	env := newTestEnv(t)
+	root := filepath.Join(t.TempDir(), "x")
+	writeFile(t, filepath.Join(root, "a.eml"), mail("1@x", "in two accounts"))
+	for _, acct := range []string{"one", "two"} {
+		if _, err := Call(t.Context(), env, Delete, ImportRun, ImportIn{Path: root, Account: acct, Inbox: true}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	out, _ := Call(t.Context(), env, Read, MsgSearch, SearchIn{Query: "account:one"})
+	id := out.Messages[0].ID
+	if _, err := Call(t.Context(), env, Delete, MsgArchive, ArchiveIn{Query: id}); !errors.Is(err, ErrAmbiguous) {
+		t.Fatalf("ambiguous bare id = %v", err)
+	}
+	res, err := Call(t.Context(), env, Delete, MsgArchive, ArchiveIn{Query: id, Account: "two"})
+	if err != nil || res.Changed != 1 {
+		t.Fatalf("archive in one account = %+v, %v", res, err)
+	}
+	if got := search(t, env, "tag:inbox account:one"); len(got) != 1 {
+		t.Errorf("other account touched: %v", got)
+	}
+	// A word that looks like hex is not silently treated as a search.
+	if _, err := Call(t.Context(), env, Delete, MsgArchive, ArchiveIn{Query: "decade"}); !errors.Is(err, ErrNotFound) {
+		t.Errorf("hex-looking word = %v", err)
+	}
+}
+
+func TestSearchMoreAtMaxLimit(t *testing.T) {
+	env := newTestEnv(t)
+	importSample(t, env)
+	out, err := Call(t.Context(), env, Read, MsgSearch, SearchIn{Limit: index.MaxLimit})
+	if err != nil || out.More || len(out.Messages) != 3 {
+		t.Fatalf("search = %d messages, more %v, %v", len(out.Messages), out.More, err)
 	}
 }

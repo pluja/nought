@@ -22,7 +22,7 @@ stdout '"password_source":"command"'
 # Enabling deletion is deliberate and visible.
 exec nou account set personal --deletion enabled
 stdout '^deletion:  enabled$'
-stdout 'Drafts,Templates,Junk,Spam,Trash'
+stdout 'Draft,Template,Junk,Spam,Trash,Deleted}\* -> ignore'
 
 # Removing keeps the archive.
 exec nou account remove personal

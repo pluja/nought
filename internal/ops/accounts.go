@@ -46,10 +46,11 @@ type AccountOut struct {
 
 // DefaultFolderRules are written for new accounts. Drafts and templates are
 // work in progress, and junk and trash are unwanted; none of them is
-// archived or deleted from the server.
+// archived or deleted from the server, wherever the server puts them
+// ("Drafts", "INBOX.Drafts", "[Gmail]/Drafts", ...). Matching ignores case.
 func DefaultFolderRules() []config.FolderRule {
 	return []config.FolderRule{
-		{Match: "{Drafts,Templates,Junk,Spam,Trash,Deleted Messages,Deleted Items}*", Action: config.ActionIgnore},
+		{Match: "*{Draft,Template,Junk,Spam,Trash,Deleted}*", Action: config.ActionIgnore},
 	}
 }
 

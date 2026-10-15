@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/zalando/go-keyring"
 )
@@ -81,6 +82,32 @@ func TestPasswordCommandCancelled(t *testing.T) {
 	cancel()
 	if _, err := Password(ctx, Memory{}, "a", "sleep 5"); err == nil {
 		t.Fatal("cancelled command succeeded")
+	}
+}
+
+func TestPasswordCommandBackgroundChild(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses sh")
+	}
+	start := time.Now()
+	pw, err := Password(t.Context(), Memory{}, "a", "sleep 30 & echo pw")
+	if err != nil || pw != "pw" {
+		t.Fatalf("Password = %q, %v", pw, err)
+	}
+	if d := time.Since(start); d > 10*time.Second {
+		t.Errorf("blocked on a background child for %v", d)
+	}
+}
+
+func TestPasswordCommandTimeoutReported(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses sh")
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
+	defer cancel()
+	_, err := Password(ctx, Memory{}, "a", "sleep 30")
+	if err == nil || !strings.Contains(err.Error(), "timed out") {
+		t.Fatalf("err = %v, want timed out", err)
 	}
 }
 

@@ -64,16 +64,17 @@ func (r FolderRule) validate() error {
 
 const maxGlobLen = 256
 
-// compileGlob turns a folder glob into an anchored regexp. Unlike path.Match,
-// "*" also matches "/", so "Junk*" covers "Junk/Old": a rule meant to ignore
-// a folder must also cover its subfolders. Supported syntax: "*", "?",
+// compileGlob turns a folder glob into an anchored, case-insensitive regexp.
+// Unlike path.Match, "*" also matches "/", so "Junk*" covers "Junk/Old": a
+// rule meant to ignore a folder must also cover its subfolders. Case is
+// ignored because servers disagree on it ("INBOX", "Inbox", "DRAFTS"). Supported syntax: "*", "?",
 // "[abc]", "[!abc]", "{a,b}" (not nested), and "\" to escape.
 func compileGlob(glob string) (*regexp.Regexp, error) {
 	if len(glob) > maxGlobLen {
 		return nil, errors.New("match is too long")
 	}
 	var b strings.Builder
-	b.WriteString("^")
+	b.WriteString("(?i)^")
 	inBrace, inClass := false, false
 	for i := 0; i < len(glob); i++ {
 		c := glob[i]

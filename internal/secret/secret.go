@@ -92,6 +92,7 @@ func (m Memory) Delete(account string) error {
 // Limits for password commands.
 const (
 	commandTimeout   = 60 * time.Second // allows for an interactive unlock (e.g. a GPG agent prompt)
+	waitDelay        = 2 * time.Second
 	maxCommandOutput = 64 << 10
 )
 
@@ -111,8 +112,13 @@ func Password(ctx context.Context, s Store, account, command string) (string, er
 	var stdout bytes.Buffer
 	cmd.Stdout = &limitedWriter{w: &stdout, n: maxCommandOutput}
 	// stderr goes nowhere: it could echo the secret. Exit status is enough.
-	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("password_command for %s failed: %s", account, exitReason(err))
+	// A background child that keeps stdout open must not block us: the
+	// whole process group is killed on timeout, and output copying stops
+	// shortly after the command itself exits.
+	cmd.WaitDelay = waitDelay
+	setProcessGroup(cmd)
+	if err := cmd.Run(); err != nil && !errors.Is(err, exec.ErrWaitDelay) {
+		return "", fmt.Errorf("password_command for %s failed: %s", account, exitReason(ctx, err))
 	}
 	line, err := bufio.NewReader(&stdout).ReadString('\n')
 	if err != nil && !errors.Is(err, io.EOF) {
@@ -135,12 +141,15 @@ func shellCommand(ctx context.Context, command string) *exec.Cmd {
 }
 
 // exitReason describes a failure without including any command output.
-func exitReason(err error) string {
+func exitReason(ctx context.Context, err error) string {
+	switch {
+	case errors.Is(ctx.Err(), context.DeadlineExceeded):
+		return "timed out"
+	case ctx.Err() != nil:
+		return "cancelled"
+	}
 	if exitErr, ok := errors.AsType[*exec.ExitError](err); ok {
 		return fmt.Sprintf("exit status %d", exitErr.ExitCode())
-	}
-	if errors.Is(err, context.DeadlineExceeded) {
-		return "timed out"
 	}
 	return "could not run it"
 }

@@ -114,12 +114,13 @@ func TestAccountAddErrors(t *testing.T) {
 
 func TestDefaultFolderRulesIgnoreWorkInProgress(t *testing.T) {
 	a := config.Account{Folders: DefaultFolderRules()}
-	for _, f := range []string{"Drafts", "Templates", "Junk", "Spam", "Trash", "Trash/Old", "Deleted Messages", "Deleted Items"} {
+	for _, f := range []string{"Drafts", "Templates", "Junk", "Spam", "Trash", "Trash/Old", "Deleted Messages",
+		"Deleted Items", "[Gmail]/Drafts", "[Gmail]/Spam", "INBOX/Drafts", "INBOX/Trash", "DRAFTS", "Junk E-mail"} {
 		if p := a.Policy(f); p.Action != config.ActionIgnore {
 			t.Errorf("%s: %+v, want ignore", f, p)
 		}
 	}
-	for _, f := range []string{"INBOX", "Sent", "Archive"} {
+	for _, f := range []string{"INBOX", "Sent", "Archive", "Sent Items", "Projects/Robinson"} {
 		if p := a.Policy(f); p.Action != config.ActionArchive {
 			t.Errorf("%s: %+v, want archive", f, p)
 		}

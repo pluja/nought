@@ -14,9 +14,10 @@ import (
 // MaxLimit caps how many messages one search returns.
 const MaxLimit = 10000
 
-// Search returns messages matching q, newest first.
+// Search returns messages matching q, newest first. Up to MaxLimit+1 may be
+// requested, so callers can tell whether more than MaxLimit exist.
 func (ix *Index) Search(ctx context.Context, q query.Query, limit, offset int) ([]Message, error) {
-	if limit <= 0 || limit > MaxLimit {
+	if limit <= 0 || limit > MaxLimit+1 {
 		limit = MaxLimit
 	}
 	where, args, err := compile(q)

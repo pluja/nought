@@ -48,13 +48,14 @@ func archive(ctx context.Context, env *Env, account string, raw []byte, flags st
 // a message that cannot be parsed is still indexed by its hash.
 func indexMessage(ctx context.Context, env *Env, ix *index.Index, account string, raw []byte, flags string, tags []string) (index.Message, bool, error) {
 	hash := store.Hash(raw)
+	// Parse errors may quote message content, so they are not logged.
 	h, err := mailmsg.Parse(raw)
 	if err != nil {
-		env.Log.Debug("header parse problem", "account", account, "hash", hash[:12], "err", err)
+		env.Log.Debug("header parse problem", "account", account, "id", hash[:IDLen])
 	}
 	content, err := mailmsg.Bodies(raw)
 	if err != nil {
-		env.Log.Debug("body parse problem", "account", account, "hash", hash[:12], "err", err)
+		env.Log.Debug("body parse problem", "account", account, "id", hash[:IDLen])
 	}
 	body := content.Plain
 	if body == "" && content.HTML != "" {

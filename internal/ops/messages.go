@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	"nought/internal/index"
@@ -137,7 +138,8 @@ var MsgShow = Op[ShowIn, ShowOut]{
 		}
 		content, err := mailmsg.Bodies(raw)
 		if err != nil {
-			env.Log.Debug("body parse problem", "id", m.Hash[:IDLen], "err", err)
+			// The error text may quote message content, so it is not logged.
+			env.Log.Debug("body parse problem", "id", m.Hash[:IDLen])
 		}
 		out := ShowOut{Message: messageOut(m), Attachments: content.Attachments}
 		if out.Attachments == nil {
@@ -176,10 +178,11 @@ func resolve(ctx context.Context, env *Env, account, id string) (index.Message, 
 
 // TagIn changes tags on every message matching a query.
 type TagIn struct {
-	Query  string   `json:"query"`
-	Add    []string `json:"add,omitempty"`
-	Remove []string `json:"remove,omitempty"`
-	DryRun bool     `json:"dry_run,omitempty"`
+	Query   string   `json:"query"`
+	Account string   `json:"account,omitempty"` // narrows a bare message id
+	Add     []string `json:"add,omitempty"`
+	Remove  []string `json:"remove,omitempty"`
+	DryRun  bool     `json:"dry_run,omitempty"`
 }
 
 // TagOut reports what changed.
@@ -204,21 +207,19 @@ var MsgArchive = Op[ArchiveIn, TagOut]{
 	Summary: "Archive messages (remove the inbox tag)",
 	Perm:    Tag,
 	Run: func(ctx context.Context, env *Env, in ArchiveIn) (TagOut, error) {
-		return runTag(ctx, env, TagIn{Query: in.Query, Remove: []string{TagInbox}, DryRun: in.DryRun})
+		return runTag(ctx, env, TagIn{Query: in.Query, Account: in.Account, Remove: []string{TagInbox}, DryRun: in.DryRun})
 	},
 }
 
 // ArchiveIn selects messages to archive.
 type ArchiveIn struct {
-	Query  string `json:"query"`
-	DryRun bool   `json:"dry_run,omitempty"`
+	Query   string `json:"query"`
+	Account string `json:"account,omitempty"` // narrows a bare message id
+	DryRun  bool   `json:"dry_run,omitempty"`
 }
 
-func runTag(ctx context.Context, env *Env, in TagIn) (TagOut, error) {
-	out := TagOut{DryRun: in.DryRun}
-	if in.Query == "" {
-		return out, usageError("a query is required (e.g. 'tag:inbox from:bob' or a message id as 'hash:<id>')")
-	}
+func runTag(ctx context.Context, env *Env, in TagIn) (out TagOut, err error) {
+	out.DryRun = in.DryRun
 	if len(in.Add) == 0 && len(in.Remove) == 0 {
 		return out, usageError("nothing to do: give tags to add or remove")
 	}
@@ -227,14 +228,28 @@ func runTag(ctx context.Context, env *Env, in TagIn) (TagOut, error) {
 			return out, usageError("%v", err)
 		}
 	}
-	q, err := parseQueryOrID(in.Query)
-	if err != nil {
-		return out, err
-	}
 	ix, err := env.Index(ctx)
 	if err != nil {
 		return out, err
 	}
+	q, err := queryOrID(ctx, env, in.Query, in.Account)
+	if err != nil {
+		return out, err
+	}
+
+	// Whatever happens, tags already changed must reach the dump, and the
+	// caller must learn that some messages were changed.
+	defer func() {
+		if in.DryRun || out.Changed == 0 {
+			return
+		}
+		if dumpErr := writeTagsDump(ctx, env); dumpErr != nil {
+			err = errors.Join(err, dumpErr)
+		}
+		if err != nil && !errors.Is(err, ErrPartial) {
+			err = fmt.Errorf("%d messages were changed before the failure: %w: %w", out.Changed, err, ErrPartial)
+		}
+	}()
 
 	var flagErrs []error
 	err = ix.Each(ctx, q, func(page []index.Message) error {
@@ -246,17 +261,21 @@ func runTag(ctx context.Context, env *Env, in TagIn) (TagOut, error) {
 			if slices.Equal(next, m.Tags) {
 				continue
 			}
-			out.Changed++
 			ids = append(ids, m.ID)
 			m.Tags = next
 			changed = append(changed, m)
 		}
-		if in.DryRun || len(ids) == 0 {
+		if in.DryRun {
+			out.Changed += len(ids)
+			return nil
+		}
+		if len(ids) == 0 {
 			return nil
 		}
 		if err := ix.ModifyTags(ctx, ids, in.Add, in.Remove); err != nil {
 			return err
 		}
+		out.Changed += len(ids)
 		if err := applyFlags(env, changed); err != nil {
 			flagErrs = append(flagErrs, err)
 		}
@@ -265,25 +284,35 @@ func runTag(ctx context.Context, env *Env, in TagIn) (TagOut, error) {
 	if err != nil {
 		return out, err
 	}
-	if !in.DryRun && out.Changed > 0 {
-		if err := writeTagsDump(ctx, env); err != nil {
-			return out, err
-		}
-	}
 	if err := errors.Join(flagErrs...); err != nil {
 		return out, fmt.Errorf("tags changed, but some file flags could not be updated: %w: %w", err, ErrPartial)
 	}
 	return out, nil
 }
 
-// parseQueryOrID accepts a query, or a bare message ID as a convenience.
-func parseQueryOrID(s string) (query.Query, error) {
+// queryOrID parses a query. A bare message ID is accepted as a convenience
+// and must identify exactly one message, like msg show. An empty query is
+// refused: it would match every message.
+func queryOrID(ctx context.Context, env *Env, s, account string) (query.Query, error) {
+	s = strings.TrimSpace(s)
 	if len(s) >= index.MinPrefix && len(s) <= 64 && isLowerHex(s) {
-		s = "hash:" + s
+		m, err := resolve(ctx, env, account, s)
+		if errors.Is(err, ErrNotFound) {
+			return query.Query{}, fmt.Errorf("no message with id %s (to search for the word, quote it: '\"%s\"'): %w", s, s, ErrNotFound)
+		}
+		if err != nil {
+			return query.Query{}, err
+		}
+		s = "hash:" + m.Hash + " account:" + m.Account
+	} else if account != "" {
+		return query.Query{}, usageError("--account only applies to a message id; use account: in the query")
 	}
 	q, err := query.Parse(s)
 	if err != nil {
 		return q, usageError("%v", err)
+	}
+	if len(q.Groups) == 0 {
+		return q, usageError("a query is required (e.g. 'tag:inbox from:bob' or a message id); it may not be empty")
 	}
 	return q, nil
 }

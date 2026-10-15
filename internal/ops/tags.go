@@ -280,7 +280,8 @@ func applyFlags(env *Env, msgs []index.Message) error {
 	for _, m := range msgs {
 		st, err := env.Store(m.Account)
 		if err != nil {
-			return err
+			errs = append(errs, err)
+			continue
 		}
 		current, err := st.Flags(m.Hash)
 		if errors.Is(err, store.ErrNotFound) {
@@ -297,7 +298,7 @@ func applyFlags(env *Env, msgs []index.Message) error {
 		}
 		if want != current {
 			if err := st.SetFlags(m.Hash, want); err != nil {
-				errs = append(errs, fmt.Errorf("%s: %w", m.Hash[:12], err))
+				errs = append(errs, fmt.Errorf("%s: %w", m.Hash[:IDLen], err))
 			}
 		}
 	}

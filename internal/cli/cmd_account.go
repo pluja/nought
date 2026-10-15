@@ -14,6 +14,7 @@ import (
 	"golang.org/x/term"
 
 	"nought/internal/ops"
+	"nought/internal/render"
 )
 
 func newAccountCmd(a *app) *cobra.Command {
@@ -73,7 +74,7 @@ func newAccountAddCmd(a *app) *cobra.Command {
 	f.StringVar(&in.SMTPHost, "smtp-host", "", "SMTP server")
 	f.IntVar(&in.SMTPPort, "smtp-port", 0, "SMTP port (default 465, or 587 with starttls)")
 	f.StringVar(&in.SMTPTLS, "smtp-tls", "implicit", "implicit or starttls")
-	f.StringVar(&in.PasswordCommand, "password-command", "", "command printing the password")
+	f.StringVar(&in.PasswordCommand, "password-command", "", "command printing the password (stored in the config: never put the password itself in it)")
 	f.BoolVar(&passwordStdin, "password-stdin", false, "read the password from stdin")
 	return cmd
 }
@@ -115,8 +116,8 @@ func newAccountListCmd(a *app) *cobra.Command {
 			out, err := ops.Call(cmd.Context(), a.env, callerPerm, ops.AccountList, struct{}{})
 			return a.result(cmd, out, err, func(w io.Writer) error {
 				for _, acct := range out {
-					if err := printf(w, "%-12s %-30s %s:%d  deletion %s\n", acct.Name, acct.Email,
-						acct.IMAP.Host, acct.IMAP.Port, acct.Deletion); err != nil {
+					if err := printf(w, "%-12s %-30s %s:%d  deletion %s\n", acct.Name, sanitize(acct.Email),
+						sanitize(acct.IMAP.Host), acct.IMAP.Port, acct.Deletion); err != nil {
 						return err
 					}
 				}
@@ -162,6 +163,9 @@ func printAccount(w io.Writer, acct ops.AccountOut) error {
 		lines = append(lines, rule)
 	}
 	lines = append(lines, "  (other folders) -> archive, keep 7 days on server")
+	for i := range lines {
+		lines[i] = render.Sanitize(lines[i])
+	}
 	return printf(w, "%s\n", strings.Join(lines, "\n"))
 }
 

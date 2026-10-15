@@ -3,11 +3,14 @@
 package cli
 
 import (
+	"fmt"
 	"io"
+	"os"
 	"strings"
 	"unicode/utf8"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 
 	"nought/internal/ops"
 	"nought/internal/render"
@@ -81,6 +84,7 @@ func newMsgCmd(a *app) *cobra.Command {
 
 func newMsgShowCmd(a *app) *cobra.Command {
 	var in ops.ShowIn
+	var force bool
 	cmd := &cobra.Command{
 		Use:   "show <id>",
 		Short: ops.MsgShow.Summary,
@@ -89,6 +93,9 @@ func newMsgShowCmd(a *app) *cobra.Command {
 		Args: exactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			in.ID = args[0]
+			if in.Raw && !a.json && !force && isTerminal(a.opts.Stdout) {
+				return fmt.Errorf("refusing to print a raw message to a terminal (it may contain escape sequences); pipe it, or use --force: %w", ops.ErrUsage)
+			}
 			out, err := ops.Call(cmd.Context(), a.env, callerPerm, ops.MsgShow, in)
 			if err != nil {
 				return err
@@ -101,7 +108,8 @@ func newMsgShowCmd(a *app) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVarP(&in.Account, "account", "a", "", "account, if the id exists in several")
-	cmd.Flags().BoolVar(&in.Raw, "raw", false, "print the raw message (unsanitized; pipe it, do not view it in a terminal)")
+	cmd.Flags().BoolVar(&in.Raw, "raw", false, "print the raw message bytes (for piping to other programs)")
+	cmd.Flags().BoolVar(&force, "force", false, "allow --raw output to a terminal")
 	return cmd
 }
 
@@ -148,6 +156,7 @@ func newMsgTagCmd(a *app) *cobra.Command {
 			return a.result(cmd, out, err, func(w io.Writer) error { return printTagOut(w, out) })
 		},
 	}
+	cmd.Flags().StringVarP(&in.Account, "account", "a", "", "account, if a bare message id exists in several")
 	cmd.Flags().StringSliceVar(&in.Add, "add", nil, "tags to add (repeatable or comma-separated)")
 	cmd.Flags().StringSliceVar(&in.Remove, "remove", nil, "tags to remove (repeatable or comma-separated)")
 	cmd.Flags().BoolVarP(&in.DryRun, "dry-run", "n", false, "report what would change without changing anything")
@@ -168,6 +177,7 @@ func newMsgArchiveCmd(a *app) *cobra.Command {
 			return a.result(cmd, out, err, func(w io.Writer) error { return printTagOut(w, out) })
 		},
 	}
+	cmd.Flags().StringVarP(&in.Account, "account", "a", "", "account, if a bare message id exists in several")
 	cmd.Flags().BoolVarP(&in.DryRun, "dry-run", "n", false, "report what would change without changing anything")
 	return cmd
 }
@@ -178,4 +188,10 @@ func printTagOut(w io.Writer, out ops.TagOut) error {
 		verb = "would change"
 	}
 	return printf(w, "matched %d, %s %d\n", out.Matched, verb, out.Changed)
+}
+
+// isTerminal reports whether w is an interactive terminal.
+func isTerminal(w io.Writer) bool {
+	f, ok := w.(*os.File)
+	return ok && term.IsTerminal(int(f.Fd())) //nolint:gosec // G115: file descriptors fit in int
 }
