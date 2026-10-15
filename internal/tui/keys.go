@@ -25,8 +25,7 @@ func (m Model) key(k tea.KeyPressMsg) (Model, tea.Cmd) {
 		return m.inputKey(k)
 	}
 	if m.help {
-		m.help = false
-		return m, nil
+		return m.helpKey(k.String()), nil
 	}
 	if !m.quitting {
 		m.notice, m.noticeErr = "", false

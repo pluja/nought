@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -294,7 +295,7 @@ func TestPaletteAndHelp(t *testing.T) {
 		t.Errorf("palette search: %d", len(m.msgs))
 	}
 	m = drive(t, m, key("?"))
-	if !strings.Contains(screen(m), "leaves servers only during") || !m.help {
+	if !strings.Contains(screen(m), "What happens where") || !m.help {
 		t.Error("help not shown")
 	}
 	m = drive(t, m, key("x"))
@@ -830,16 +831,40 @@ func TestSwitchBodyVersion(t *testing.T) {
 
 func TestHelpLegendUsesListColors(t *testing.T) {
 	m := newTestModel(t, 120, 40)
-	help := m.renderHelp()
-	for _, want := range []string{m.st.server.Render("◐ (S)"), m.st.leaving.Render("◕ (-)"), m.st.local.Render("● (L)"),
-		m.st.unreadDot.Render("◆"), m.st.flag.Render("★"), m.st.tag.Render("#tag")} {
+	help := strings.Join(m.helpLines(), "\n")
+	for _, want := range []string{m.st.server.Render("◐"), m.st.leaving.Render("◕"), m.st.local.Render("●"),
+		m.st.unreadDot.Render("◆"), m.st.flag.Render("★"), m.st.tag.Render("#tag"), m.st.accent.Render(pad("e archive", 9))} {
 		if !strings.Contains(help, want) || want == ansi.Strip(want) {
-			t.Errorf("legend lacks styled %q", ansi.Strip(want))
+			t.Errorf("help lacks styled %q", ansi.Strip(want))
 		}
 	}
 	m.prefs.ASCII = true
-	if s := ansi.Strip(m.renderHelp()); !strings.Contains(s, "  S      also on a server") || strings.Contains(s, "◆") {
+	if s := ansi.Strip(strings.Join(m.helpLines(), "\n")); !strings.Contains(s, "   S  on a server too") || strings.Contains(s, "◆") {
 		t.Errorf("ASCII legend:\n%s", s)
+	}
+}
+
+func TestHelpScrolls(t *testing.T) {
+	m := newTestModel(t, 80, 24)
+	m = drive(t, m, key("?"))
+	if !strings.Contains(screen(m), "j/k scroll") || !strings.Contains(screen(m), "Move") {
+		t.Fatalf("help top:\n%s", screen(m))
+	}
+	for range 50 {
+		m = drive(t, m, key("j"))
+	}
+	if s := screen(m); !m.help || !strings.Contains(s, "nothing is ever loaded") || strings.Contains(s, "first, last") {
+		t.Fatalf("help bottom:\n%s", s)
+	}
+	m = drive(t, m, key("x"))
+	if m.help || m.helpTop != 0 {
+		t.Error("another key must close the help")
+	}
+	// Wide terminals show the keys in two columns.
+	m = newTestModel(t, 120, 60)
+	m = drive(t, m, key("?"))
+	if !strings.Contains(screen(m), "Move") || !regexp.MustCompile(`Move\s+Act on a message`).MatchString(screen(m)) {
+		t.Errorf("two columns:\n%s", screen(m))
 	}
 }
 

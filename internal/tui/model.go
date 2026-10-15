@@ -174,6 +174,7 @@ type Model struct {
 	quitting     bool
 	syncLines    []string
 	help         bool
+	helpTop      int // first help line shown
 	pendingG     bool
 	undo         []undoEntry
 }

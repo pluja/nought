@@ -492,46 +492,6 @@ func (m Model) renderStatus() string {
 	return fit(pad(ansi.Truncate(left, max(m.width-len(right)-2, 0), "…"), m.width-len(right))+m.st.dim.Render(right), m.width, 1)
 }
 
-func (m Model) renderHelp() string {
-	help := `nought: keys
-
-  j/k, ↓/↑         move              Enter            open (marks read)
-  gg / G           first / last      Esc, h           back to the list
-  Ctrl-d / Ctrl-u  half page         J / K            next / previous message
-  gi ga gu gf gt   inbox, all, unread, flagged, trash
-  /                search            Tab              switch pane
-  b                sidebar           :                command (sync, search, tag,
-  e                archive                             archive, undo, reindex, quit)
-  u                read / unread     S                sync now
-  s                flag / unflag     z                undo the last change
-  l, t             tags: +add -remove                  ?  help      q  quit
-  #                trash / restore   D                delete for good (asks)
-  o                open a link: asks first, can open or copy it without tracking
-  L                show / hide the message's links    v  plain / HTML version
-
-Where messages live (every message is in your local archive):
-  ◐ (S)  also on a server, stays there (deletion off for the account)
-  ◕ (-)  also on a server, leaves it soon (deletion on, or you deleted it)
-  ● (L)  local only: no longer on any server
-  ◆  unread (read mail is dimmed)    ★  flagged    #tag  your tags
-Archiving (e) only removes the inbox tag. Mail leaves servers only during
-sync, after its local copy is verified. The trash is never backed up.
-HTML mail is shown as text: nothing is ever loaded from the internet.
-                                                           (any key closes)`
-	// The legend uses the list's own colors (and its ASCII symbols).
-	help = strings.NewReplacer(
-		"nought: keys", m.st.title.Render("nought: keys"),
-		"Where messages live", m.st.title.Render("Where messages live"),
-		"◐ (S)", m.st.server.Render(m.glyph("◐ (S)", "S    ")),
-		"◕ (-)", m.st.leaving.Render(m.glyph("◕ (-)", "-    ")),
-		"● (L)", m.st.local.Render(m.glyph("● (L)", "L    ")),
-		"◆", m.st.unreadDot.Render(m.glyph("◆", "*")),
-		"★", m.st.flag.Render("★"),
-		"#tag", m.st.tag.Render("#tag"),
-	).Replace(help)
-	return fit(help, m.width, m.height)
-}
-
 // fit pads or cuts s to exactly w columns and h lines.
 func fit(s string, w, h int) string {
 	lines := strings.Split(s, "\n")
