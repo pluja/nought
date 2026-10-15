@@ -340,3 +340,33 @@ func TestHeaders(t *testing.T) {
 		t.Error("fetching headers set \\Seen")
 	}
 }
+
+func TestAllUIDsAfterMovesAndExpunges(t *testing.T) {
+	s := imaptest.Start(t, imaptest.Options{})
+	s.CreateMailbox(t, "Archive")
+	date := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
+	a := s.Append(t, "INBOX", raw, date)
+	b := s.Append(t, "INBOX", strings.Replace(raw, "<1@x>", "<2@x>", 1), date)
+	c := s.Append(t, "INBOX", strings.Replace(raw, "<1@x>", "<3@x>", 1), date)
+	s.Move(t, "INBOX", a, "Archive")
+	s.Copy(t, "INBOX", b, "Archive")
+	s.Expunge(t, "INBOX", c)
+
+	conn := dial(t, s)
+	for mailbox, want := range map[string]int{"INBOX": 1, "Archive": 2} {
+		if _, err := conn.Select(mailbox, true); err != nil {
+			t.Fatal(err)
+		}
+		uids, err := conn.AllUIDs()
+		if err != nil || len(uids) != want || !slices.IsSorted(uids) {
+			t.Errorf("%s: uids %v, %v; want %d", mailbox, uids, err, want)
+		}
+	}
+	if uids, _ := conn.AllUIDs(); slices.Contains(uids, 0) {
+		t.Errorf("bad uid in %v", uids)
+	}
+	s.DeleteMailbox(t, "Archive")
+	if folders, _ := conn.Folders(); slices.ContainsFunc(folders, func(f Folder) bool { return f.Name == "Archive" }) {
+		t.Error("deleted mailbox still listed")
+	}
+}

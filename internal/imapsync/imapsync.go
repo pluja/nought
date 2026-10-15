@@ -149,11 +149,18 @@ func (c *Conn) HasUIDPlus() bool { return c.c.Caps().Has(imap.CapUIDPlus) }
 type Folder struct {
 	Name string // for display, tags and policies: "/"-separated, no control characters
 	Raw  string // the server's own name, used to select it and to key sync state
+	// Trash is set for the folder the server marks as its trash (RFC 6154
+	// SPECIAL-USE \Trash); servers without SPECIAL-USE mark none.
+	Trash bool
 }
 
 // Folders lists selectable folders.
 func (c *Conn) Folders() ([]Folder, error) {
-	list, err := c.c.List("", "*", nil).Collect()
+	var opts *imap.ListOptions
+	if c.c.Caps().Has(imap.CapSpecialUse) {
+		opts = &imap.ListOptions{ReturnSpecialUse: true}
+	}
+	list, err := c.c.List("", "*", opts).Collect()
 	if err != nil {
 		return nil, fmt.Errorf("list folders: %w", err)
 	}
@@ -176,7 +183,7 @@ func (c *Conn) Folders() ([]Folder, error) {
 			}
 			return r
 		}, name)
-		out = append(out, Folder{Name: name, Raw: l.Mailbox})
+		out = append(out, Folder{Name: name, Raw: l.Mailbox, Trash: slices.Contains(l.Attrs, imap.MailboxAttrTrash)})
 	}
 	slices.SortFunc(out, func(a, b Folder) int { return strings.Compare(a.Name, b.Name) })
 	return out, nil
@@ -231,6 +238,11 @@ func (c *Conn) UIDsAfter(after uint32) ([]uint32, error) {
 	}
 	slices.Sort(out)
 	return slices.Compact(out), nil
+}
+
+// AllUIDs returns every UID in the selected folder, in order.
+func (c *Conn) AllUIDs() ([]uint32, error) {
+	return c.UIDsAfter(0)
 }
 
 // Lookup returns the current metadata of the given UIDs, fetched in

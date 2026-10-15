@@ -161,11 +161,8 @@ func (s *Server) UIDs(t testing.TB, mailbox string) []uint32 {
 // SetDeleted marks a message \Deleted, as another mail client might.
 func (s *Server) SetDeleted(t testing.TB, mailbox string, uid uint32) {
 	t.Helper()
-	c := s.client(t)
+	c := s.selected(t, mailbox)
 	defer func() { _ = c.Close() }()
-	if _, err := c.Select(mailbox, nil).Wait(); err != nil {
-		t.Fatal(err)
-	}
 	store := &imap.StoreFlags{Op: imap.StoreFlagsAdd, Silent: true, Flags: []imap.Flag{imap.FlagDeleted}}
 	if err := c.Store(imap.UIDSetNum(imap.UID(uid)), store, nil).Close(); err != nil {
 		t.Fatal(err)
@@ -260,4 +257,56 @@ func selfSigned(t testing.TB) (tls.Certificate, []byte, *x509.CertPool) {
 	pool.AddCert(parsed)
 	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
 	return tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key}, certPEM, pool
+}
+
+// Move moves a message to another mailbox, as a phone's "archive" does
+// (COPY, then mark deleted and expunge: works without the MOVE extension).
+func (s *Server) Move(t testing.TB, from string, uid uint32, to string) {
+	t.Helper()
+	s.Copy(t, from, uid, to)
+	s.Expunge(t, from, uid)
+}
+
+// Copy copies a message to another mailbox.
+func (s *Server) Copy(t testing.TB, from string, uid uint32, to string) {
+	t.Helper()
+	c := s.selected(t, from)
+	defer func() { _ = c.Close() }()
+	if _, err := c.Copy(imap.UIDSetNum(imap.UID(uid)), to).Wait(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Expunge deletes a message for good, as a phone's "delete" may. Other
+// messages already marked deleted in the mailbox go too.
+func (s *Server) Expunge(t testing.TB, mailbox string, uid uint32) {
+	t.Helper()
+	c := s.selected(t, mailbox)
+	defer func() { _ = c.Close() }()
+	mark := &imap.StoreFlags{Op: imap.StoreFlagsAdd, Silent: true, Flags: []imap.Flag{imap.FlagDeleted}}
+	if err := c.Store(imap.UIDSetNum(imap.UID(uid)), mark, nil).Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Expunge().Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// DeleteMailbox removes a mailbox with its messages.
+func (s *Server) DeleteMailbox(t testing.TB, name string) {
+	t.Helper()
+	if err := s.user.Delete(name); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// selected returns a client with mailbox selected read-write.
+func (s *Server) selected(t testing.TB, mailbox string) *imapclient.Client {
+	t.Helper()
+	c := s.client(t)
+	if _, err := c.Select(mailbox, nil).Wait(); err != nil {
+		_ = c.Close()
+		t.Fatal(err)
+	}
+	return c
 }
