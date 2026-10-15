@@ -156,7 +156,7 @@ func TestOpensOnTheInbox(t *testing.T) {
 	m := newTestModel(t, 120, 30)
 	s := screen(m)
 	for _, want := range []string{"tag:inbox", "3 messages", "Lunch on Friday?", "Invoice 2026-114",
-		"Inbox", "no accounts", "? all keys"} {
+		"Inbox", "no accounts", "? more"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("screen lacks %q:\n%s", want, s)
 		}
@@ -182,7 +182,7 @@ func TestOpenMarksReadAndShowsLocation(t *testing.T) {
 		t.Error("opening did not mark the message read")
 	}
 	s := screen(m)
-	for _, want := range []string{"Pizza at noon?", "Local only: no longer on any server"} {
+	for _, want := range []string{"Pizza at noon?", "● Local only"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("reader lacks %q:\n%s", want, s)
 		}
@@ -315,8 +315,8 @@ func TestLocationLinesAndMarkers(t *testing.T) {
 		marker string
 	}{
 		{nil, "Local only", "●"},
-		{[]ops.ServerLocation{{Folder: "INBOX"}}, "stays there (deletion is off", "◐"},
-		{[]ops.ServerLocation{{Folder: "INBOX", LeavesAt: &soon}}, "leaves the server in 3 days", "◕"},
+		{[]ops.ServerLocation{{Folder: "INBOX"}}, "On server · INBOX on personal", "◐"},
+		{[]ops.ServerLocation{{Folder: "INBOX", LeavesAt: &soon}}, "Leaves the server in 3 days · INBOX", "◕"},
 		{[]ops.ServerLocation{{Folder: "INBOX", LeavesAt: &past}}, "at the next sync", "◕"},
 	}
 	m := Model{now: func() time.Time { return testNow }, st: newStyles()}
@@ -549,7 +549,8 @@ func withLinksMessage(t *testing.T, m Model) Model {
 func TestLinksCollapsedAndToggled(t *testing.T) {
 	m := withLinksMessage(t, newTestModel(t, 120, 30))
 	s := screen(m)
-	if !strings.Contains(s, "the post[1]") || !strings.Contains(s, "2 links · o open · L show") || strings.Contains(s, "track=123") {
+	if !strings.Contains(s, "the post[1]") || !strings.Contains(s, "2 links · o open · L show") || strings.Contains(s, "track=123") ||
+		strings.Contains(s, "HTML shown as text") {
 		t.Fatalf("collapsed links:\n%s", s)
 	}
 	m = drive(t, m, key("L"))
@@ -645,12 +646,12 @@ func TestHintsFollowTheScreen(t *testing.T) {
 		t.Errorf("list hints missing:\n%s", s)
 	}
 	m = drive(t, m, key("enter"))
-	if s := screen(m); !strings.Contains(s, "o open link") || !strings.Contains(s, "J/K next/prev") {
+	if s := screen(m); !strings.Contains(s, "o link") || !strings.Contains(s, "J/K next") {
 		t.Errorf("reader hints missing:\n%s", s)
 	}
 	off := false
 	m.prefs.Hints = &off
-	if strings.Contains(screen(m), "o open link") {
+	if strings.Contains(screen(m), "o link") {
 		t.Error("hints shown although disabled")
 	}
 }

@@ -14,11 +14,11 @@ nought: keys
   L                show / hide the message's links                              
                                                                                 
 Where messages live (every message is in your local archive):                   
-  ◐ (S)  also on a server, stays there (deletion off)                           
+  ◐ (S)  also on a server, stays there (deletion off for the account)           
   ◕ (-)  also on a server, leaves it soon (deletion on)                         
   ● (L)  local only: no longer on any server                                    
+HTML mail is shown as text: nothing is ever loaded from the internet.           
   ◆  unread (read mail is dimmed)    ★  flagged    #tag  your tags              
                                                                                 
 Archiving (e) only removes the inbox tag in your archive. Nothing in this       
 interface deletes mail from a server: that happens only during sync, for        
-accounts with deletion enabled, after each message's local copy is verified.    

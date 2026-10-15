@@ -312,18 +312,16 @@ func (m Model) readerContent() string {
 		field("Date", o.Message.Date.Local().Format("Mon, 02 Jan 2006 15:04"))
 	}
 	b.WriteString(wrap.Render(m.st.dim.Render("Subject:")+" "+m.st.bold.Render(render.SanitizeLine(o.Message.Subject))) + "\n")
-	field("Tags", strings.Join(o.Message.Tags, " "))
-	_, where := m.location(o.Message)
-	for _, line := range locationLines(o.Message, m.now()) {
-		b.WriteString(wrap.Render(where.Bold(true).Render(line)) + "\n")
+	if tags := userTags(o.Message.Tags); len(tags) > 0 {
+		b.WriteString(wrap.Render(m.st.dim.Render("Tags:   ")+" "+m.st.tag.Render(render.SanitizeLine("#"+strings.Join(tags, " #")))) + "\n")
 	}
 	for _, a := range o.Attachments {
-		field("Attach", fmt.Sprintf("%s (%s, %s)", a.Filename, a.ContentType, humanSize(a.Size)))
+		field("Attach", fmt.Sprintf("%s (%s)", a.Filename, humanSize(a.Size)))
 	}
-	if o.BodyFrom == "text/html" {
-		b.WriteString(m.st.dim.Render("HTML shown as text; nothing was loaded.") + "\n")
+	glyph, where := m.location(o.Message)
+	for _, line := range locationLines(o.Message, m.now()) {
+		b.WriteString(wrap.Render(where.Render(glyph+" "+line)) + "\n")
 	}
-	b.WriteString("\n")
 	b.WriteString(m.st.dim.Render(strings.Repeat("─", w)) + "\n")
 	body, _ := m.styledBody(o)
 	b.WriteString(wrap.Render(body))
@@ -331,21 +329,21 @@ func (m Model) readerContent() string {
 	return b.String()
 }
 
-// locationLines spells out where a message lives.
+// locationLines says briefly where a message lives (details are in ?).
 func locationLines(msg ops.MessageOut, now time.Time) []string {
 	if len(msg.Server) == 0 {
-		return []string{"Local only: no longer on any server; kept in your archive."}
+		return []string{"Local only"}
 	}
 	var out []string
 	for _, l := range msg.Server {
-		where := fmt.Sprintf("On server: %s (%s)", render.SanitizeLine(l.Folder), msg.Account)
+		where := render.SanitizeLine(l.Folder) + " on " + msg.Account
 		switch {
 		case l.LeavesAt == nil:
-			out = append(out, where+"; stays there (deletion is off for this account).")
+			out = append(out, "On server · "+where)
 		case !l.LeavesAt.After(now):
-			out = append(out, where+"; leaves the server at the next sync.")
+			out = append(out, "Leaves the server at the next sync · "+where)
 		default:
-			out = append(out, where+"; leaves the server "+until(now, *l.LeavesAt)+".")
+			out = append(out, "Leaves the server "+until(now, *l.LeavesAt)+" · "+where)
 		}
 	}
 	return out
@@ -388,15 +386,13 @@ func (m Model) renderHints() string {
 	case m.inputKind != inputNone:
 		hints = [][2]string{{"enter", "confirm"}, {"esc", "cancel"}}
 	case m.focus == focusReader:
-		hints = [][2]string{{"o", "open link"}, {"L", "links"}, {"e", "archive"}, {"u", "unread"}, {"s", "flag"},
-			{"l", "tags"}, {"J/K", "next/prev"}, {"esc", "back"}}
+		hints = [][2]string{{"e", "archive"}, {"o", "link"}, {"J/K", "next"}, {"esc", "back"}}
 	case m.focus == focusSidebar:
-		hints = [][2]string{{"j/k", "move"}, {"enter", "show"}, {"esc", "back"}}
+		hints = [][2]string{{"enter", "show"}, {"esc", "back"}}
 	default:
-		hints = [][2]string{{"enter", "open"}, {"e", "archive"}, {"u", "unread"}, {"s", "flag"}, {"l", "tags"},
-			{"/", "search"}, {"S", "sync"}, {"z", "undo"}, {"b", "sidebar"}}
+		hints = [][2]string{{"enter", "open"}, {"e", "archive"}, {"/", "search"}, {"z", "undo"}}
 	}
-	hints = append(hints, [2]string{"?", "all keys"})
+	hints = append(hints, [2]string{"?", "more"})
 	var parts []string
 	for _, h := range hints {
 		parts = append(parts, m.st.accent.Render(h[0])+" "+m.st.dim.Render(h[1]))
@@ -446,9 +442,10 @@ func (m Model) renderHelp() string {
   L                show / hide the message's links
 
 Where messages live (every message is in your local archive):
-  ◐ (S)  also on a server, stays there (deletion off)
+  ◐ (S)  also on a server, stays there (deletion off for the account)
   ◕ (-)  also on a server, leaves it soon (deletion on)
   ● (L)  local only: no longer on any server
+HTML mail is shown as text: nothing is ever loaded from the internet.
   ◆  unread (read mail is dimmed)    ★  flagged    #tag  your tags
 
 Archiving (e) only removes the inbox tag in your archive. Nothing in this
