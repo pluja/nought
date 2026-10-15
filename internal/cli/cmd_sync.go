@@ -18,10 +18,12 @@ func newSyncCmd(a *app) *cobra.Command {
 		Use:   "sync [account...]",
 		Short: ops.SyncRun.Summary,
 		Long: ops.SyncRun.Summary + ".\n\n" +
-			"New messages are archived (verified on disk) and indexed. For accounts with\n" +
-			"deletion enabled, messages are deleted from the server once their folder's\n" +
-			"keep_days have passed, only if the local copy still verifies, and only with\n" +
-			"UID EXPUNGE. Every deletion is journaled first. Re-running is always safe.",
+			"New messages are archived (verified on disk) and indexed. What another device\n" +
+			"did is mirrored: mail it archived leaves the inbox here, mail it deleted goes\n" +
+			"to the trash here. For accounts with deletion enabled, handled mail (out of\n" +
+			"the inbox) is deleted from the server after its folder's keep_days, only if\n" +
+			"the local copy still verifies, and only with UID EXPUNGE. Every deletion is\n" +
+			"journaled first. Re-running is always safe.",
 		Example: "  nou sync --dry-run\n  nou sync personal",
 		Args:    cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -31,6 +33,8 @@ func newSyncCmd(a *app) *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVarP(&in.DryRun, "dry-run", "n", false, "connect and report, without archiving or deleting")
+	cmd.Flags().BoolVar(&in.AcceptRemovals, "accept-removals", false,
+		"apply removals that look like a mass deletion (many messages gone from a folder at once)")
 	return cmd
 }
 
@@ -62,6 +66,30 @@ func printSync(w io.Writer, out ops.SyncOut) error {
 					return err
 				}
 			}
+		}
+		if err := printAccountChanges(w, acct); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// printAccountChanges prints what sync mirrored from other devices and did
+// to the server's trash.
+func printAccountChanges(w io.Writer, acct ops.AccountSyncOut) error {
+	var lines []string
+	if s := ops.DescribeOtherDevices(acct.ArchivedElsewhere, acct.DeletedElsewhere, acct.BackInInbox); s != "" {
+		lines = append(lines, "on another device: "+s)
+	}
+	if acct.TrashCleaned > 0 {
+		lines = append(lines, fmt.Sprintf("emptied %d from the server's trash", acct.TrashCleaned))
+	}
+	for _, n := range acct.Notes {
+		lines = append(lines, "note: "+sanitize(n))
+	}
+	for _, l := range lines {
+		if err := printf(w, "  %s\n", l); err != nil {
+			return err
 		}
 	}
 	return nil

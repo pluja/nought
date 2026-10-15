@@ -346,6 +346,7 @@ func (m Model) command(line string) (Model, tea.Cmd) {
 	case "q", "quit":
 		return m.requestQuit()
 	case "sync":
+		m.syncAccept = arg == "accept-removals"
 		return m.startSync(false)
 	case "search", "s":
 		return m.goTo(arg)

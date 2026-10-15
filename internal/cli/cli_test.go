@@ -15,6 +15,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -222,4 +223,19 @@ func (f fileSecrets) Delete(account string) error {
 	}
 	delete(m, account)
 	return f.save(m)
+}
+
+func TestPrintSyncOtherDevices(t *testing.T) {
+	var b strings.Builder
+	out := ops.SyncOut{Accounts: []ops.AccountSyncOut{{Account: "p", Deletion: true, ArchivedElsewhere: 1, DeletedElsewhere: 2,
+		BackInInbox: 1, TrashCleaned: 3, Notes: []string{"held"}}}}
+	if err := printSync(&b, out); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"on another device: 1 archived, 2 deleted, 1 moved back to the inbox",
+		"emptied 3 from the server's trash", "note: held"} {
+		if !strings.Contains(b.String(), want) {
+			t.Errorf("output lacks %q:\n%s", want, b.String())
+		}
+	}
 }

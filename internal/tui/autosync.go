@@ -28,6 +28,8 @@ type autoSyncMsg struct{ gen int }
 // syncResult condenses a sync.
 type syncResult struct {
 	fetched, expunged, problems int
+	archived, deleted, back     int  // done on another device, mirrored here
+	held                        bool // a mass removal waits for :sync accept-removals
 	busy                        bool // another sync (e.g. a cron job) was running
 }
 
@@ -37,6 +39,11 @@ func summarize(out ops.SyncOut, err error) syncResult {
 		if a.Error != "" {
 			r.problems++
 		}
+		r.archived += a.ArchivedElsewhere
+		r.deleted += a.DeletedElsewhere
+		r.back += a.BackInInbox
+		r.expunged += a.TrashCleaned
+		r.held = r.held || a.RemovalsHeld
 		for _, f := range a.Folders {
 			r.fetched += f.Fetched
 			r.expunged += f.Expunged
@@ -59,6 +66,12 @@ func (r syncResult) String() string {
 		return "another sync is running; trying again later"
 	}
 	s := "synced: " + strconv.Itoa(r.fetched) + " new, " + strconv.Itoa(r.expunged) + " left the server"
+	if other := ops.DescribeOtherDevices(r.archived, r.deleted, r.back); other != "" {
+		s += "; on another device: " + other
+	}
+	if r.held {
+		s += "; many messages disappeared at once and were kept: if that was you, run :sync accept-removals"
+	}
 	if r.problems > 0 {
 		s += fmt.Sprintf("; %d problems (run 'nou sync' for details)", r.problems)
 	}
@@ -66,7 +79,9 @@ func (r syncResult) String() string {
 }
 
 // worthTelling: automatic syncs stay quiet unless something happened.
-func (r syncResult) worthTelling() bool { return r.fetched+r.expunged+r.problems > 0 }
+func (r syncResult) worthTelling() bool {
+	return r.fetched+r.expunged+r.problems+r.archived+r.deleted+r.back > 0 || r.held
+}
 
 // nextSyncDelay doubles the interval for each failure in a row, up to an
 // hour, so an offline laptop does not retry every few minutes.
@@ -101,7 +116,7 @@ func (m Model) autoSync(msg autoSyncMsg) (Model, tea.Cmd) {
 
 func (m Model) syncDone(msg syncDoneMsg) (Model, tea.Cmd) {
 	auto := m.syncAuto
-	m.syncing, m.syncLines, m.syncAuto = false, nil, false
+	m.syncing, m.syncLines, m.syncAuto, m.syncAccept = false, nil, false, false
 	if m.syncCancel != nil {
 		m.syncCancel()
 		m.syncCancel = nil
@@ -118,7 +133,7 @@ func (m Model) syncDone(msg syncDoneMsg) (Model, tea.Cmd) {
 		m.syncFailures = 0
 	}
 	if !auto || r.worthTelling() {
-		m.notice, m.noticeErr = r.String(), r.problems > 0
+		m.notice, m.noticeErr = r.String(), r.problems > 0 || r.held
 	}
 	m, schedule := m.scheduleSync()
 	m, refresh := m.refresh()

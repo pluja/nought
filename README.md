@@ -52,14 +52,44 @@ nou msg show a3f9c2e1b0d4
 nou msg tag from:newsletter@example.org --add newsletter --remove inbox
 nou msg archive tag:inbox date:..2026-09-30
 
-# 5. When the archive looks right, let nou keep the server empty.
+# 5. When the archive looks right, let nou keep the server down to your inbox.
 nou account set personal --deletion enabled
 nou sync --dry-run && nou sync
 ```
 
-By default, mail stays on the server for 7 days after it arrives (so your phone still sees recent
-mail). Drafts, templates, junk, spam and trash are never archived or deleted. Each account's
-folder rules are in the config file, and `nou account show <name>` lists them.
+**The server's inbox is your inbox.** Mail stays on the server until you deal with it. Once you
+archive or delete it, here or on another device, it leaves the server at the next sync (with
+deletion enabled; it is always archived first). Mail in other folders (Sent, Archive...) counts as
+dealt with once it is archived. Drafts, templates, junk, spam and trash are never archived.
+
+Each account's folder rules are in the config file; `nou account show <name>` lists them:
+
+```toml
+[[account.folder]]
+match     = "INBOX"
+keep_days = 0     # once dealt with, at least this many days on the server (default 0)
+max_days  = 90    # optional: off the server after this, even if not dealt with
+
+[[account.folder]]
+match     = "Sent*"
+keep_days = 7     # keep a week of sent mail visible on your phone
+```
+
+## Using a phone too
+
+Keep any mail app on your phone (Thunderbird, FairEmail, ...) on the same account. It shows your
+inbox: what is still to be dealt with. Both sides agree after each sync:
+
+| You do this | on the phone, nought does | in nought, the phone sees |
+|---|---|---|
+| archive | takes it out of the inbox | it leaves the server's INBOX |
+| delete | moves it to the nought trash (kept at least 7 days) | it is gone |
+| move it back to INBOX | puts it back in the inbox | – |
+
+Read, flagged and tags stay local. Older mail lives in nought, not on the phone: save what you will
+need on the go (a ticket, a boarding pass). If many messages vanish from a folder at once, nought
+assumes a server problem, changes nothing, and asks you to confirm with
+`nou sync --accept-removals` (`:sync accept-removals` in the TUI).
 
 The TUI (`nou tui`) syncs when it starts and then every 10 minutes, quietly unless something
 changed. After a failure (say, you are offline) it waits twice as long each time, up to an hour.

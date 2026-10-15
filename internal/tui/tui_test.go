@@ -931,3 +931,45 @@ func TestEmptyTrash(t *testing.T) {
 		t.Errorf("all mail has %d messages, want 2", len(m.msgs))
 	}
 }
+
+func TestSyncSummaryMentionsOtherDevices(t *testing.T) {
+	r := summarize(ops.SyncOut{Accounts: []ops.AccountSyncOut{{ArchivedElsewhere: 2, DeletedElsewhere: 1, TrashCleaned: 1,
+		Folders: []ops.FolderSyncOut{{Fetched: 3, Expunged: 1}}}}}, nil)
+	if got := r.String(); got != "synced: 3 new, 2 left the server; on another device: 2 archived, 1 deleted" {
+		t.Errorf("summary = %q", got)
+	}
+	if !r.worthTelling() {
+		t.Error("changes made on other devices are news")
+	}
+	held := summarize(ops.SyncOut{Accounts: []ops.AccountSyncOut{{RemovalsHeld: true}}}, nil)
+	if !held.worthTelling() || !strings.Contains(held.String(), ":sync accept-removals") {
+		t.Errorf("held removal = %q", held.String())
+	}
+}
+
+func TestSyncAcceptRemovalsCommand(t *testing.T) {
+	m := newTestModel(t, 120, 30)
+	next, cmd := m.command("sync accept-removals")
+	if !next.syncing || !next.syncAccept || cmd == nil {
+		t.Fatalf("syncing %v accept %v", next.syncing, next.syncAccept)
+	}
+	next, _ = next.syncDone(syncDoneMsg{})
+	if next.syncAccept {
+		t.Error("accept-removals must apply to one sync only")
+	}
+}
+
+func TestHelpDescribesTheInboxModel(t *testing.T) {
+	m := newTestModel(t, 120, 60)
+	m.deletionOn = true
+	s := ansi.Strip(strings.Join(m.helpLines(), "\n"))
+	for _, want := range []string{"it leaves the server at the next sync", "On your phone"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("help lacks %q:\n%s", want, s)
+		}
+	}
+	m.deletionOn = false
+	if s := ansi.Strip(strings.Join(m.helpLines(), "\n")); !strings.Contains(s, "deletion is off: the server copy stays") {
+		t.Errorf("help with deletion off:\n%s", s)
+	}
+}

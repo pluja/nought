@@ -119,8 +119,16 @@ func (m Model) helpLines() []string {
 	if m.trashDays == 0 {
 		kept = "until the next sync"
 	}
+	archive := "out of the inbox (deletion is off: the server copy stays)."
+	if m.deletionOn {
+		archive = "out of the inbox; it leaves the server at the next sync"
+		if m.inboxKeep > 0 {
+			archive += " after " + strconv.Itoa(m.inboxKeep) + " days"
+		}
+		archive += "."
+	}
 	what := [][2]string{
-		{"e archive", "here only: it leaves your inbox. The server copy is not touched."},
+		{"e archive", archive},
 		{"# trash", "the server copy is deleted at the next sync; here it is kept " + kept + "."},
 		{"D delete", "deleted from the server at the next sync, then from here."},
 		{"t tags", "here only, like read and flagged: never sent to a server."},
@@ -130,6 +138,7 @@ func (m Model) helpLines() []string {
 		lines = append(lines, "   "+m.st.accent.Render(pad(w[0], 9))+"  "+w[1])
 	}
 	lines = append(lines,
+		"   On your phone: archive or delete, and nought does the same here at the next sync.",
 		"   Sync only ever deletes from servers, and only after the local copy is verified.",
 		"", " "+m.st.title.Render("Where a message lives")+m.st.dim.Render("  (every message is in your local archive)"),
 		"   "+m.st.server.Render(m.glyph("◐", "S"))+"  on a server too, and stays (deletion off for the account)",

@@ -188,9 +188,10 @@ func (m Model) loadSidebar() tea.Cmd {
 // sync runs in its own cancellable context, so quitting can stop it at a
 // safe point (sync finishes bookkeeping for anything already deleted).
 func (m Model) sync(ctx context.Context) tea.Cmd {
-	send := m.send
+	send, accept := m.send, m.syncAccept
 	return func() tea.Msg {
 		out, err := ops.Call(ctx, m.env, permDelete, ops.SyncRun, ops.SyncIn{
+			AcceptRemovals: accept,
 			Progress: func(account string, f ops.FolderSyncOut) {
 				if f.Action == "ignore" {
 					return
