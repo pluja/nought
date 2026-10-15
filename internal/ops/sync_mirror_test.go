@@ -178,7 +178,8 @@ func TestMassRemovalNeedsConfirmation(t *testing.T) {
 		srv.Expunge(t, "INBOX", u)
 	}
 	out := runSyncOK(t, env, SyncIn{})
-	if len(search(t, env, "tag:inbox")) != 30 || !hasNote(out, "accept-removals") {
+	if len(search(t, env, "tag:inbox")) != 30 || !hasNote(out, "accept-removals") || !out.Accounts[0].RemovalsHeld ||
+		hasNote(out, "did not sync completely") {
 		t.Fatalf("mass removal applied without confirmation: %+v", out.Accounts[0])
 	}
 	out = runSyncOK(t, env, SyncIn{AcceptRemovals: true})
@@ -290,5 +291,48 @@ func TestServerTrashFolder(t *testing.T) {
 		if f.Name != c.want || ok != (c.want != "") {
 			t.Errorf("serverTrash(%v) = %q, %v; want %q", c.folders, f.Name, ok, c.want)
 		}
+	}
+}
+
+// A phone archive made while a sync runs (between two folders' scans) is
+// never read as a deletion.
+func TestPhoneArchiveDuringASync(t *testing.T) {
+	env, srv := syncEnv(t, imaptest.Options{}, false)
+	srv.CreateMailbox(t, "Archive")
+	uid := srv.Append(t, "INBOX", mail("race@x", "archived mid-sync"), daysAgo(env, 0))
+	runSyncOK(t, env, SyncIn{})
+	moved := false
+	during := SyncIn{Progress: func(_ string, f FolderSyncOut) {
+		if f.Folder == "Archive" && !moved { // after Archive was scanned
+			moved = true
+			srv.Move(t, "INBOX", uid, "Archive")
+		}
+	}}
+	runSyncOK(t, env, during)
+	runSyncOK(t, env, SyncIn{})
+	if got := search(t, env, "tag:deleted"); len(got) != 0 {
+		t.Fatalf("a phone archive was read as a deletion: %v", got)
+	}
+	if len(srv.UIDs(t, "Archive")) != 1 || len(search(t, env, "tag:inbox")) != 0 {
+		t.Errorf("not mirrored as an archive: server Archive %v, inbox %v", srv.UIDs(t, "Archive"), search(t, env, "tag:inbox"))
+	}
+}
+
+// Backstop: a message taken for deleted elsewhere that turns up under a new
+// UID in a kept folder comes out of the trash.
+func TestDeletedMessageFoundInAKeptFolder(t *testing.T) {
+	env, srv := syncEnv(t, imaptest.Options{}, false)
+	srv.CreateMailbox(t, "Archive")
+	uid := srv.Append(t, "INBOX", mail("lost@x", "found again"), daysAgo(env, 0))
+	runSyncOK(t, env, SyncIn{})
+	srv.Expunge(t, "INBOX", uid)
+	runSyncOK(t, env, SyncIn{})
+	if len(search(t, env, "tag:deleted")) != 1 {
+		t.Fatal("setup: not trashed")
+	}
+	srv.Append(t, "Archive", mail("lost@x", "found again"), daysAgo(env, 0))
+	runSyncOK(t, env, SyncIn{})
+	if got := search(t, env, "tag:deleted OR tag:inbox"); len(got) != 0 {
+		t.Errorf("found in Archive, it must be archived (not deleted, not in the inbox): %v", got)
 	}
 }

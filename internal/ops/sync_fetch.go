@@ -50,7 +50,7 @@ func fetchInfos(ctx context.Context, env *Env, ix *index.Index, conn *imapsync.C
 			// A new message gets the folder's tags. A message already
 			// archived (seen in another folder, or fetched again after a
 			// reindex) only gains the folder tag: re-adding "inbox" would
-			// undo triage. Unless another client moved it back to the INBOX.
+			// undo triage, unless another client moved it there.
 			m, created, err := archive(ctx, env, account, raw, flagsOf(info), tags)
 			if err != nil {
 				return fmt.Errorf("archive uid %d: %w", info.UID, err)
@@ -59,8 +59,8 @@ func fetchInfos(ctx context.Context, env *Env, ix *index.Index, conn *imapsync.C
 				if err := ix.ModifyTags(ctx, []int64{m.ID}, tags[:1], nil); err != nil { // idempotent
 					return err
 				}
-				if incremental && isInbox(f.Name) {
-					back, err := backToInbox(ctx, env, ix, account, m.Hash)
+				if incremental {
+					back, err := foundOnServer(ctx, env, ix, account, m.Hash, isInbox(f.Name))
 					if err != nil {
 						return err
 					}

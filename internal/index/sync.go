@@ -17,12 +17,15 @@ import (
 type SyncState struct {
 	UIDValidity uint32
 	LastUID     uint32
+	// Synced reports that the folder completed a sync since it was last
+	// (re)started, so new UIDs are new arrivals or moves, not a re-fetch.
+	Synced bool
 }
 
 // SyncState returns a folder's state; found is false for a new folder.
 func (ix *Index) SyncState(ctx context.Context, account, folder string) (st SyncState, found bool, err error) {
-	err = ix.db.QueryRowContext(ctx, `SELECT uidvalidity, last_uid FROM sync_state WHERE account = ? AND folder = ?`,
-		account, folder).Scan(&st.UIDValidity, &st.LastUID)
+	err = ix.db.QueryRowContext(ctx, `SELECT uidvalidity, last_uid, synced_at > 0 FROM sync_state WHERE account = ? AND folder = ?`,
+		account, folder).Scan(&st.UIDValidity, &st.LastUID, &st.Synced)
 	if errors.Is(err, sql.ErrNoRows) {
 		return SyncState{}, false, nil
 	}
@@ -52,11 +55,7 @@ func (ix *Index) ResetFolder(ctx context.Context, account, folder string, uidVal
 			account, folder, uidValidity); err != nil {
 			return fmt.Errorf("forget stale copies: %w", err)
 		}
-		_, err := tx.ExecContext(ctx, `
-			INSERT INTO sync_state (account, folder, uidvalidity, last_uid) VALUES (?, ?, ?, 0)
-			ON CONFLICT (account, folder) DO UPDATE SET uidvalidity = excluded.uidvalidity, last_uid = 0`,
-			account, folder, uidValidity)
-		return err
+		return restartFolder(ctx, tx, account, folder, uidValidity)
 	})
 }
 
@@ -234,12 +233,18 @@ func (ix *Index) ForgetFolder(ctx context.Context, account, folder string, uidVa
 			DELETE FROM server_copies WHERE account = ? AND folder = ? AND expunged_at IS NULL`, account, folder); err != nil {
 			return err
 		}
-		_, err := tx.ExecContext(ctx, `
-			INSERT INTO sync_state (account, folder, uidvalidity, last_uid) VALUES (?, ?, ?, 0)
-			ON CONFLICT (account, folder) DO UPDATE SET uidvalidity = excluded.uidvalidity, last_uid = 0`,
-			account, folder, uidValidity)
-		return err
+		return restartFolder(ctx, tx, account, folder, uidValidity)
 	})
+}
+
+// restartFolder makes the next sync fetch a folder from its first message,
+// as a re-fetch (not new arrivals).
+func restartFolder(ctx context.Context, tx *sql.Tx, account, folder string, uidValidity uint32) error {
+	_, err := tx.ExecContext(ctx, `
+		INSERT INTO sync_state (account, folder, uidvalidity, last_uid) VALUES (?, ?, ?, 0)
+		ON CONFLICT (account, folder) DO UPDATE SET uidvalidity = excluded.uidvalidity, last_uid = 0, synced_at = 0`,
+		account, folder, uidValidity)
+	return err
 }
 
 // MarkSynced records that a folder finished syncing at t.

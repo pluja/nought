@@ -498,18 +498,19 @@ func TestSizeMatches(t *testing.T) {
 	}
 }
 
-func TestSyncKnownMessageGainsFolderTagNotInbox(t *testing.T) {
+func TestSyncKnownMessageGainsFolderTag(t *testing.T) {
 	env, srv := syncEnv(t, imaptest.Options{}, false)
 	srv.CreateMailbox(t, "Archive")
 	raw := mail("1@x", "filed twice")
-	srv.Append(t, "Archive", raw, daysAgo(env, 1)) // "Archive" syncs before "INBOX"
+	srv.Append(t, "Archive", raw, daysAgo(env, 1))
 	srv.Append(t, "INBOX", raw, daysAgo(env, 1))
 	runSyncOK(t, env, SyncIn{})
 	if got := search(t, env, "tag:folder:archive tag:folder:inbox"); !slices.Equal(got, []string{"filed twice"}) {
 		t.Errorf("folder tags = %v", got)
 	}
-	if got := search(t, env, "tag:inbox"); len(got) != 0 {
-		t.Errorf("known message re-added to the inbox: %v", got)
+	// It is in the server's INBOX, so it is in the inbox.
+	if got := search(t, env, "tag:inbox"); len(got) != 1 {
+		t.Errorf("inbox = %v", got)
 	}
 }
 

@@ -26,7 +26,7 @@ func TestSyncState(t *testing.T) {
 		t.Fatal(err)
 	}
 	st, found, err := ix.SyncState(ctx, "a", "INBOX")
-	if err != nil || !found || st != (SyncState{5, 12}) {
+	if err != nil || !found || st != (SyncState{UIDValidity: 5, LastUID: 12}) {
 		t.Fatalf("state = %+v, %v, %v", st, found, err)
 	}
 }
@@ -302,5 +302,33 @@ func TestVanishedAndHandledCopies(t *testing.T) {
 	if len(live)+len(handled)+len(due)+len(on)+st.OnServer+len(tracked) != 0 {
 		t.Errorf("vanished copies still counted: live %d handled %d due %d on %v status %d tracked %v",
 			len(live), len(handled), len(due), on, st.OnServer, tracked)
+	}
+}
+
+func TestSyncedUntilTheFolderRestarts(t *testing.T) {
+	ix, _ := openIndex(t)
+	ctx := t.Context()
+	now := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
+	synced := func() bool {
+		t.Helper()
+		st, _, err := ix.SyncState(ctx, "a", "INBOX")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return st.Synced
+	}
+	if err := ix.ResetFolder(ctx, "a", "INBOX", 1); err != nil {
+		t.Fatal(err)
+	}
+	for _, restart := range []func() error{
+		func() error { return ix.ResetFolder(ctx, "a", "INBOX", 2) },
+		func() error { return ix.ForgetFolder(ctx, "a", "INBOX", 2) },
+	} {
+		if err := ix.MarkSynced(ctx, "a", "INBOX", now); err != nil || !synced() {
+			t.Fatalf("not synced after MarkSynced: %v", err)
+		}
+		if err := restart(); err != nil || synced() {
+			t.Errorf("still synced after a restart: %v", err)
+		}
 	}
 }

@@ -53,12 +53,13 @@ func checkPresence(ctx context.Context, ix *index.Index, conn *imapsync.Conn, ac
 }
 
 // vanishedFolders finds folders that have live copies but are no longer on
-// the server (deleted on another client): all their copies vanished.
+// the server (deleted on another client): all their copies are gone.
 func vanishedFolders(ctx context.Context, ix *index.Index, account string, listed map[string]bool,
-	accept bool, out *AccountSyncOut) (gone []index.ServerCopy, held bool, err error) {
+	accept bool, out *AccountSyncOut) (folderScan, error) {
+	scan := folderScan{trusted: true}
 	tracked, err := ix.TrackedFolders(ctx, account)
 	if err != nil {
-		return nil, false, err
+		return scan, err
 	}
 	for folder, validity := range tracked {
 		if listed[folder] {
@@ -66,15 +67,15 @@ func vanishedFolders(ctx context.Context, ix *index.Index, account string, liste
 		}
 		live, err := ix.LiveCopies(ctx, account, folder, validity)
 		if err != nil {
-			return nil, false, err
+			return scan, err
 		}
 		if note := holdMassRemoval(live, len(live), accept); note != "" {
-			out.Notes, held = append(out.Notes, note), true
+			out.Notes, scan.held, scan.trusted = append(out.Notes, note), true, false
 			continue
 		}
-		gone = append(gone, live...)
+		scan.gone = append(scan.gone, live...)
 	}
-	return gone, held, nil
+	return scan, nil
 }
 
 // holdMassRemoval returns a note if many messages disappeared from a folder
@@ -144,20 +145,31 @@ func classifyVanished(ctx context.Context, env *Env, ix *index.Index, account st
 	return nil
 }
 
-// backToInbox handles a known message that appeared under a new INBOX UID:
-// another client moved it back to the inbox, so it returns here too, out of
-// the trash if it was there.
-func backToInbox(ctx context.Context, env *Env, ix *index.Index, account, hash string) (bool, error) {
+// foundOnServer handles a known message that appeared under a new UID: a
+// deliberate move by another client. Moved to the INBOX, it returns to the
+// inbox here; moved to another kept folder, it at least leaves the trash
+// (it may have been taken for deleted while it was moving). It reports
+// whether the message came back to the inbox.
+func foundOnServer(ctx context.Context, env *Env, ix *index.Index, account, hash string, inbox bool) (bool, error) {
 	m, err := ix.Resolve(ctx, account, hash)
 	if err != nil {
 		return false, err
 	}
 	remove := slices.DeleteFunc(slices.Clone(m.Tags), func(t string) bool { return !IsDeletionTag(t) })
-	if slices.Contains(m.Tags, TagInbox) && len(remove) == 0 {
+	var add []string
+	switch {
+	case inbox && !slices.Contains(m.Tags, TagInbox):
+		add = []string{TagInbox}
+	case !slices.Contains(m.Tags, TagDeleted):
+		remove = nil // an expiry from a rule stays
+	}
+	if len(add)+len(remove) == 0 {
 		return false, nil
 	}
-	_, err = runTag(ctx, env, TagIn{Query: "hash:" + hash + " account:" + account, Add: []string{TagInbox}, Remove: remove})
-	return err == nil, err
+	if _, err := runTag(ctx, env, TagIn{Query: "hash:" + hash + " account:" + account, Add: add, Remove: remove}); err != nil {
+		return false, err
+	}
+	return inbox, nil
 }
 
 func isInbox(folder string) bool { return strings.EqualFold(folder, "INBOX") }
