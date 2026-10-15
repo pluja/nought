@@ -479,6 +479,17 @@ Archiving (e) only removes the inbox tag. Mail leaves servers only during
 sync, after its local copy is verified. The trash is never backed up.
 HTML mail is shown as text: nothing is ever loaded from the internet.
                                                            (any key closes)`
+	// The legend uses the list's own colors (and its ASCII symbols).
+	help = strings.NewReplacer(
+		"nought: keys", m.st.title.Render("nought: keys"),
+		"Where messages live", m.st.title.Render("Where messages live"),
+		"◐ (S)", m.st.server.Render(m.glyph("◐ (S)", "S    ")),
+		"◕ (-)", m.st.leaving.Render(m.glyph("◕ (-)", "-    ")),
+		"● (L)", m.st.local.Render(m.glyph("● (L)", "L    ")),
+		"◆", m.st.unreadDot.Render(m.glyph("◆", "*")),
+		"★", m.st.flag.Render("★"),
+		"#tag", m.st.tag.Render("#tag"),
+	).Replace(help)
 	return fit(help, m.width, m.height)
 }
 

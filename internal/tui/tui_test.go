@@ -827,3 +827,18 @@ func TestSwitchBodyVersion(t *testing.T) {
 		t.Errorf("notice = %q", m.notice)
 	}
 }
+
+func TestHelpLegendUsesListColors(t *testing.T) {
+	m := newTestModel(t, 120, 40)
+	help := m.renderHelp()
+	for _, want := range []string{m.st.server.Render("◐ (S)"), m.st.leaving.Render("◕ (-)"), m.st.local.Render("● (L)"),
+		m.st.unreadDot.Render("◆"), m.st.flag.Render("★"), m.st.tag.Render("#tag")} {
+		if !strings.Contains(help, want) || want == ansi.Strip(want) {
+			t.Errorf("legend lacks styled %q", ansi.Strip(want))
+		}
+	}
+	m.prefs.ASCII = true
+	if s := ansi.Strip(m.renderHelp()); !strings.Contains(s, "  S      also on a server") || strings.Contains(s, "◆") {
+		t.Errorf("ASCII legend:\n%s", s)
+	}
+}
