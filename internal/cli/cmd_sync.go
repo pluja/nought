@@ -20,10 +20,11 @@ func newSyncCmd(a *app) *cobra.Command {
 		Long: ops.SyncRun.Summary + ".\n\n" +
 			"New messages are archived (verified on disk) and indexed. What another device\n" +
 			"did is mirrored: mail it archived leaves the inbox here, mail it deleted goes\n" +
-			"to the trash here. For accounts with deletion enabled, handled mail (out of\n" +
-			"the inbox) is deleted from the server after its folder's keep_days, only if\n" +
-			"the local copy still verifies, and only with UID EXPUNGE. Every deletion is\n" +
-			"journaled first. Re-running is always safe.",
+			"to the trash here. For accounts with deletion enabled, mail is deleted from the\n" +
+			"server once handled (out of the inbox) and at least keep_days on the server\n" +
+			"(default 0), or after max_days if set; only if the local copy still verifies,\n" +
+			"and only with UID EXPUNGE. Every deletion is journaled first. Re-running is\n" +
+			"always safe.",
 		Example: "  nou sync --dry-run\n  nou sync personal",
 		Args:    cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {

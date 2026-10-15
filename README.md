@@ -83,11 +83,13 @@ inbox: what is still to be dealt with. Both sides agree after each sync:
 | You do this | on the phone, nought does | in nought, the phone sees |
 |---|---|---|
 | archive | takes it out of the inbox | it leaves the server's INBOX |
-| delete | moves it to the nought trash (kept at least 7 days) | it is gone |
+| delete | moves it to the nought trash (`trash_days`, at least 7 days) | it is gone |
 | move it back to INBOX | puts it back in the inbox | – |
 
 Read, flagged and tags stay local. Older mail lives in nought, not on the phone: save what you will
-need on the go (a ticket, a boarding pass). If many messages vanish from a folder at once, nought
+need on the go (a ticket, a boarding pass), or leave it in the inbox, or keep a folder on the
+server with its own `keep_days` (say, `match = "Travel"` with `keep_days = 30`) and file it there.
+Moving mail into an ignored folder (Junk, Drafts...) counts as deleting it. If many messages vanish from a folder at once, nought
 assumes a server problem, changes nothing, and asks you to confirm with
 `nou sync --accept-removals` (`:sync accept-removals` in the TUI).
 
