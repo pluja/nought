@@ -209,7 +209,7 @@ func (a *app) runWizard(cmd *cobra.Command, p *prompter) error {
 	if in.Username == "" {
 		in.Username = in.Email
 	}
-	if in.Username, err = p.ask("Login name", in.Username); err != nil {
+	if in.Username, err = p.ask("Username for signing in to the server (usually your email address; Enter keeps it)", in.Username); err != nil {
 		return err
 	}
 	if in.Username == in.Email {
