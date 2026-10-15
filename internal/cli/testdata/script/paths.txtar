@@ -1,0 +1,12 @@
+# nou paths reports locations under NOUGHT_HOME.
+exec nou paths
+stdout '^config +.*home[/\\]config[/\\]config.toml$'
+stdout '^index +.*home[/\\]data[/\\]index.db$'
+stdout 'rebuild with .nou reindex.'
+! stderr .
+
+# JSON output is machine-readable and includes the backup set.
+exec nou paths --json
+stdout '"index_file":'
+stdout '"backup":\{"include":\['
+! stderr .

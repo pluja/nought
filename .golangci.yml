@@ -1,0 +1,42 @@
+version: "2"
+
+linters:
+  default: standard
+  enable:
+    - errorlint
+    - gosec
+    - misspell
+    - revive
+    - bodyclose
+    - copyloopvar
+    - gocritic
+    - unconvert
+  settings:
+    revive:
+      rules:
+        - name: exported
+        - name: package-comments
+        - name: var-naming
+        - name: error-strings
+        - name: error-naming
+        - name: receiver-naming
+        - name: indent-error-flow
+        - name: unused-parameter
+          disabled: true
+    gosec:
+      excludes:
+        # G304 (file path from variable) is the whole point of a mail archive;
+        # path safety is enforced with os.Root and validated account names.
+        - G304
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters: [gosec]
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes: [nought]

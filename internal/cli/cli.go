@@ -1,0 +1,102 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+// Package cli is the command-line frontend. Each command is a thin adapter:
+// it binds flags to an op's input, calls the op, and renders the output as
+// text or JSON. No business logic lives here.
+package cli
+
+import (
+	"context"
+	"errors"
+	"io"
+	"log/slog"
+	"runtime"
+	"runtime/debug"
+	"slices"
+	"time"
+
+	"github.com/spf13/cobra"
+
+	"nought/internal/config"
+	"nought/internal/ops"
+)
+
+// Options is everything Run needs from the outside world. Injecting it keeps
+// the CLI testable without touching the real process environment.
+type Options struct {
+	Args    []string
+	Stdin   io.Reader
+	Stdout  io.Writer
+	Stderr  io.Writer
+	Getenv  func(string) string
+	Version string
+}
+
+// app is the state shared by all commands during one invocation.
+type app struct {
+	opts    Options
+	json    bool
+	verbose bool
+	env     *ops.Env
+}
+
+// The CLI acts for the local user, who holds every permission.
+const callerPerm = ops.Delete
+
+// Run executes one command line and returns the process exit code.
+func Run(ctx context.Context, o Options) int {
+	a := &app{opts: o}
+	root := newRootCmd(a)
+	root.SetArgs(o.Args)
+	root.SetIn(o.Stdin)
+	root.SetOut(o.Stdout)
+	root.SetErr(o.Stderr)
+
+	err := root.ExecuteContext(ctx)
+	if a.env != nil {
+		err = errors.Join(err, a.env.Close())
+	}
+	if err == nil {
+		return exitOK
+	}
+	code, name := exitCode(err)
+	// Flags may not have been parsed when the error happened.
+	jsonOut := a.json || slices.Contains(o.Args, "--json")
+	writeError(o.Stderr, jsonOut, name, err)
+	return code
+}
+
+// setup builds the Env once flags are parsed.
+func (a *app) setup(*cobra.Command, []string) error {
+	paths, err := config.ResolvePaths(runtime.GOOS, a.opts.Getenv)
+	if err != nil {
+		return err
+	}
+	level := slog.LevelWarn
+	if a.verbose || a.opts.Getenv("NOU_LOG") == "debug" {
+		level = slog.LevelDebug
+	}
+	log := slog.New(slog.NewTextHandler(a.opts.Stderr, &slog.HandlerOptions{Level: level}))
+	a.env = ops.NewEnv(paths, log, time.Now, buildInfo(a.opts.Version))
+	return nil
+}
+
+func buildInfo(version string) ops.BuildInfo {
+	b := ops.BuildInfo{Version: version, GoVersion: runtime.Version()}
+	if info, ok := debug.ReadBuildInfo(); ok {
+		for _, s := range info.Settings {
+			if s.Key == "vcs.revision" {
+				b.Commit = s.Value
+			}
+		}
+		if b.Version == "" || b.Version == "dev" {
+			if v := info.Main.Version; v != "" && v != "(devel)" {
+				b.Version = v
+			}
+		}
+	}
+	if b.Version == "" {
+		b.Version = "dev"
+	}
+	return b
+}

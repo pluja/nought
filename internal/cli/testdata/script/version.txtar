@@ -1,0 +1,5 @@
+exec nou version
+stdout '^nou test \(go'
+
+exec nou version --json
+stdout '^\{"version":"test",'

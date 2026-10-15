@@ -1,0 +1,14 @@
+# Unknown commands are usage errors (exit 2).
+code 2 nou bogus
+stderr '^nou: unknown command "bogus"'
+
+# Unknown flags too, and --json errors are machine-readable.
+code 2 nou paths --nope --json
+stderr '^\{"error":\{"code":"usage","message":'
+
+# Extra arguments are usage errors.
+code 2 nou version extra
+
+# No arguments prints help and succeeds.
+code 0 nou
+stdout 'archives your mail locally'
