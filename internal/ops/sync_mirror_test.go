@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"nought/internal/config"
+	"nought/internal/imapsync"
 	"nought/internal/imaptest"
 )
 
@@ -234,5 +236,59 @@ func TestMirrorDryRunChangesNothing(t *testing.T) {
 	}
 	if out := runSyncOK(t, env, SyncIn{}); out.Accounts[0].DeletedElsewhere != 1 {
 		t.Errorf("the real run after a dry run: %+v", out.Accounts[0])
+	}
+}
+
+func TestServerTrashIsEmptiedOfKnownMail(t *testing.T) {
+	env, srv := syncEnv(t, imaptest.Options{}, true)
+	known := srv.Append(t, "INBOX", mail("k@x", "known"), daysAgo(env, 0))
+	runSyncOK(t, env, SyncIn{})
+	srv.Move(t, "INBOX", known, "Trash")
+	srv.Append(t, "Trash", mail("u@x", "never archived"), daysAgo(env, 0))
+	// Review Focus 5: the same Message-ID with different content stays.
+	srv.Append(t, "Trash", strings.Replace(mail("k@x", "known"), "Subject: known", "Subject: resent", 1), daysAgo(env, 0))
+
+	out := runSyncOK(t, env, SyncIn{})
+	if out.Accounts[0].TrashCleaned != 1 || out.Accounts[0].DeletedElsewhere != 1 {
+		t.Fatalf("cleaned %d, deleted elsewhere %d; want 1 and 1", out.Accounts[0].TrashCleaned, out.Accounts[0].DeletedElsewhere)
+	}
+	if n := len(srv.UIDs(t, "Trash")); n != 2 {
+		t.Errorf("server trash has %d, want the unknown and the resent one", n)
+	}
+	entries := readJournal(t, env)
+	if last := entries[len(entries)-1]; last.Folder != "Trash" || last.Hash != "" || last.MessageID != "" {
+		t.Errorf("trash cleanup must be journaled without identifying the message: %+v", last)
+	}
+	// Examined messages are not looked at again.
+	if out := runSyncOK(t, env, SyncIn{}); out.Accounts[0].TrashCleaned != 0 {
+		t.Errorf("second run cleaned %d", out.Accounts[0].TrashCleaned)
+	}
+}
+
+func TestServerTrashUntouchedWithDeletionOff(t *testing.T) {
+	env, srv := syncEnv(t, imaptest.Options{}, false)
+	uid := srv.Append(t, "INBOX", mail("k@x", "known"), daysAgo(env, 0))
+	runSyncOK(t, env, SyncIn{})
+	srv.Move(t, "INBOX", uid, "Trash")
+	runSyncOK(t, env, SyncIn{})
+	if len(srv.UIDs(t, "Trash")) != 1 {
+		t.Error("touched the server's trash with deletion off")
+	}
+}
+
+func TestServerTrashFolder(t *testing.T) {
+	a := &config.Account{Folders: DefaultFolderRules()}
+	for _, c := range []struct {
+		folders []imapsync.Folder
+		want    string
+	}{
+		{[]imapsync.Folder{{Name: "INBOX"}, {Name: "Papierkorb", Raw: "P", Trash: true}, {Name: "Trash"}}, "Papierkorb"},
+		{[]imapsync.Folder{{Name: "INBOX"}, {Name: "INBOX/Deleted Items"}}, "INBOX/Deleted Items"},
+		{[]imapsync.Folder{{Name: "INBOX"}, {Name: "Archive"}}, ""},
+	} {
+		f, ok := serverTrash(a, c.folders)
+		if f.Name != c.want || ok != (c.want != "") {
+			t.Errorf("serverTrash(%v) = %q, %v; want %q", c.folders, f.Name, ok, c.want)
+		}
 	}
 }

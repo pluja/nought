@@ -123,14 +123,7 @@ func checkBeforeExpunge(env *Env, conn *imapsync.Conn, account string,
 		case info.Size != c.Size:
 			bad = append(bad, fmt.Sprintf("uid %d changed on the server", c.UID))
 		default:
-			st, err := env.locate(account, c.Hash)
-			if err != nil {
-				return nil, nil, nil, err
-			}
-			raw, err := st.Get(c.Hash)
-			if err == nil && store.Hash(raw) != c.Hash {
-				err = store.ErrCorrupt
-			}
+			raw, err := verifiedLocal(env, account, c.Hash)
 			if err != nil {
 				bad = append(bad, fmt.Sprintf("uid %d: local copy %s %v", c.UID, c.Hash[:IDLen], err))
 				continue
@@ -143,6 +136,20 @@ func checkBeforeExpunge(env *Env, conn *imapsync.Conn, account string,
 		}
 	}
 	return verified, gone, bad, nil
+}
+
+// verifiedLocal reads a message's local copy and checks it still matches
+// its hash.
+func verifiedLocal(env *Env, account, hash string) ([]byte, error) {
+	st, err := env.locate(account, hash)
+	if err != nil {
+		return nil, err
+	}
+	raw, err := st.Get(hash)
+	if err == nil && store.Hash(raw) != hash {
+		err = store.ErrCorrupt
+	}
+	return raw, err
 }
 
 // sameHeader reports whether a header block fetched from the server is the

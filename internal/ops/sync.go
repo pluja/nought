@@ -275,6 +275,12 @@ func syncPhases(ctx context.Context, env *Env, ix *index.Index, conn *imapsync.C
 			return ctx.Err()
 		}
 	}
+	// The archive is safe whatever happens here: a failure is only a note.
+	if a.DeletionEnabled() && !in.DryRun {
+		if err := cleanServerTrash(ctx, env, ix, conn, a, folders, out); err != nil {
+			out.Notes = append(out.Notes, "the server's trash was not emptied: "+err.Error())
+		}
+	}
 	return nil
 }
 
