@@ -4,6 +4,7 @@ package index
 
 import (
 	"errors"
+	"strings"
 	"testing"
 	"time"
 )
@@ -110,5 +111,42 @@ func TestServerCopiesLifecycle(t *testing.T) {
 	}
 	if due, _ := ix.DueCopies(ctx, "a", "Sent", 5, day(30)); len(due) != 1 {
 		t.Errorf("other folder affected: %+v", due)
+	}
+}
+
+func TestOnServerAndStatus(t *testing.T) {
+	ix, _ := openIndex(t)
+	ctx := t.Context()
+	st, err := ix.ServerStatus(ctx, "a")
+	if err != nil || st.OnServer != 0 || !st.LastSynced.IsZero() {
+		t.Fatalf("empty status = %+v, %v", st, err)
+	}
+	for i, folder := range []string{"INBOX", "Archive.2024"} {
+		c := ServerCopy{Account: "a", Folder: folder, FolderName: strings.ReplaceAll(folder, ".", "/"), UIDValidity: 1,
+			UID: uint32(i + 1), Hash: hash(1), Size: 5, InternalDate: now}
+		if err := ix.RecordCopy(ctx, c, now); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := ix.RecordCopy(ctx, ServerCopy{Account: "a", Folder: "INBOX", UIDValidity: 1, UID: 9, Hash: hash(2), Size: 5, InternalDate: now}, now); err != nil {
+		t.Fatal(err)
+	}
+	gone, _ := ix.DueCopies(ctx, "a", "INBOX", 1, now)
+	if err := ix.MarkExpunged(ctx, gone[1:], now); err != nil { // hash(2) left the server
+		t.Fatal(err)
+	}
+	on, err := ix.OnServer(ctx, "a", []string{hash(1), hash(2), hash(3)})
+	if err != nil || len(on[hash(1)]) != 2 || on[hash(1)][0].FolderName != "Archive/2024" || len(on[hash(2)]) != 0 {
+		t.Fatalf("OnServer = %+v, %v", on, err)
+	}
+	if err := ix.SetSyncState(ctx, "a", "INBOX", SyncState{UIDValidity: 1, LastUID: 9}); err != nil {
+		t.Fatal(err)
+	}
+	if err := ix.MarkSynced(ctx, "a", "INBOX", now); err != nil {
+		t.Fatal(err)
+	}
+	st, err = ix.ServerStatus(ctx, "a")
+	if err != nil || st.OnServer != 1 || !st.LastSynced.Equal(now) {
+		t.Errorf("status = %+v, %v", st, err)
 	}
 }

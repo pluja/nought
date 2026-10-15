@@ -25,6 +25,10 @@ func newRootCmd(a *app) *cobra.Command {
 			if len(args) > 0 {
 				return fmt.Errorf("unknown command %q (see 'nou --help'): %w", args[0], ops.ErrUsage)
 			}
+			// On a terminal, bare "nou" opens the TUI; scripts get help.
+			if a.interactive() && !a.json && a.env.Paths.DataDir != "" {
+				return a.runTUI(cmd)
+			}
 			return cmd.Help()
 		},
 	}
@@ -38,6 +42,7 @@ func newRootCmd(a *app) *cobra.Command {
 	flags.BoolVarP(&a.verbose, "verbose", "v", false, "log debug information to stderr")
 
 	root.AddCommand(
+		newTUICmd(a),
 		newSyncCmd(a),
 		newSearchCmd(a),
 		newMsgCmd(a),

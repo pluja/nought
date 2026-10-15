@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -539,5 +540,68 @@ func TestSameHeader(t *testing.T) {
 		if got := sameHeader([]byte(tt.server), raw); got != tt.want {
 			t.Errorf("sameHeader(%q) = %v, want %v", tt.server, got, tt.want)
 		}
+	}
+}
+
+func TestServerLocationsAndStatus(t *testing.T) {
+	env, srv := syncEnv(t, imaptest.Options{}, false)
+	srv.Append(t, "INBOX", mail("1@x", "old"), daysAgo(env, 30))
+	srv.Append(t, "INBOX", mail("2@x", "fresh"), daysAgo(env, 1))
+	runSyncOK(t, env, SyncIn{})
+
+	locations := func() map[string][]ServerLocation {
+		out, err := Call(t.Context(), env, Read, MsgSearch, SearchIn{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		m := map[string][]ServerLocation{}
+		for _, msg := range out.Messages {
+			m[msg.Subject] = msg.Server
+		}
+		return m
+	}
+	// Deletion disabled: on the server, staying.
+	got := locations()
+	if len(got["old"]) != 1 || got["old"][0].Folder != "INBOX" || got["old"][0].LeavesAt != nil {
+		t.Fatalf("before = %+v", got)
+	}
+	status, err := Call(t.Context(), env, Read, AccountStatus, struct{}{})
+	if err != nil || len(status) != 1 || status[0].OnServer != 2 || status[0].Deletion || status[0].LastSynced == nil {
+		t.Fatalf("status = %+v, %v", status, err)
+	}
+
+	// Deletion enabled: fresh shows when it leaves; old leaves and becomes local only.
+	if _, err := Call(t.Context(), env, Delete, AccountSet, AccountSetIn{Name: "personal", Deletion: "enabled"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := locations(); got["fresh"][0].LeavesAt == nil || !got["fresh"][0].LeavesAt.Equal(daysAgo(env, 1).Add(7*24*time.Hour).Truncate(time.Second)) {
+		t.Errorf("fresh leaves at = %+v", got["fresh"])
+	}
+	runSyncOK(t, env, SyncIn{})
+	got = locations()
+	if len(got["old"]) != 0 || len(got["fresh"]) != 1 {
+		t.Errorf("after = %+v", got)
+	}
+	show, err := Call(t.Context(), env, Read, MsgShow, ShowIn{ID: idOf(t, env, "subject:old")})
+	if err != nil || len(show.Message.Server) != 0 {
+		t.Errorf("show = %+v, %v", show.Message.Server, err)
+	}
+	if status, _ := Call(t.Context(), env, Read, AccountStatus, struct{}{}); status[0].OnServer != 1 || !status[0].Deletion {
+		t.Errorf("status after = %+v", status)
+	}
+}
+
+func TestSyncProgressCallback(t *testing.T) {
+	env, srv := syncEnv(t, imaptest.Options{}, false)
+	srv.Append(t, "INBOX", mail("1@x", "one"), daysAgo(env, 1))
+	var mu sync.Mutex
+	var seen []string
+	runSyncOK(t, env, SyncIn{Progress: func(account string, f FolderSyncOut) {
+		mu.Lock()
+		defer mu.Unlock()
+		seen = append(seen, account+"/"+f.Folder)
+	}})
+	if !slices.Contains(seen, "personal/INBOX") || !slices.Contains(seen, "personal/Trash") {
+		t.Errorf("progress = %v", seen)
 	}
 }

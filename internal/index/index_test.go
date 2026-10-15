@@ -58,7 +58,7 @@ func sample(t *testing.T, ix *Index) {
 func TestOpenCreatesPrivateFileAndMigrates(t *testing.T) {
 	ix, path := openIndex(t)
 	var version int
-	if err := ix.db.QueryRowContext(t.Context(), "PRAGMA user_version").Scan(&version); err != nil || version != 2 {
+	if err := ix.db.QueryRowContext(t.Context(), "PRAGMA user_version").Scan(&version); err != nil || version != 3 {
 		t.Fatalf("user_version = %d, %v", version, err)
 	}
 	if runtime.GOOS != "windows" {

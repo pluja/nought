@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"nought/internal/config"
 	"nought/internal/index"
 	"nought/internal/mailmsg"
 	"nought/internal/query"
@@ -34,12 +35,23 @@ type MessageOut struct {
 	MessageID string     `json:"message_id,omitempty"`
 	Thread    string     `json:"thread,omitempty"`
 	Size      int64      `json:"size"`
+	// Server lists where the message still is on a mail server. Empty
+	// means the message exists only in the local archive.
+	Server []ServerLocation `json:"server"`
+}
+
+// ServerLocation is a copy of a message still on a mail server.
+type ServerLocation struct {
+	Folder string `json:"folder"`
+	// LeavesAt is when sync will delete it from the server, if deletion is
+	// enabled for the account; nil if it stays.
+	LeavesAt *time.Time `json:"leaves_at,omitempty"`
 }
 
 func messageOut(m index.Message) MessageOut {
 	out := MessageOut{
 		ID: m.Hash[:IDLen], Account: m.Account, From: m.From, To: m.To, Subject: m.Subject,
-		Tags: m.Tags, MessageID: m.MessageID, Thread: m.ThreadKey, Size: m.Size,
+		Tags: m.Tags, MessageID: m.MessageID, Thread: m.ThreadKey, Size: m.Size, Server: []ServerLocation{},
 	}
 	if !m.Date.IsZero() {
 		d := m.Date
@@ -90,10 +102,12 @@ var MsgSearch = Op[SearchIn, SearchOut]{
 			return SearchOut{}, err
 		}
 		out := SearchOut{Messages: []MessageOut{}, More: len(msgs) > limit}
+		var hashes []string
 		for _, m := range msgs[:min(len(msgs), limit)] {
 			out.Messages = append(out.Messages, messageOut(m))
+			hashes = append(hashes, m.Hash)
 		}
-		return out, nil
+		return out, addServerLocations(ctx, env, ix, out.Messages, hashes)
 	},
 }
 
@@ -142,6 +156,15 @@ var MsgShow = Op[ShowIn, ShowOut]{
 			env.Log.Debug("body parse problem", "id", m.Hash[:IDLen])
 		}
 		out := ShowOut{Message: messageOut(m), Attachments: content.Attachments}
+		ix, err := env.Index(ctx)
+		if err != nil {
+			return ShowOut{}, err
+		}
+		msgs := []MessageOut{out.Message}
+		if err := addServerLocations(ctx, env, ix, msgs, []string{m.Hash}); err != nil {
+			return ShowOut{}, err
+		}
+		out.Message = msgs[0]
 		if out.Attachments == nil {
 			out.Attachments = []mailmsg.Attachment{}
 		}
@@ -334,4 +357,41 @@ func applyTagChange(tags, add, remove []string) []string {
 		}
 	}
 	return mergeTags(out, add)
+}
+
+// addServerLocations fills MessageOut.Server for a page of messages, with
+// one index query per account.
+func addServerLocations(ctx context.Context, env *Env, ix *index.Index, msgs []MessageOut, hashes []string) error {
+	cfg, err := env.Config()
+	if err != nil {
+		return err
+	}
+	byAccount := map[string][]int{}
+	for i, m := range msgs {
+		byAccount[m.Account] = append(byAccount[m.Account], i)
+	}
+	for account, idx := range byAccount {
+		hs := make([]string, len(idx))
+		for j, i := range idx {
+			hs[j] = hashes[i]
+		}
+		copies, err := ix.OnServer(ctx, account, hs)
+		if err != nil {
+			return err
+		}
+		a, configured := cfg.Account(account)
+		for _, i := range idx {
+			for _, c := range copies[hashes[i]] {
+				loc := ServerLocation{Folder: c.FolderName}
+				if configured && a.DeletionEnabled() {
+					if p := a.Policy(c.FolderName); p.Action == config.ActionArchive {
+						t := c.InternalDate.Add(time.Duration(p.KeepDays) * 24 * time.Hour)
+						loc.LeavesAt = &t
+					}
+				}
+				msgs[i].Server = append(msgs[i].Server, loc)
+			}
+		}
+	}
+	return nil
 }

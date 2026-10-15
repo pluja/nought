@@ -224,6 +224,22 @@ func TestLoadTooLarge(t *testing.T) {
 	}
 }
 
+func TestTUISection(t *testing.T) {
+	c, err := Load(writeConfig(t, validTOML+"\n[tui]\nascii = true\nmark_read_on_open = false\n[[tui.search]]\nname = \"Work\"\nquery = \"account:work\"\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !c.TUI.ASCII || c.TUI.ReadOnOpen() || len(c.TUI.Searches) != 1 || c.TUI.Searches[0].Query != "account:work" {
+		t.Errorf("tui = %+v", c.TUI)
+	}
+	if (TUI{}).ReadOnOpen() != true {
+		t.Error("mark read on open should default to true")
+	}
+	if _, err := Load(writeConfig(t, validTOML+"\n[[tui.search]]\nname = \"\"\nquery = \"x\"\n")); err == nil {
+		t.Error("accepted a nameless search")
+	}
+}
+
 func TestSaveRejectsInvalid(t *testing.T) {
 	c := &Config{Accounts: []Account{{Name: "BAD"}}}
 	if err := Save(filepath.Join(t.TempDir(), "c.toml"), c); err == nil {

@@ -34,7 +34,26 @@ const (
 // Config is the whole configuration file.
 type Config struct {
 	Accounts []Account `toml:"account"`
+	TUI      TUI       `toml:"tui,omitempty"`
 }
+
+// TUI holds terminal UI preferences.
+type TUI struct {
+	// MarkReadOnOpen marks a message read when it is opened (default true).
+	MarkReadOnOpen *bool `toml:"mark_read_on_open,omitempty"`
+	// ASCII uses plain characters instead of symbols for status markers.
+	ASCII    bool          `toml:"ascii,omitempty"`
+	Searches []SavedSearch `toml:"search,omitempty"`
+}
+
+// SavedSearch is a named query shown in the TUI sidebar.
+type SavedSearch struct {
+	Name  string `toml:"name"`
+	Query string `toml:"query"`
+}
+
+// ReadOnOpen reports whether opening a message marks it read.
+func (t TUI) ReadOnOpen() bool { return t.MarkReadOnOpen == nil || *t.MarkReadOnOpen }
 
 // Account is one mail account.
 type Account struct {
@@ -154,6 +173,11 @@ var (
 
 // Validate checks the whole configuration and reports the first problem.
 func (c *Config) Validate() error {
+	for _, s := range c.TUI.Searches {
+		if strings.TrimSpace(s.Name) == "" || hasControl(s.Name) || strings.TrimSpace(s.Query) == "" {
+			return fmt.Errorf("tui search %q: needs a name and a query", s.Name)
+		}
+	}
 	seen := make(map[string]bool)
 	for i := range c.Accounts {
 		a := &c.Accounts[i]

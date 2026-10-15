@@ -69,7 +69,7 @@ func fetchInfos(ctx context.Context, env *Env, ix *index.Index, conn *imapsync.C
 				break
 			}
 			if err := ix.RecordCopy(ctx, index.ServerCopy{
-				Account: account, Folder: f.Raw, UIDValidity: st.UIDValidity, UID: info.UID,
+				Account: account, Folder: f.Raw, FolderName: f.Name, UIDValidity: st.UIDValidity, UID: info.UID,
 				Hash: store.Hash(raw), Size: info.Size, InternalDate: info.InternalDate,
 			}, env.Now()); err != nil {
 				return err

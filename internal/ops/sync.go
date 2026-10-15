@@ -20,6 +20,10 @@ import (
 type SyncIn struct {
 	Accounts []string `json:"accounts,omitempty"`
 	DryRun   bool     `json:"dry_run,omitempty"`
+	// Progress, if set, is called (from sync goroutines, possibly
+	// concurrently) as each folder finishes. Frontends use it for live
+	// progress.
+	Progress func(account string, folder FolderSyncOut) `json:"-"`
 }
 
 // SyncOut reports a sync, per account and folder.
@@ -98,7 +102,7 @@ func runSync(ctx context.Context, env *Env, in SyncIn) (SyncOut, error) {
 		if out.Accounts[i].Error != "" {
 			continue
 		}
-		wg.Go(func() { out.Accounts[i] = syncAccount(ctx, env, a, passwords[i], in.DryRun) })
+		wg.Go(func() { out.Accounts[i] = syncAccount(ctx, env, a, passwords[i], in.DryRun, in.Progress) })
 	}
 	wg.Wait()
 
@@ -164,7 +168,8 @@ func selectAccounts(env *Env, names []string) ([]config.Account, error) {
 	return out, nil
 }
 
-func syncAccount(ctx context.Context, env *Env, a config.Account, password string, dryRun bool) AccountSyncOut {
+func syncAccount(ctx context.Context, env *Env, a config.Account, password string, dryRun bool,
+	progress func(string, FolderSyncOut)) AccountSyncOut {
 	out := AccountSyncOut{Account: a.Name, Deletion: a.DeletionEnabled(), Folders: []FolderSyncOut{}}
 	conn, err := imapsync.Dial(ctx, a.IMAP, env.TLS, a.Login(), password, env.IMAPTimeout)
 	if err != nil {
@@ -187,6 +192,9 @@ func syncAccount(ctx context.Context, env *Env, a config.Account, password strin
 			}
 		}
 		out.Folders = append(out.Folders, fo)
+		if progress != nil {
+			progress(a.Name, fo)
+		}
 		if ctx.Err() != nil {
 			break
 		}
@@ -246,7 +254,13 @@ func syncFolder(ctx context.Context, env *Env, conn *imapsync.Conn, a *config.Ac
 			return err
 		}
 	}
-	return expungeDue(ctx, env, ix, conn, a, f.Raw, st.UIDValidity, policy, dryRun, out)
+	if err := expungeDue(ctx, env, ix, conn, a, f.Raw, st.UIDValidity, policy, dryRun, out); err != nil {
+		return err
+	}
+	if dryRun {
+		return nil
+	}
+	return ix.MarkSynced(ctx, a.Name, f.Raw, env.Now())
 }
 
 // AccountTestOut reports what nou sees on an account's server.

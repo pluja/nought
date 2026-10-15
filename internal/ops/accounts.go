@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"time"
 
 	"nought/internal/config"
 	"nought/internal/secret"
@@ -282,5 +283,46 @@ var AccountRemove = Op[AccountName, AccountRemoveOut]{
 			}
 		}
 		return AccountRemoveOut{Name: in.Name, Archive: env.Paths.AccountArchive(in.Name)}, nil
+	},
+}
+
+// AccountStatusOut summarizes one account for status displays.
+type AccountStatusOut struct {
+	Account    string     `json:"account"`
+	Label      string     `json:"label,omitempty"`
+	Deletion   bool       `json:"deletion"`
+	OnServer   int        `json:"on_server"` // archived messages still on the server
+	LastSynced *time.Time `json:"last_synced,omitempty"`
+}
+
+// AccountStatus reports each account's deletion setting, last sync, and
+// how many archived messages are still on its server.
+var AccountStatus = Op[struct{}, []AccountStatusOut]{
+	Name:    "account.status",
+	Summary: "Show each account's deletion setting, last sync, and mail still on the server",
+	Perm:    Read,
+	Run: func(ctx context.Context, env *Env, _ struct{}) ([]AccountStatusOut, error) {
+		cfg, err := env.Config()
+		if err != nil {
+			return nil, err
+		}
+		ix, err := env.Index(ctx)
+		if err != nil {
+			return nil, err
+		}
+		out := []AccountStatusOut{}
+		for _, a := range cfg.Accounts {
+			st, err := ix.ServerStatus(ctx, a.Name)
+			if err != nil {
+				return nil, err
+			}
+			s := AccountStatusOut{Account: a.Name, Label: a.Label, Deletion: a.DeletionEnabled(), OnServer: st.OnServer}
+			if !st.LastSynced.IsZero() {
+				t := st.LastSynced
+				s.LastSynced = &t
+			}
+			out = append(out, s)
+		}
+		return out, nil
 	},
 }
