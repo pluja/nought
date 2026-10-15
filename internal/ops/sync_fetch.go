@@ -18,13 +18,13 @@ import (
 // fetchNew archives the given new UIDs, in chunks, recording progress after
 // each message so an interrupted sync resumes where it stopped.
 func fetchNew(ctx context.Context, env *Env, ix *index.Index, conn *imapsync.Conn, account string, f imapsync.Folder,
-	uids []uint32, st *index.SyncState, out *FolderSyncOut) error {
+	uids []uint32, st *index.SyncState, incremental bool, out *FolderSyncOut) error {
 	for chunk := range slices.Chunk(uids, imapsync.MaxBatch) {
 		infos, err := conn.Infos(chunk)
 		if err != nil {
 			return err
 		}
-		if err := fetchInfos(ctx, env, ix, conn, account, f, infos, st, out); err != nil {
+		if err := fetchInfos(ctx, env, ix, conn, account, f, infos, st, incremental, out); err != nil {
 			return err
 		}
 	}
@@ -32,9 +32,9 @@ func fetchNew(ctx context.Context, env *Env, ix *index.Index, conn *imapsync.Con
 }
 
 func fetchInfos(ctx context.Context, env *Env, ix *index.Index, conn *imapsync.Conn, account string, f imapsync.Folder,
-	infos []imapsync.MessageInfo, st *index.SyncState, out *FolderSyncOut) error {
+	infos []imapsync.MessageInfo, st *index.SyncState, incremental bool, out *FolderSyncOut) error {
 	tags := []string{folderTag(f.Name)}
-	if strings.EqualFold(f.Name, "INBOX") {
+	if isInbox(f.Name) {
 		tags = append(tags, TagInbox)
 	}
 	for _, info := range infos {
@@ -50,7 +50,7 @@ func fetchInfos(ctx context.Context, env *Env, ix *index.Index, conn *imapsync.C
 			// A new message gets the folder's tags. A message already
 			// archived (seen in another folder, or fetched again after a
 			// reindex) only gains the folder tag: re-adding "inbox" would
-			// undo triage.
+			// undo triage. Unless another client moved it back to the INBOX.
 			m, created, err := archive(ctx, env, account, raw, flagsOf(info), tags)
 			if err != nil {
 				return fmt.Errorf("archive uid %d: %w", info.UID, err)
@@ -58,6 +58,15 @@ func fetchInfos(ctx context.Context, env *Env, ix *index.Index, conn *imapsync.C
 			if !created {
 				if err := ix.ModifyTags(ctx, []int64{m.ID}, tags[:1], nil); err != nil { // idempotent
 					return err
+				}
+				if incremental && isInbox(f.Name) {
+					back, err := backToInbox(ctx, env, ix, account, m.Hash)
+					if err != nil {
+						return err
+					}
+					if back {
+						out.BackInInbox++
+					}
 				}
 			}
 			out.Fetched++

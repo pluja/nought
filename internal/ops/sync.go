@@ -20,6 +20,9 @@ import (
 type SyncIn struct {
 	Accounts []string `json:"accounts,omitempty"`
 	DryRun   bool     `json:"dry_run,omitempty"`
+	// AcceptRemovals applies changes that look like a mass removal (many
+	// messages gone from a folder at once), which are otherwise held.
+	AcceptRemovals bool `json:"accept_removals,omitempty"`
 	// Progress, if set, is called (from sync goroutines, possibly
 	// concurrently) as each folder finishes. Frontends use it for live
 	// progress.
@@ -37,21 +40,29 @@ type AccountSyncOut struct {
 	Account  string          `json:"account"`
 	Deletion bool            `json:"deletion"`
 	Folders  []FolderSyncOut `json:"folders"`
-	Error    string          `json:"error,omitempty"`
+	// What another client (a phone) did, mirrored here.
+	ArchivedElsewhere int      `json:"archived_elsewhere"` // left the server's INBOX: out of the inbox here
+	DeletedElsewhere  int      `json:"deleted_elsewhere"`  // gone from the server: to the trash here
+	BackInInbox       int      `json:"back_in_inbox"`      // moved back to the server's INBOX
+	TrashCleaned      int      `json:"trash_cleaned"`      // archived mail deleted from the server's trash
+	Notes             []string `json:"notes,omitempty"`
+	Error             string   `json:"error,omitempty"`
 }
 
 // FolderSyncOut is one server folder's result.
 type FolderSyncOut struct {
-	Folder   string   `json:"folder"`
-	Action   string   `json:"action"`          // "archive" or "ignore"
-	KeepDays int      `json:"keep_days"`       // minimum days on the server once handled
-	MaxDays  int      `json:"max_days"`        // deleted after this many days even if not handled; 0: never
-	New      int      `json:"new"`             // messages not yet archived
-	Fetched  int      `json:"fetched"`         // archived and verified in this run
-	Due      int      `json:"due"`             // verified copies old enough to delete
-	Expunged int      `json:"expunged"`        // deleted from the server in this run
-	Notes    []string `json:"notes,omitempty"` // why something was not done
-	Error    string   `json:"error,omitempty"` // the folder stopped here
+	Folder      string   `json:"folder"`
+	Action      string   `json:"action"`          // "archive" or "ignore"
+	KeepDays    int      `json:"keep_days"`       // minimum days on the server once handled
+	MaxDays     int      `json:"max_days"`        // deleted after this many days even if not handled; 0: never
+	New         int      `json:"new"`             // messages not yet archived
+	Fetched     int      `json:"fetched"`         // archived and verified in this run
+	Due         int      `json:"due"`             // verified copies old enough to delete
+	Expunged    int      `json:"expunged"`        // deleted from the server in this run
+	Vanished    int      `json:"vanished"`        // moved or deleted by another client
+	BackInInbox int      `json:"back_in_inbox"`   // known mail moved back to the INBOX by another client
+	Notes       []string `json:"notes,omitempty"` // why something was not done
+	Error       string   `json:"error,omitempty"` // the folder stopped here
 }
 
 // maxMessageSize bounds a fetched message; larger ones stay on the server.
@@ -113,7 +124,7 @@ func runSync(ctx context.Context, env *Env, in SyncIn) (SyncOut, error) {
 		if out.Accounts[i].Error != "" {
 			continue
 		}
-		wg.Go(func() { out.Accounts[i] = syncAccount(ctx, env, a, passwords[i], in.DryRun, in.Progress) })
+		wg.Go(func() { out.Accounts[i] = syncAccount(ctx, env, a, passwords[i], in) })
 	}
 	wg.Wait()
 
@@ -186,8 +197,7 @@ func selectAccounts(env *Env, names []string) ([]config.Account, error) {
 	return out, nil
 }
 
-func syncAccount(ctx context.Context, env *Env, a config.Account, password string, dryRun bool,
-	progress func(string, FolderSyncOut)) AccountSyncOut {
+func syncAccount(ctx context.Context, env *Env, a config.Account, password string, in SyncIn) AccountSyncOut {
 	out := AccountSyncOut{Account: a.Name, Deletion: a.DeletionEnabled(), Folders: []FolderSyncOut{}}
 	conn, err := imapsync.Dial(ctx, a.IMAP, env.TLS, a.Login(), password, env.IMAPTimeout)
 	if err != nil {
@@ -195,63 +205,115 @@ func syncAccount(ctx context.Context, env *Env, a config.Account, password strin
 		return out
 	}
 	defer func() { _ = conn.Close() }()
-
-	folders, err := conn.Folders()
+	ix, err := env.Index(ctx)
+	if err == nil {
+		err = syncPhases(ctx, env, ix, conn, &a, in, &out)
+	}
 	if err != nil {
 		out.Error = err.Error()
-		return out
-	}
-	for _, f := range folders {
-		policy := a.Policy(f.Name)
-		fo := FolderSyncOut{Folder: f.Name, Action: policy.Action, KeepDays: policy.KeepDays, MaxDays: policy.MaxDays}
-		if policy.Action != config.ActionIgnore {
-			if err := syncFolder(ctx, env, conn, &a, f, policy, dryRun, &fo); err != nil {
-				fo.Error = err.Error()
-			}
-		}
-		out.Folders = append(out.Folders, fo)
-		if progress != nil {
-			progress(a.Name, fo)
-		}
-		if ctx.Err() != nil {
-			break
-		}
 	}
 	return out
 }
 
-// syncFolder archives a folder's new messages, then deletes its due ones.
-// State and server copies are keyed by the server's raw folder name, so two
-// folders whose display names collide never share state.
-func syncFolder(ctx context.Context, env *Env, conn *imapsync.Conn, a *config.Account, f imapsync.Folder,
-	policy config.Policy, dryRun bool, out *FolderSyncOut) error {
-	ix, err := env.Index(ctx)
+// syncPhases runs an account's sync: (1) per folder, archive new mail and
+// check which known copies are still there; (2) apply what other clients
+// did, only if every folder synced cleanly; (3) per folder, delete what is
+// due; then empty known mail from the server's trash.
+func syncPhases(ctx context.Context, env *Env, ix *index.Index, conn *imapsync.Conn, a *config.Account,
+	in SyncIn, out *AccountSyncOut) error {
+	folders, err := conn.Folders()
 	if err != nil {
 		return err
 	}
-	mb, err := conn.Select(f.Raw, dryRun)
+	clean := true
+	var vanished []index.ServerCopy
+	listed := map[string]bool{}
+	for _, f := range folders {
+		listed[f.Raw] = true
+		policy := a.Policy(f.Name)
+		fo := FolderSyncOut{Folder: f.Name, Action: policy.Action, KeepDays: policy.KeepDays, MaxDays: policy.MaxDays}
+		if policy.Action != config.ActionIgnore {
+			gone, ok, err := fetchFolder(ctx, env, ix, conn, a, f, in, &fo)
+			if err != nil {
+				fo.Error = err.Error()
+			}
+			clean = clean && ok && err == nil
+			vanished = append(vanished, gone...)
+			out.BackInInbox += fo.BackInInbox
+		}
+		out.Folders = append(out.Folders, fo)
+		if in.Progress != nil {
+			in.Progress(a.Name, fo)
+		}
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+	}
+	gone, held, err := vanishedFolders(ctx, ix, a.Name, listed, in.AcceptRemovals, out)
 	if err != nil {
 		return err
+	}
+	vanished = append(vanished, gone...)
+	switch {
+	case clean && !held:
+		if err := applyVanished(ctx, env, ix, a.Name, vanished, in.DryRun, out); err != nil {
+			return err
+		}
+	case len(vanished) > 0:
+		out.Notes = append(out.Notes, "some folders did not sync completely; "+
+			"changes made on other devices are applied next time")
+	}
+	for i, f := range folders {
+		fo := &out.Folders[i]
+		if fo.Action == config.ActionIgnore || fo.Error != "" {
+			continue
+		}
+		if err := expungeFolder(ctx, env, ix, conn, a, f, in.DryRun, fo); err != nil {
+			fo.Error = err.Error()
+		}
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+	}
+	return nil
+}
+
+// fetchFolder archives a folder's new messages and checks which known
+// copies are still on the server. ok is false when the folder's state could
+// not be trusted in this run (its UIDVALIDITY changed, a UID was reused, or
+// a mass removal was held). State and server copies are keyed by the
+// server's raw folder name, so folders whose display names collide never
+// share state.
+func fetchFolder(ctx context.Context, env *Env, ix *index.Index, conn *imapsync.Conn, a *config.Account,
+	f imapsync.Folder, in SyncIn, out *FolderSyncOut) (vanished []index.ServerCopy, ok bool, err error) {
+	mb, err := conn.Select(f.Raw, in.DryRun)
+	if err != nil {
+		return nil, false, err
 	}
 	st, found, err := ix.SyncState(ctx, a.Name, f.Raw)
 	if err != nil {
-		return err
+		return nil, false, err
 	}
+	ok = true
 	if !found || st.UIDValidity != mb.UIDValidity {
 		if found {
 			out.Notes = append(out.Notes, "UIDVALIDITY changed: the folder is fetched again and matched to the archive")
+			ok = false
 		}
-		if !dryRun {
+		if !in.DryRun {
 			if err := ix.ResetFolder(ctx, a.Name, f.Raw, mb.UIDValidity); err != nil {
-				return err
+				return nil, false, err
 			}
 		}
 		st = index.SyncState{UIDValidity: mb.UIDValidity}
 	}
+	// New UIDs after an earlier sync are moves and deliveries; a fetch from
+	// the start (new folder, reset, reused UID) only finds known mail again.
+	incremental := st.LastUID > 0
 
 	uids, err := conn.UIDsAfter(st.LastUID)
 	if err != nil {
-		return err
+		return nil, false, err
 	}
 	out.New = len(uids)
 	// Numbers only: enough to diagnose servers with unstable UIDs.
@@ -259,20 +321,31 @@ func syncFolder(ctx context.Context, env *Env, conn *imapsync.Conn, a *config.Ac
 		"stored_found", found, "stored_uidvalidity", st.UIDValidity, "stored_last_uid", st.LastUID,
 		"server_uidvalidity", mb.UIDValidity, "server_messages", mb.Messages,
 		"new_uids", len(uids), "first_new_uid", firstOr(uids, 0), "last_new_uid", lastOr(uids, 0))
-	if !dryRun {
-		err := fetchNew(ctx, env, ix, conn, a.Name, f, uids, &st, out)
+	if !in.DryRun {
+		err := fetchNew(ctx, env, ix, conn, a.Name, f, uids, &st, incremental, out)
 		if errors.Is(err, index.ErrCopyConflict) {
 			// The server reused a UID for other content. Trust no UID in
 			// this folder: forget its pending copies, delete nothing now,
 			// and fetch it again from the start next time.
 			out.Notes = append(out.Notes, "the server reused a message UID; nothing was deleted, and the folder will be fetched again")
-			return ix.ForgetFolder(ctx, a.Name, f.Raw, st.UIDValidity)
+			return nil, false, ix.ForgetFolder(ctx, a.Name, f.Raw, st.UIDValidity)
 		}
 		if err != nil {
-			return err
+			return nil, false, err
 		}
 	}
-	if err := expungeDue(ctx, env, ix, conn, a, f.Raw, st.UIDValidity, policy, dryRun, out); err != nil {
+	gone, held, err := checkPresence(ctx, ix, conn, a.Name, f, mb.UIDValidity, in.AcceptRemovals, out)
+	return gone, ok && !held, err
+}
+
+// expungeFolder deletes the folder's due messages and records the sync.
+func expungeFolder(ctx context.Context, env *Env, ix *index.Index, conn *imapsync.Conn, a *config.Account,
+	f imapsync.Folder, dryRun bool, out *FolderSyncOut) error {
+	mb, err := conn.Select(f.Raw, dryRun)
+	if err != nil {
+		return err
+	}
+	if err := expungeDue(ctx, env, ix, conn, a, f.Raw, mb.UIDValidity, a.Policy(f.Name), dryRun, out); err != nil {
 		return err
 	}
 	if dryRun {
