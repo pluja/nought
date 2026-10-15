@@ -309,3 +309,59 @@ func TestSanitizeDropsInvisibleCharacters(t *testing.T) {
 		t.Errorf("joiners dropped: %q", got)
 	}
 }
+
+// Email builders (MJML, Klaviyo) set font-size:0 on wrappers to remove gaps
+// between columns, and a real size on the text inside: inherited styles
+// hide only text that does not override them.
+func TestInheritedHidingCanBeOverridden(t *testing.T) {
+	got := HTMLToText(`<div style="font-size:0px"><table><tr><td style="font-size:0px">` +
+		`<img alt="Logo"><div style="font-size:18px;color:#FFFFFF"><span style="color: rgb(0, 0, 0)">Headline</span></div>` +
+		`gap</td></tr></table></div>` +
+		`<div style="visibility:hidden">no<p style="visibility:visible">yes</p></div>` +
+		`<div style="color:transparent">clear<span style="color:#000">dark</span></div>` +
+		`<div style="opacity:0">gone<p style="opacity:1">still gone</p></div>` +
+		`<div style="display:none">none<p style="display:block">still none</p></div>`)
+	for _, want := range []string{"[Logo]", "Headline", "yes", "dark"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("lost %q: %q", want, got)
+		}
+	}
+	for _, bad := range []string{"gap", "no", "clear", "gone", "none"} {
+		if strings.Contains(got, bad) {
+			t.Errorf("hidden %q shown: %q", bad, got)
+		}
+	}
+}
+
+func TestEmailBuilderLayout(t *testing.T) {
+	cell := func(class, style, inner string) string {
+		return `<div class="mj-column-per-100 ` + class + `" style="` + style + `"><table><tbody><tr>` +
+			`<td style="font-size:0px;word-break:break-word;">` + inner + `</td></tr></tbody></table></div>`
+	}
+	text := func(s string) string {
+		return `<div style="font-family:Lato;font-size:18px;color:#FFFFFF;"><p><span style="color: rgb(0, 0, 0); font-size: 16px;">` +
+			s + `</span></p></div>`
+	}
+	html := `<div style="display:none;font-size:1px;max-height:0px;opacity:0;overflow:hidden;">Preheader&#x2007;&#x34F; &#xAD;</div>` +
+		`<div class="root-container"><div class="root-container-spacing"><table><tbody><tr><td>` +
+		`<div style="margin:0px auto;max-width:640px;"><table><tbody><tr><td style="direction:ltr;font-size:0px;padding:0px;">` +
+		cell("desktop-only", "font-size:0px;text-align:left;", `<a href="https://example.org/a"><img alt="Big banner" src="https://cdn.example/b.png"></a>`) +
+		cell("mobile-only", "display:none; font-size:0;", text("Mobile headline")) +
+		cell("desktop-only", "font-size:0px;", text("Desktop headline")) +
+		cell("", "font-size:0px;", text("The body text of the offer.")) +
+		cell("", "font-size:0px;", `<table><tbody><tr><td style="color:#FFFFFF;font-size:16px;">`+
+			`<a style="color:#FFF" href="https://example.org/buy">Buy now</a></td></tr></tbody></table>`) +
+		`</td></tr></tbody></table></div></td></tr></tbody></table></div></div>`
+	got := HTMLToText(html)
+	for _, want := range []string{"[Big banner][1]", "Desktop headline", "The body text of the offer.", "Buy now[2]",
+		"[1] https://example.org/a", "[2] https://example.org/buy"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("lost %q:\n%s", want, got)
+		}
+	}
+	for _, bad := range []string{"Preheader", "Mobile"} {
+		if strings.Contains(got, bad) {
+			t.Errorf("hidden %q shown:\n%s", bad, got)
+		}
+	}
+}

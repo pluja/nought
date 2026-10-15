@@ -103,18 +103,24 @@ func (w *textWriter) walk(n *html.Node, open *[]int) {
 	}
 	switch n.Type {
 	case html.TextNode:
-		w.text(n.Data)
+		if !w.look.hidesText() {
+			w.text(n.Data)
+		}
 		return
 	case html.ElementNode:
-		if skipped[n.DataAtom] || hidden(n) {
+		d, hiddenAttr := styleOf(n)
+		if skipped[n.DataAtom] || hiddenAttr || removed(d) {
 			return
 		}
+		parent := w.look
+		w.look = parent.inherit(d)
 		tok := html.Token{Type: html.StartTagToken, DataAtom: n.DataAtom, Data: n.Data, Attr: n.Attr}
 		w.start(n.DataAtom, tok, html.StartTagToken, open)
 		for c := n.FirstChild; c != nil; c = c.NextSibling {
 			w.walk(c, open)
 		}
 		w.end(n.DataAtom, open)
+		w.look = parent
 		return
 	case html.DocumentNode:
 		for c := n.FirstChild; c != nil; c = c.NextSibling {
@@ -123,32 +129,70 @@ func (w *textWriter) walk(n *html.Node, open *[]int) {
 	}
 }
 
-// hidden reports whether an element is invisible in a mail client: the
-// hidden attribute, or inline styles that hide it. Newsletters use these for
-// preheaders and duplicate mobile layouts; phishing and prompt injection use
-// them to show machines text that people never see. Styles in <style>
-// blocks are not applied (there is no CSS engine), so class-based hiding
-// is not detected.
-func hidden(n *html.Node) bool {
-	var style string
+// Hidden text. Newsletters hide preheaders and duplicate mobile layouts;
+// phishing and prompt injection use the same tricks to show machines text
+// that people never see. Two kinds of styles hide content:
+//
+//   - removed: the element and everything in it is gone, whatever its
+//     children say (display:none, opacity:0, a zero-size box with its
+//     overflow hidden, far off-screen, the hidden attribute);
+//   - inherited (font-size:0, visibility:hidden, transparent text): text is
+//     hidden until a descendant sets a visible value again. Email builders
+//     put font-size:0 on wrappers to remove gaps between columns.
+//
+// Styles in <style> blocks are not applied (there is no CSS engine), so
+// class-based hiding is not detected.
+
+// styleOf returns an element's inline style declarations, and whether it
+// has the hidden attribute.
+func styleOf(n *html.Node) (map[string]string, bool) {
+	var d map[string]string
+	hidden := false
 	for _, a := range n.Attr {
 		switch a.Key {
 		case "hidden":
-			return true
+			hidden = true
 		case "style":
-			style = a.Val
+			d = declarations(a.Val)
 		}
 	}
-	if style == "" {
+	return d, hidden
+}
+
+func removed(d map[string]string) bool {
+	if d == nil {
 		return false
 	}
-	d := declarations(style)
 	clipped := d["overflow"] == "hidden" &&
 		(isZero(d["max-height"]) || isZero(d["height"]) || isZero(d["width"]) || isZero(d["max-width"]))
-	return d["display"] == "none" || d["visibility"] == "hidden" || d["visibility"] == "collapse" ||
-		isZero(d["opacity"]) || isZero(d["font-size"]) || d["color"] == "transparent" || clipped ||
+	return d["display"] == "none" || isZero(d["opacity"]) || clipped ||
 		offscreen(d["text-indent"]) || offscreen(d["left"]) || offscreen(d["top"]) ||
 		offscreen(d["margin-left"]) || offscreen(d["margin-top"])
+}
+
+// look is the inherited state that decides whether text shows.
+type look struct {
+	zeroFont, invisible, transparent bool
+}
+
+func (l look) hidesText() bool { return l.zeroFont || l.invisible || l.transparent }
+
+// inherit applies an element's declarations; values it does not set (or
+// sets to "inherit") keep the parent's.
+func (l look) inherit(d map[string]string) look {
+	if v, ok := d["font-size"]; ok && v != "inherit" {
+		l.zeroFont = isZero(v)
+	}
+	switch d["visibility"] {
+	case "hidden", "collapse":
+		l.invisible = true
+	case "visible":
+		l.invisible = false
+	}
+	if v, ok := d["color"]; ok && v != "inherit" {
+		l.transparent = v == "transparent"
+	}
+	return l
 }
 
 var (
@@ -217,7 +261,8 @@ func (w *textWriter) start(a atom.Atom, tok html.Token, tt html.TokenType, open 
 			w.raw("  ")
 		}
 	case a == atom.Img:
-		if alt := strings.TrimSpace(attr(tok, "alt")); alt != "" {
+		// An image shows whatever the font size; its alt text stands in.
+		if alt := strings.TrimSpace(attr(tok, "alt")); alt != "" && !w.look.invisible {
 			w.styled(w.st.Dim, "["+alt+"]")
 		}
 	case a == atom.A && tt == html.StartTagToken:
@@ -314,6 +359,7 @@ type textWriter struct {
 	space   bool // a collapsed space is pending
 	breaks  int  // newlines already at the end
 	links   []Link
+	look    look            // inherited styles of the element being converted
 	label   strings.Builder // plain text of the link being read
 }
 
