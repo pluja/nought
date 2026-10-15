@@ -4,6 +4,7 @@ package tui
 
 import (
 	"context"
+	"fmt"
 	"slices"
 	"strconv"
 	"strings"
@@ -113,6 +114,18 @@ func (m Model) update(msg tea.Msg) (Model, tea.Cmd) {
 
 	case autoSyncMsg:
 		return m.autoSync(msg)
+
+	case trashEmptyDoneMsg:
+		switch {
+		case msg.err != nil:
+			m.notice, m.noticeErr = "empty trash: "+msg.err.Error(), true
+		case msg.out.Pending > 0:
+			m.notice = fmt.Sprintf("deleted %d for good; %d go once their server copies are removed at the next sync",
+				msg.out.Purged, msg.out.Pending)
+		default:
+			m.notice = fmt.Sprintf("deleted %d for good", msg.out.Purged)
+		}
+		return m.refresh()
 
 	case deleteDoneMsg:
 		switch {

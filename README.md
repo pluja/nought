@@ -79,7 +79,8 @@ nou msg delete --now a3f9c2e1b0d4            # for good, at once (server copy at
 nou trash empty
 ```
 
-In the TUI, `#` moves a message to the trash (`z` undoes it, `gt` shows the trash) and `D`
+In the TUI, `#` moves a message to the trash (`z` undoes it, `gt` shows the trash, with a
+countdown on each message; `:empty-trash` empties it) and `D`
 deletes it for good after asking.
 
 Rules can tag new mail as it is archived, and make it expire:

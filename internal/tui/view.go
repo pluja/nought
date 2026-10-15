@@ -4,6 +4,7 @@ package tui
 
 import (
 	"fmt"
+	"math"
 	"slices"
 	"strconv"
 	"strings"
@@ -131,7 +132,32 @@ func (m Model) renderHeader() string {
 	if m.more {
 		n += "+"
 	}
-	return fit(m.st.title.Render("nought")+"  "+m.st.bold.Render(render.SanitizeLine(q))+m.st.dim.Render("  "+n+" messages"), m.width, 1)
+	head := m.st.title.Render("nought") + "  " + m.st.bold.Render(render.SanitizeLine(q)) + m.st.dim.Render("  "+n+" messages")
+	if m.query == queryTrash {
+		// The trash explains itself: when its mail goes, and how to act.
+		when := "at the next sync"
+		if m.trashDays > 0 {
+			when = strconv.Itoa(m.trashDays) + " days after deletion"
+		}
+		head = m.st.title.Render("nought") + "  " + m.st.bold.Render("Trash") + m.st.dim.Render("  "+n+" messages") +
+			m.st.warn.Render("  · deleted for good "+when) + m.st.dim.Render(" · # restores · :empty-trash")
+	}
+	return fit(head, m.width, 1)
+}
+
+// countdown is how long until a message is deleted for good (trash or an
+// expiring rule), or "" if it is not.
+func (m Model) countdown(msg ops.MessageOut) string {
+	at, ok := ops.ExpiresAt(msg.Tags)
+	if !ok {
+		return ""
+	}
+	days := int(math.Ceil(at.Sub(m.now()).Hours() / 24))
+	left := strconv.Itoa(days) + "d"
+	if days <= 0 {
+		left = "today"
+	}
+	return m.glyph("⌛", "") + left
 }
 
 func (m Model) renderSidebar() string {
@@ -222,9 +248,18 @@ func (m Model) renderListLine(msg ops.MessageOut, selected bool, w int) string {
 	if tags := userTags(msg.Tags); len(tags) > 0 {
 		line += sp + st(m.st.tag).Render(render.SanitizeLine("#"+strings.Join(tags, " #")))
 	}
-	line = ansi.Truncate(line, w, "…")
-	if n := ansi.StringWidth(line); n < w {
-		line += st(m.st.plain).Render(strings.Repeat(" ", w-n))
+	// A deletion date stays visible at the right edge, whatever the subject.
+	left := m.countdown(msg)
+	room := w
+	if left != "" {
+		room = max(w-ansi.StringWidth(left)-1, 0)
+	}
+	line = ansi.Truncate(line, room, "…")
+	if n := ansi.StringWidth(line); n < room {
+		line += st(m.st.plain).Render(strings.Repeat(" ", room-n))
+	}
+	if left != "" && room > 0 {
+		line += sp + st(m.st.warn).Render(left)
 	}
 	return line
 }
@@ -384,6 +419,8 @@ func (m Model) renderPromptLine() string {
 		return pad(":"+m.input.View(), m.width)
 	case m.inputKind == inputLinkNumber:
 		return pad("open link number (1-"+strconv.Itoa(len(m.links))+"): "+m.input.View(), m.width)
+	case m.inputKind == inputConfirmEmptyTrash:
+		return fit(m.st.errText.Render("Delete everything in the trash for good, here and on servers? (y/N)"), m.width, 1)
 	case m.inputKind == inputConfirmDelete:
 		q := "Delete permanently, here and on the server? (y/N) "
 		return fit(m.st.errText.Render(q)+render.SanitizeLine(m.deleting.Subject), m.width, 1)
@@ -409,7 +446,7 @@ func (m Model) renderHints() string {
 	switch {
 	case m.inputKind == inputLinkNumber:
 		hints = [][2]string{{"1-" + strconv.Itoa(len(m.links)), "link"}, {"enter", "confirm"}, {"esc", "cancel"}}
-	case m.inputKind == inputConfirmDelete:
+	case m.inputKind == inputConfirmDelete || m.inputKind == inputConfirmEmptyTrash:
 		hints = [][2]string{{"y", "yes"}, {"any other key", "no"}}
 	case m.inputKind != inputNone:
 		hints = [][2]string{{"enter", "confirm"}, {"esc", "cancel"}}
@@ -417,6 +454,8 @@ func (m Model) renderHints() string {
 		hints = [][2]string{{"e", "archive"}, {"o", "link"}, {"J/K", "next"}, {"esc", "back"}}
 	case m.focus == focusSidebar:
 		hints = [][2]string{{"enter", "show"}, {"esc", "back"}}
+	case m.query == queryTrash:
+		hints = [][2]string{{"enter", "open"}, {"#", "restore"}, {"D", "delete now"}, {"z", "undo"}}
 	default:
 		hints = [][2]string{{"enter", "open"}, {"e", "archive"}, {"/", "search"}, {"z", "undo"}}
 	}

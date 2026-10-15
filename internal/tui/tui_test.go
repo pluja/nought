@@ -842,3 +842,67 @@ func TestHelpLegendUsesListColors(t *testing.T) {
 		t.Errorf("ASCII legend:\n%s", s)
 	}
 }
+
+func TestTrashViewExplainsItself(t *testing.T) {
+	m := newTestModel(t, 140, 30)
+	m = drive(t, m, key("#"))
+	m = drive(t, m, keys("gt")...)
+	s := screen(m)
+	if !strings.Contains(s, "Trash  1 messages  · deleted for good 30 days after deletion · # restores · :empty-trash") ||
+		!strings.Contains(s, "# restore  D delete now") {
+		t.Errorf("trash header:\n%s", s)
+	}
+	// Trashed at testNow: deleted for good on the 30th day.
+	if row := ansi.Strip(m.renderListLine(m.msgs[0], false, 60)); !strings.HasSuffix(row, " ⌛30d") {
+		t.Errorf("row %q lacks the countdown", row)
+	}
+	// A long subject never pushes the countdown off the row.
+	long := m.msgs[0]
+	long.Subject = strings.Repeat("very long subject ", 20)
+	if row := ansi.Strip(m.renderListLine(long, false, 50)); !strings.HasSuffix(row, " ⌛30d") || ansi.StringWidth(row) != 50 {
+		t.Errorf("long row %q (width %d)", row, ansi.StringWidth(row))
+	}
+	m.prefs.ASCII = true
+	if row := ansi.Strip(m.renderListLine(m.msgs[0], false, 60)); !strings.HasSuffix(row, " 30d") {
+		t.Errorf("ASCII row %q", row)
+	}
+}
+
+func TestCountdown(t *testing.T) {
+	m := newTestModel(t, 80, 24)
+	for tags, want := range map[string]string{
+		"inbox":                           "",
+		"deleted delete-after:2026-11-14": "⌛30d",
+		"delete-after:2026-10-16":         "⌛1d",
+		"delete-after:2026-10-15":         "⌛today",
+		"delete-after:2026-10-01":         "⌛today",
+	} {
+		if got := m.countdown(ops.MessageOut{Tags: strings.Fields(tags)}); got != want {
+			t.Errorf("countdown(%q) = %q, want %q", tags, got, want)
+		}
+	}
+}
+
+func TestEmptyTrash(t *testing.T) {
+	m := newTestModel(t, 120, 30)
+	m = drive(t, m, key("#"))
+	run := func(m Model, answer string) Model {
+		m = drive(t, m, append(append([]tea.Msg{key(":")}, keys("empty-trash")...), key("enter"))...)
+		if m.inputKind != inputConfirmEmptyTrash || !strings.Contains(screen(m), "Delete everything in the trash for good") {
+			t.Fatalf("no confirmation:\n%s", screen(m))
+		}
+		return drive(t, m, key(answer))
+	}
+	m = run(m, "n")
+	if m.notice != "trash kept" || !slices.ContainsFunc(m.side, func(s sideItem) bool { return s.label == "Trash" }) {
+		t.Fatalf("after no: %q", m.notice)
+	}
+	m = run(m, "y")
+	if m.notice != "deleted 1 for good" || slices.ContainsFunc(m.side, func(s sideItem) bool { return s.label == "Trash" }) {
+		t.Fatalf("after yes: %q, sidebar %+v", m.notice, m.side)
+	}
+	m = drive(t, m, keys("ga")...)
+	if len(m.msgs) != 2 {
+		t.Errorf("all mail has %d messages, want 2", len(m.msgs))
+	}
+}

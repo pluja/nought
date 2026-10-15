@@ -269,6 +269,15 @@ func (m Model) startInput(kind inputKind, value string) (Model, tea.Cmd) {
 }
 
 func (m Model) inputKey(k tea.KeyPressMsg) (Model, tea.Cmd) {
+	if m.inputKind == inputConfirmEmptyTrash {
+		m.inputKind = inputNone
+		if k.String() != "y" && k.String() != "Y" {
+			m.notice = "trash kept"
+			return m, nil
+		}
+		m.notice = "emptying the trash…"
+		return m, m.emptyTrash()
+	}
 	if m.inputKind == inputConfirmDelete {
 		m.inputKind = inputNone
 		if k.String() != "y" && k.String() != "Y" {
@@ -349,6 +358,9 @@ func (m Model) command(line string) (Model, tea.Cmd) {
 		return m.messageAction("e")
 	case "trash":
 		return m.goTo(queryTrash)
+	case "empty-trash":
+		m.inputKind = inputConfirmEmptyTrash
+		return m, nil
 	case "undo":
 		return m.undoLast()
 	case "reindex":

@@ -50,6 +50,10 @@ type (
 		out ops.DeleteOut
 		err error
 	}
+	trashEmptyDoneMsg struct {
+		out ops.TrashEmptyOut
+		err error
+	}
 	reindexDoneMsg struct {
 		out ops.ReindexOut
 		err error
@@ -204,6 +208,13 @@ func (m Model) deleteNow(msg ops.MessageOut) tea.Cmd {
 	return func() tea.Msg {
 		out, err := ops.Call(m.ctx, m.env, permDelete, ops.MsgDelete, ops.DeleteIn{Query: messageQuery(msg), Now: true})
 		return deleteDoneMsg{out: out, err: err}
+	}
+}
+
+func (m Model) emptyTrash() tea.Cmd {
+	return func() tea.Msg {
+		out, err := ops.Call(m.ctx, m.env, permDelete, ops.TrashEmpty, struct{}{})
+		return trashEmptyDoneMsg{out: out, err: err}
 	}
 }
 

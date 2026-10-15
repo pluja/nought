@@ -56,6 +56,7 @@ const (
 	inputPalette
 	inputLinkNumber
 	inputConfirmDelete
+	inputConfirmEmptyTrash
 )
 
 // sideItem is one entry in the sidebar.
@@ -161,6 +162,7 @@ type Model struct {
 	notice      string
 	noticeErr   bool           // the notice reports a failure
 	deleting    ops.MessageOut // the message D asks about
+	trashDays   int            // how long the trash keeps mail (for its header)
 	syncing     bool
 	syncAuto    bool // the running sync was started by the schedule
 	syncEvery   time.Duration
@@ -228,6 +230,7 @@ func newModel(ctx context.Context, env *ops.Env) Model {
 		now:         env.Now,
 		st:          newStyles(),
 		previewWait: previewDelay,
+		trashDays:   config.DefaultTrashDays,
 		query:       queryInbox,
 		sidebar:     true,
 		input:       in,
@@ -235,6 +238,7 @@ func newModel(ctx context.Context, env *ops.Env) Model {
 	}
 	if cfg, err := env.Config(); err == nil {
 		m.prefs = cfg.TUI
+		m.trashDays = cfg.TrashKeepDays()
 		if len(cfg.Accounts) > 0 {
 			m.syncEvery = cfg.TUI.SyncInterval()
 		}
