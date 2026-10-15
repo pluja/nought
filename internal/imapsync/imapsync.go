@@ -263,7 +263,7 @@ func (c *Conn) AllUIDs() ([]uint32, error) {
 	if err != nil {
 		return nil, err
 	}
-	if mb := c.c.Mailbox(); mb == nil || uint32(len(uids)) != mb.NumMessages {
+	if mb := c.c.Mailbox(); mb == nil || len(uids) != int(mb.NumMessages) {
 		return nil, ErrIncompleteList
 	}
 	return uids, nil
