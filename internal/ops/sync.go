@@ -128,6 +128,20 @@ func runSync(ctx context.Context, env *Env, in SyncIn) (SyncOut, error) {
 	return out, nil
 }
 
+func firstOr(s []uint32, def uint32) uint32 {
+	if len(s) == 0 {
+		return def
+	}
+	return s[0]
+}
+
+func lastOr(s []uint32, def uint32) uint32 {
+	if len(s) == 0 {
+		return def
+	}
+	return s[len(s)-1]
+}
+
 func selectAccounts(env *Env, names []string) ([]config.Account, error) {
 	cfg, err := env.Config()
 	if err != nil {
@@ -214,6 +228,11 @@ func syncFolder(ctx context.Context, env *Env, conn *imapsync.Conn, a *config.Ac
 		return err
 	}
 	out.New = len(uids)
+	// Numbers only: enough to diagnose servers with unstable UIDs.
+	env.Log.Debug("folder state", "account", a.Name, "folder", f.Name,
+		"stored_found", found, "stored_uidvalidity", st.UIDValidity, "stored_last_uid", st.LastUID,
+		"server_uidvalidity", mb.UIDValidity, "server_messages", mb.Messages,
+		"new_uids", len(uids), "first_new_uid", firstOr(uids, 0), "last_new_uid", lastOr(uids, 0))
 	if !dryRun {
 		err := fetchNew(ctx, env, ix, conn, a.Name, f, uids, &st, out)
 		if errors.Is(err, index.ErrCopyConflict) {
