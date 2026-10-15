@@ -217,6 +217,8 @@ func TestSearch(t *testing.T) {
 		{"date:..2026-01-10", []string{"Quarterly report"}},
 		{"-date:2026-01-01..", []string{"no date, no id"}},
 		{"tag:folder:sent", []string{"Café meeting"}},
+		{"hash:" + hash(2)[:8], []string{"Lunch?"}},
+		{"hash:" + hash(2)[:8] + " OR hash:" + hash(3)[:6], []string{"Café meeting", "Lunch?"}},
 	}
 	for _, tt := range tests {
 		q, err := query.Parse(tt.q)

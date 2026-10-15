@@ -9,6 +9,10 @@
 // may be "double quoted" (with \" and \\ escapes).
 //
 //	tag:todo from:bob -is:unread "quarterly report" date:2026-01-01..2026-03-31
+//
+// Fields: tag, from, to (To and Cc), subject, account, id (Message-ID),
+// is (unread, flagged, inbox, replied), date (YYYY-MM-DD, A..B, A.., ..B),
+// and hash (a message ID prefix as shown by nou).
 package query
 
 import (
@@ -31,9 +35,13 @@ const (
 	ID      = "id" // Message-ID
 	Is      = "is"
 	Date    = "date"
+	Hash    = "hash" // prefix of the content hash, i.e. a message ID shown by nou
 )
 
-var fields = map[string]bool{Tag: true, From: true, To: true, Subject: true, Account: true, ID: true, Is: true, Date: true}
+var fields = map[string]bool{Tag: true, From: true, To: true, Subject: true, Account: true, ID: true, Is: true, Date: true, Hash: true}
+
+// MinHashPrefix is the shortest accepted hash: prefix.
+const MinHashPrefix = 6
 
 // IsValues maps is:<value> to the tag it stands for.
 var IsValues = map[string]string{"unread": "unread", "flagged": "flagged", "inbox": "inbox", "replied": "replied"}
@@ -195,6 +203,11 @@ func parseTerm(tok token) (Term, error) {
 		t.Value = strings.TrimSuffix(strings.TrimPrefix(strings.TrimSpace(value), "<"), ">")
 		if t.Value == "" {
 			return Term{}, errors.New("id: needs a value")
+		}
+	case Hash:
+		t.Value = strings.ToLower(value)
+		if len(t.Value) < MinHashPrefix || len(t.Value) > 64 || strings.Trim(t.Value, "0123456789abcdef") != "" {
+			return Term{}, fmt.Errorf("hash:%s: expected %d to 64 hex characters", value, MinHashPrefix)
 		}
 	case Date:
 		since, before, err := parseDateRange(value)

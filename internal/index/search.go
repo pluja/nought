@@ -77,6 +77,9 @@ func compileTerm(t query.Term) (string, []any, error) {
 		return "a.name = ?", []any{t.Value}, nil
 	case query.ID:
 		return "m.message_id = ?", []any{t.Value}, nil
+	case query.Hash:
+		// Hex sorts below 'g': [prefix, prefix+"g") is the prefix range.
+		return "(m.hash >= ? AND m.hash < ?)", []any{t.Value, t.Value + "g"}, nil
 	case query.Date:
 		var conds []string
 		var args []any

@@ -5,13 +5,16 @@ package ops
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"nought/internal/config"
+	"nought/internal/store"
 )
 
 // newTestEnv returns an Env rooted in a temporary directory.
@@ -109,4 +112,13 @@ func TestEnvConfigLoadsOnce(t *testing.T) {
 	if c1 != c2 {
 		t.Error("config loaded twice")
 	}
+}
+
+// removeFile deletes a stored message file, simulating loss or tampering.
+func removeFile(env *Env, account string, e store.Entry) error {
+	matches, err := filepath.Glob(filepath.Join(env.Paths.AccountArchive(account), "cur", e.Hash+"*"))
+	if err != nil || len(matches) != 1 {
+		return fmt.Errorf("find %s: %v %v", e.Hash, matches, err)
+	}
+	return os.Remove(matches[0])
 }

@@ -1,0 +1,74 @@
+# Triage an imported archive from the CLI.
+exec nou import export --account personal --inbox
+stdout '^imported 3,'
+
+# Search lists newest first; hostile subjects are neutralized.
+exec nou search tag:inbox
+stdout -count=3 '^[0-9a-f]{12}  '
+! stdout '\x1b'
+stdout 'evil red  \[folder:inbox inbox unread\]'
+
+# Query words need no quoting; JSON for scripts.
+exec nou search from:alice is:unread --json
+stdout '"subject":"lunch on friday"'
+stdout '"more":false'
+
+# Paging.
+exec nou search --limit 1
+stdout 'more results: use --offset 1'
+
+# Show by id prefix: HTML becomes text, nothing loaded, not marked read.
+exec nou search subject:newsletter
+cp stdout id.txt
+[!exec:sh] skip 'needs sh'
+exec sh -c 'nou msg show $(cut -c1-8 id.txt)'
+stdout '^Subject: weekly newsletter$'
+stdout 'HTML converted to text'
+stdout 'Read more <https://example.org/post>'
+! stdout 'tracker'
+! stdout 'steal'
+exec nou search is:unread subject:newsletter
+stdout newsletter
+
+# Tag and archive: Inbox Zero.
+exec nou msg tag from:alice --add todo --remove unread
+stdout '^matched 1, changed 1$'
+exec nou msg archive tag:inbox --dry-run
+stdout '^matched 3, would change 3$'
+exec nou msg archive tag:inbox
+stdout '^matched 3, changed 3$'
+exec nou search tag:inbox
+! stdout .
+exec nou search tag:todo
+stdout 'lunch on friday'
+
+# Errors: bad query (2), unknown id (5), nothing to do (2).
+code 2 nou search bogus:field
+stderr 'unknown field'
+code 5 nou msg show ffffffffffff
+code 2 nou msg tag tag:todo
+code 2 nou msg archive
+
+-- export/Inbox/a.eml --
+From: Alice <alice@example.org>
+Message-ID: <a@example.org>
+Date: Tue, 14 Oct 2026 09:00:00 +0000
+Subject: lunch on friday
+
+pizza?
+-- export/Inbox/b.eml --
+From: Mallory <mallory@example.org>
+Message-ID: <b@example.org>
+Date: Mon, 13 Oct 2026 09:00:00 +0000
+Subject: =?UTF-8?Q?evil_=1B[31mred?=
+
+gotcha
+-- export/Inbox/c.eml --
+From: News <news@example.org>
+Message-ID: <c@example.org>
+Date: Sun, 12 Oct 2026 09:00:00 +0000
+Subject: weekly newsletter
+Content-Type: text/html
+
+<html><body><p>Hello!</p><img src="https://tracker.example/p.gif"><script>steal()</script>
+<p><a href="https://example.org/post">Read more</a></p></body></html>

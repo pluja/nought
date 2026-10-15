@@ -38,6 +38,8 @@ func newRootCmd(a *app) *cobra.Command {
 	flags.BoolVarP(&a.verbose, "verbose", "v", false, "log debug information to stderr")
 
 	root.AddCommand(
+		newSearchCmd(a),
+		newMsgCmd(a),
 		newImportCmd(a),
 		newReindexCmd(a),
 		newTagsCmd(a),

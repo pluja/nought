@@ -38,6 +38,7 @@ func TestParse(t *testing.T) {
 		{`"-5 degrees"`, Query{[][]Term{{{Field: Text, Value: "-5 degrees"}}}}},
 		{`-"-5 degrees"`, Query{[][]Term{{{Field: Text, Value: "-5 degrees", Not: true}}}}},
 		{"id:<abc@x>", Query{[][]Term{{{Field: ID, Value: "abc@x"}}}}},
+		{"hash:ABCDEF12", Query{[][]Term{{{Field: Hash, Value: "abcdef12"}}}}},
 		{`"say \"hi\""`, Query{[][]Term{{{Field: Text, Value: `say "hi"`}}}}},
 		{"id:abc:def@x", Query{[][]Term{{{Field: ID, Value: "abc:def@x"}}}}},
 		{"FROM:bob", Query{[][]Term{{{Field: From, Value: "bob"}}}}},
