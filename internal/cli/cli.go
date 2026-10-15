@@ -18,6 +18,7 @@ import (
 
 	"nought/internal/config"
 	"nought/internal/ops"
+	"nought/internal/secret"
 )
 
 // Options is everything Run needs from the outside world. Injecting it keeps
@@ -29,6 +30,7 @@ type Options struct {
 	Stderr  io.Writer
 	Getenv  func(string) string
 	Version string
+	Secrets secret.Store // nil means the OS keyring
 }
 
 // app is the state shared by all commands during one invocation.
@@ -90,7 +92,11 @@ func (a *app) setup(cmd *cobra.Command, _ []string) error {
 		level = slog.LevelDebug
 	}
 	log := slog.New(slog.NewTextHandler(a.opts.Stderr, &slog.HandlerOptions{Level: level}))
-	a.env = ops.NewEnv(paths, log, time.Now, buildInfo(a.opts.Version))
+	secrets := a.opts.Secrets
+	if secrets == nil {
+		secrets = secret.Keyring()
+	}
+	a.env = ops.NewEnv(paths, log, time.Now, buildInfo(a.opts.Version), secrets)
 	return nil
 }
 

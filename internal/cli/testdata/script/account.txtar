@@ -1,0 +1,39 @@
+# Add an account with the password on stdin; it goes to the keyring only.
+stdin password.txt
+exec nou account add personal --email me@example.org --imap-host imap.example.org --password-stdin
+stdout '^added personal; run .nou sync personal.'
+grep '"personal":"hunter2"' keyring.json
+! grep hunter2 home/config/config.toml
+grep 'deletion = .disabled.' home/config/config.toml
+
+# Without a terminal and without --password-stdin, nou never prompts.
+code 2 nou account add work --email w@example.org --imap-host imap.example.org
+stderr 'not a terminal'
+
+# A password command instead of the keyring.
+exec nou account add work --email w@corp.example --imap-host mail.corp.example --imap-tls starttls --password-command 'pass show work'
+exec nou account list
+stdout '^personal +me@example.org +imap.example.org:993  deletion disabled$'
+stdout '^work +w@corp.example +mail.corp.example:143  deletion disabled$'
+exec nou account show work --json
+stdout '"password_source":"command"'
+! stdout 'pass show'
+
+# Enabling deletion is deliberate and visible.
+exec nou account set personal --deletion enabled
+stdout '^deletion:  enabled$'
+stdout 'Drafts,Templates,Junk,Spam,Trash'
+
+# Removing keeps the archive.
+exec nou account remove personal
+stdout 'its archive is kept at'
+! grep personal keyring.json
+
+# Errors.
+code 5 nou account show nobody
+code 2 nou account add bad! --email x@y.org --imap-host h --password-command x
+code 2 nou account set work --deletion sometimes
+code 2 nou account set work
+
+-- password.txt --
+hunter2

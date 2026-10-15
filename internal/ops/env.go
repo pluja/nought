@@ -11,6 +11,7 @@ import (
 
 	"nought/internal/config"
 	"nought/internal/index"
+	"nought/internal/secret"
 	"nought/internal/store"
 )
 
@@ -24,10 +25,11 @@ type BuildInfo struct {
 // Env carries the dependencies every op may use. Expensive resources are
 // opened lazily so cheap commands stay cheap; Close releases them.
 type Env struct {
-	Paths config.Paths
-	Log   *slog.Logger
-	Now   func() time.Time
-	Build BuildInfo
+	Paths   config.Paths
+	Log     *slog.Logger
+	Now     func() time.Time
+	Build   BuildInfo
+	Secrets secret.Store
 
 	mu     sync.Mutex
 	config *config.Config
@@ -36,8 +38,8 @@ type Env struct {
 }
 
 // NewEnv returns an Env. Nothing is opened until an op needs it.
-func NewEnv(paths config.Paths, log *slog.Logger, now func() time.Time, build BuildInfo) *Env {
-	return &Env{Paths: paths, Log: log, Now: now, Build: build, stores: make(map[string]*store.Maildir)}
+func NewEnv(paths config.Paths, log *slog.Logger, now func() time.Time, build BuildInfo, secrets secret.Store) *Env {
+	return &Env{Paths: paths, Log: log, Now: now, Build: build, Secrets: secrets, stores: make(map[string]*store.Maildir)}
 }
 
 // Config loads the configuration on first use.

@@ -4,6 +4,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -17,6 +18,7 @@ import (
 	"github.com/rogpeppe/go-internal/testscript"
 
 	"nought/internal/ops"
+	"nought/internal/secret"
 )
 
 var update = flag.Bool("update", false, "update testscript golden output")
@@ -27,7 +29,7 @@ func TestMain(m *testing.M) {
 			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 			code := Run(ctx, Options{
 				Args: os.Args[1:], Stdin: os.Stdin, Stdout: os.Stdout, Stderr: os.Stderr,
-				Getenv: os.Getenv, Version: "test",
+				Getenv: os.Getenv, Version: "test", Secrets: fileSecrets(os.Getenv("NOU_TEST_KEYRING")),
 			})
 			stop()
 			os.Exit(code)
@@ -42,6 +44,7 @@ func TestScripts(t *testing.T) {
 		Cmds:          map[string]func(*testscript.TestScript, bool, []string){"code": cmdCode},
 		Setup: func(e *testscript.Env) error {
 			e.Setenv("NOUGHT_HOME", filepath.Join(e.WorkDir, "home"))
+			e.Setenv("NOU_TEST_KEYRING", filepath.Join(e.WorkDir, "keyring.json"))
 			return nil
 		},
 	})
@@ -99,4 +102,47 @@ func TestBuildInfoDefaultsToDev(t *testing.T) {
 	if got := buildInfo("v1.2.3").Version; got != "v1.2.3" {
 		t.Errorf("version = %q, want v1.2.3", got)
 	}
+}
+
+// fileSecrets is a test keyring persisted in a JSON file, so state survives
+// across the separate nou processes of a test script.
+type fileSecrets string
+
+func (f fileSecrets) load() map[string]string {
+	m := map[string]string{}
+	if data, err := os.ReadFile(string(f)); err == nil {
+		_ = json.Unmarshal(data, &m)
+	}
+	return m
+}
+
+func (f fileSecrets) save(m map[string]string) error {
+	data, err := json.Marshal(m)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(string(f), data, 0o600)
+}
+
+func (f fileSecrets) Get(account string) (string, error) {
+	pw, ok := f.load()[account]
+	if !ok {
+		return "", secret.ErrNotFound
+	}
+	return pw, nil
+}
+
+func (f fileSecrets) Set(account, password string) error {
+	m := f.load()
+	m[account] = password
+	return f.save(m)
+}
+
+func (f fileSecrets) Delete(account string) error {
+	m := f.load()
+	if _, ok := m[account]; !ok {
+		return secret.ErrNotFound
+	}
+	delete(m, account)
+	return f.save(m)
 }

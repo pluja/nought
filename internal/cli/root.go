@@ -40,6 +40,7 @@ func newRootCmd(a *app) *cobra.Command {
 	root.AddCommand(
 		newSearchCmd(a),
 		newMsgCmd(a),
+		newAccountCmd(a),
 		newImportCmd(a),
 		newReindexCmd(a),
 		newTagsCmd(a),
