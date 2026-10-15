@@ -161,9 +161,9 @@ func printAccount(w io.Writer, acct ops.AccountOut) error {
 	}
 	lines = append(lines, "password:  from "+acct.PasswordSource, "deletion:  "+acct.Deletion, "archive:   "+acct.Archive, "folders:")
 	for _, r := range acct.Folders {
-		lines = append(lines, "  "+r.Match+" -> "+describePolicy(r.Policy()))
+		lines = append(lines, "  "+r.Match+" -> "+r.Policy().Describe())
 	}
-	lines = append(lines, "  (other folders) -> "+describePolicy(config.FolderRule{}.Policy()))
+	lines = append(lines, "  (other folders) -> "+config.FolderRule{}.Policy().Describe())
 	for i := range lines {
 		lines[i] = render.Sanitize(lines[i])
 	}
@@ -201,19 +201,4 @@ func newAccountRemoveCmd(a *app) *cobra.Command {
 			})
 		},
 	}
-}
-
-// describePolicy says what sync does with a folder.
-func describePolicy(p config.Policy) string {
-	if p.Action == config.ActionIgnore {
-		return "ignore"
-	}
-	s := "archive; leaves the server once handled"
-	if p.KeepDays > 0 {
-		s += fmt.Sprintf(", after %d days", p.KeepDays)
-	}
-	if p.MaxDays > 0 {
-		s += fmt.Sprintf("; at most %d days", p.MaxDays)
-	}
-	return s
 }

@@ -121,11 +121,7 @@ func (m Model) helpLines() []string {
 	}
 	archive := "out of the inbox (deletion is off: the server copy stays)."
 	if m.deletionOn {
-		archive = "out of the inbox; it leaves the server at the next sync"
-		if m.inboxKeep > 0 {
-			archive += " after " + strconv.Itoa(m.inboxKeep) + " days"
-		}
-		archive += "."
+		archive = "out of the inbox; it leaves the server at the next sync (or after keep_days)."
 	}
 	what := [][2]string{
 		{"e archive", archive},

@@ -79,8 +79,8 @@ var ErrCopyConflict = errors.New("server reused a UID for different content")
 // RecordCopy notes a server message after its local copy was verified.
 // Recording the same UID with the same content again is a no-op; with
 // different content it is ErrCopyConflict. A missing (zero) INTERNALDATE is
-// recorded as the fetch time, so the message still gets its full grace
-// period on the server.
+// recorded as the fetch time, so keep_days and max_days count from
+// the fetch.
 func (ix *Index) RecordCopy(ctx context.Context, c ServerCopy, now time.Time) error {
 	if !validHash(c.Hash) {
 		return fmt.Errorf("invalid hash %q", c.Hash)
@@ -117,9 +117,9 @@ func (ix *Index) RecordCopy(ctx context.Context, c ServerCopy, now time.Time) er
 // deleted by nought nor moved or deleted by another client.
 const live = `expunged_at IS NULL AND vanished_at IS NULL`
 
-// DueCopies lists a folder's copies still on the server that the server
-// received at or before cutoff.
-func (ix *Index) DueCopies(ctx context.Context, account, folder string, uidValidity uint32, cutoff time.Time) ([]ServerCopy, error) {
+// ExpiredCopies lists a folder's copies still on the server that the server
+// received at or before cutoff (for max_days, whatever the inbox says).
+func (ix *Index) ExpiredCopies(ctx context.Context, account, folder string, uidValidity uint32, cutoff time.Time) ([]ServerCopy, error) {
 	return ix.copies(ctx, `account = ? AND folder = ? AND uidvalidity = ? AND `+live+` AND internal_date <= ?`,
 		account, folder, uidValidity, cutoff.Unix())
 }

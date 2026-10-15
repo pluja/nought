@@ -57,6 +57,38 @@ func setFolderRules(t *testing.T, env *Env, rules []config.FolderRule) {
 	}
 }
 
+// hasNote reports whether any account or folder note contains substr.
+func hasNote(out SyncOut, substr string) bool {
+	for _, a := range out.Accounts {
+		for _, n := range a.Notes {
+			if strings.Contains(n, substr) {
+				return true
+			}
+		}
+		for _, f := range a.Folders {
+			for _, n := range f.Notes {
+				if strings.Contains(n, substr) {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+func setTrashDays(t *testing.T, env *Env, days int) {
+	t.Helper()
+	cfg, err := env.Config()
+	if err != nil {
+		t.Fatal(err)
+	}
+	next := *cfg
+	next.TrashDays = &days
+	if err := saveConfig(env, &next); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // archiveMail archives messages in nought, which makes their server copies
 // due for deletion.
 func archiveMail(t *testing.T, env *Env, query string) {

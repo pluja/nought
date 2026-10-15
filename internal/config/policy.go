@@ -5,6 +5,7 @@ package config
 import (
 	"cmp"
 	"errors"
+	"fmt"
 	"regexp"
 	"strings"
 )
@@ -23,7 +24,22 @@ const DefaultKeepDays = 0
 type Policy struct {
 	Action   string `json:"action"`
 	KeepDays int    `json:"keep_days"` // minimum days on the server once handled
-	MaxDays  int    `json:"max_days"`  // deleted after this many days even if not handled; 0: never
+	MaxDays  int    `json:"max_days"`  // with deletion on, deleted after this many days even if not handled; 0: never
+}
+
+// Describe says what sync does with a folder, for people.
+func (p Policy) Describe() string {
+	if p.Action == ActionIgnore {
+		return "ignore"
+	}
+	s := "archive; leaves the server once handled"
+	if p.KeepDays > 0 {
+		s += fmt.Sprintf(", after at least %d days", p.KeepDays)
+	}
+	if p.MaxDays > 0 {
+		s += fmt.Sprintf("; in any case after %d days", p.MaxDays)
+	}
+	return s
 }
 
 // MaxKeepDays bounds keep_days to something meaningful (100 years).

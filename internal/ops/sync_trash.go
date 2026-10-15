@@ -76,11 +76,7 @@ func cleanServerTrash(ctx context.Context, env *Env, ix *index.Index, conn *imap
 			return err
 		}
 		if len(known) > 0 {
-			private := map[uint32]bool{}
-			for _, c := range known {
-				private[c.UID] = true
-			}
-			if err := expungeBatch(ctx, env, ix, conn, known, private); err != nil {
+			if err := expungeBatch(ctx, env, ix, conn, known, uidSet(known)); err != nil {
 				return err
 			}
 			out.TrashCleaned += len(known)

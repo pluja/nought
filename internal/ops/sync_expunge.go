@@ -26,20 +26,7 @@ import (
 // fsynced) before it happens.
 func expungeDue(ctx context.Context, env *Env, ix *index.Index, conn *imapsync.Conn, a *config.Account,
 	folder string, uidValidity uint32, policy config.Policy, dryRun bool, out *FolderSyncOut) error {
-	due, err := ix.HandledCopies(ctx, a.Name, folder, uidValidity, env.Now().Add(-days(policy.KeepDays)))
-	if err != nil {
-		return err
-	}
-	if policy.MaxDays > 0 {
-		expired, err := ix.DueCopies(ctx, a.Name, folder, uidValidity, env.Now().Add(-days(policy.MaxDays)))
-		if err != nil {
-			return err
-		}
-		due = unionByUID(due, expired)
-	}
-	// Messages the user deleted (or that expired) leave the server whatever
-	// the folder's keep_days or the account's automatic deletion setting.
-	requested, err := ix.DeletionRequested(ctx, a.Name, folder, uidValidity, env.Now().UTC().Format(dateLayout))
+	due, requested, err := dueCopies(ctx, env, ix, a.Name, folder, uidValidity, policy)
 	if err != nil {
 		return err
 	}
@@ -50,13 +37,9 @@ func expungeDue(ctx context.Context, env *Env, ix *index.Index, conn *imapsync.C
 		}
 		due = nil
 	}
+	// Messages the user deleted (or that expired) leave the server whatever
+	// the folder's keep_days or the account's automatic deletion setting.
 	due = unionByUID(due, requested)
-	// The journal is backed up: for mail the user deleted it records
-	// neither the content hash nor the Message-ID.
-	private := map[uint32]bool{}
-	for _, r := range requested {
-		private[r.UID] = true
-	}
 	switch {
 	case len(due) == 0 || dryRun:
 		return nil
@@ -64,13 +47,41 @@ func expungeDue(ctx context.Context, env *Env, ix *index.Index, conn *imapsync.C
 		out.Notes = append(out.Notes, "the server does not support UIDPLUS; nothing was deleted")
 		return nil
 	}
+	// The journal is backed up: for mail the user deleted it records
+	// neither the content hash nor the Message-ID.
+	return expungeVerified(ctx, env, ix, conn, a.Name, due, uidSet(requested), out)
+}
 
+// dueCopies lists a folder's copies due under its policy (handled and kept
+// keep_days, or older than max_days) and those whose deletion was
+// requested.
+func dueCopies(ctx context.Context, env *Env, ix *index.Index, account, folder string, uidValidity uint32,
+	policy config.Policy) (due, requested []index.ServerCopy, err error) {
+	due, err = ix.HandledCopies(ctx, account, folder, uidValidity, env.Now().Add(-days(policy.KeepDays)))
+	if err != nil {
+		return nil, nil, err
+	}
+	if policy.MaxDays > 0 {
+		expired, err := ix.ExpiredCopies(ctx, account, folder, uidValidity, env.Now().Add(-days(policy.MaxDays)))
+		if err != nil {
+			return nil, nil, err
+		}
+		due = unionByUID(due, expired)
+	}
+	requested, err = ix.DeletionRequested(ctx, account, folder, uidValidity, env.Now().UTC().Format(dateLayout))
+	return due, requested, err
+}
+
+// expungeVerified deletes the copies, in batches, after checking each one
+// against its local copy; those that fail the check stay on the server.
+func expungeVerified(ctx context.Context, env *Env, ix *index.Index, conn *imapsync.Conn, account string,
+	due []index.ServerCopy, private map[uint32]bool, out *FolderSyncOut) error {
 	var failed int
 	for batch := range slices.Chunk(due, imapsync.MaxBatch) {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		verified, gone, bad, err := checkBeforeExpunge(env, conn, a.Name, batch)
+		verified, gone, bad, err := checkBeforeExpunge(env, conn, account, batch)
 		if err != nil {
 			return err
 		}
@@ -94,6 +105,15 @@ func expungeDue(ctx context.Context, env *Env, ix *index.Index, conn *imapsync.C
 		return fmt.Errorf("%d messages could not be verified and were kept on the server", failed)
 	}
 	return nil
+}
+
+// uidSet is the set of the copies' UIDs.
+func uidSet(copies []index.ServerCopy) map[uint32]bool {
+	set := make(map[uint32]bool, len(copies))
+	for _, c := range copies {
+		set[c.UID] = true
+	}
+	return set
 }
 
 // checkBeforeExpunge splits a batch into copies safe to delete, copies

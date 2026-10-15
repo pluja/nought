@@ -131,7 +131,7 @@ func newAccountTestCmd(a *app) *cobra.Command {
 					return err
 				}
 				for _, f := range out.Folders {
-					if err := printf(w, "  %-24s %s\n", sanitize(f.Folder), describePolicy(f.Policy)); err != nil {
+					if err := printf(w, "  %-24s %s\n", sanitize(f.Folder), f.Policy.Describe()); err != nil {
 						return err
 					}
 				}

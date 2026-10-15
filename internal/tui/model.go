@@ -165,7 +165,6 @@ type Model struct {
 	deleting    ops.MessageOut // the message D asks about
 	trashDays   int            // how long the trash keeps mail (for its header)
 	deletionOn  bool           // some account deletes handled mail from its server (for the help)
-	inboxKeep   int            // that account's INBOX keep_days (for the help)
 	syncing     bool
 	syncAuto    bool // the running sync was started by the schedule
 	syncAccept  bool // the running sync applies held mass removals
@@ -244,9 +243,7 @@ func newModel(ctx context.Context, env *ops.Env) Model {
 	if cfg, err := env.Config(); err == nil {
 		m.prefs = cfg.TUI
 		m.trashDays = cfg.TrashKeepDays()
-		if i := slices.IndexFunc(cfg.Accounts, func(a config.Account) bool { return a.DeletionEnabled() }); i >= 0 {
-			m.deletionOn, m.inboxKeep = true, cfg.Accounts[i].Policy("INBOX").KeepDays
-		}
+		m.deletionOn = slices.ContainsFunc(cfg.Accounts, func(a config.Account) bool { return a.DeletionEnabled() })
 		if len(cfg.Accounts) > 0 {
 			m.syncEvery = cfg.TUI.SyncInterval()
 		}

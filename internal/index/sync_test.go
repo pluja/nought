@@ -37,10 +37,10 @@ func TestRecordCopyWithoutDateUsesFetchTime(t *testing.T) {
 	if err := ix.RecordCopy(t.Context(), c, now); err != nil {
 		t.Fatal(err)
 	}
-	if due, _ := ix.DueCopies(t.Context(), "a", "INBOX", 1, now.Add(-time.Hour)); len(due) != 0 {
+	if due, _ := ix.ExpiredCopies(t.Context(), "a", "INBOX", 1, now.Add(-time.Hour)); len(due) != 0 {
 		t.Errorf("dateless message due before its grace period: %+v", due)
 	}
-	due, _ := ix.DueCopies(t.Context(), "a", "INBOX", 1, now)
+	due, _ := ix.ExpiredCopies(t.Context(), "a", "INBOX", 1, now)
 	if len(due) != 1 || due[0].Size != 5 {
 		t.Errorf("due = %+v", due)
 	}
@@ -83,17 +83,17 @@ func TestServerCopiesLifecycle(t *testing.T) {
 		t.Errorf("reused uid = %v, want ErrCopyConflict", err)
 	}
 
-	due, err := ix.DueCopies(ctx, "a", "INBOX", 5, day(5))
+	due, err := ix.ExpiredCopies(ctx, "a", "INBOX", 5, day(5))
 	if err != nil || len(due) != 1 || due[0].UID != 1 || due[0].Hash != hash(1) || !due[0].InternalDate.Equal(day(1)) {
 		t.Fatalf("due = %+v, %v", due, err)
 	}
 	if err := ix.MarkExpunged(ctx, due, now); err != nil {
 		t.Fatal(err)
 	}
-	if due, _ := ix.DueCopies(ctx, "a", "INBOX", 5, day(30)); len(due) != 1 || due[0].UID != 2 {
+	if due, _ := ix.ExpiredCopies(ctx, "a", "INBOX", 5, day(30)); len(due) != 1 || due[0].UID != 2 {
 		t.Errorf("after expunge, due = %+v", due)
 	}
-	if due, _ := ix.DueCopies(ctx, "a", "INBOX", 6, day(30)); len(due) != 0 {
+	if due, _ := ix.ExpiredCopies(ctx, "a", "INBOX", 6, day(30)); len(due) != 0 {
 		t.Errorf("other uidvalidity due = %+v", due)
 	}
 
@@ -102,7 +102,7 @@ func TestServerCopiesLifecycle(t *testing.T) {
 	if err := ix.ResetFolder(ctx, "a", "INBOX", 6); err != nil {
 		t.Fatal(err)
 	}
-	if due, _ := ix.DueCopies(ctx, "a", "INBOX", 5, day(30)); len(due) != 0 {
+	if due, _ := ix.ExpiredCopies(ctx, "a", "INBOX", 5, day(30)); len(due) != 0 {
 		t.Errorf("stale copies still due: %+v", due)
 	}
 	st, _, _ := ix.SyncState(ctx, "a", "INBOX")
@@ -113,7 +113,7 @@ func TestServerCopiesLifecycle(t *testing.T) {
 	if err := ix.db.QueryRowContext(ctx, `SELECT count(*) FROM server_copies WHERE expunged_at IS NOT NULL`).Scan(&expunged); err != nil || expunged != 1 {
 		t.Errorf("expunged history = %d, %v", expunged, err)
 	}
-	if due, _ := ix.DueCopies(ctx, "a", "Sent", 5, day(30)); len(due) != 1 {
+	if due, _ := ix.ExpiredCopies(ctx, "a", "Sent", 5, day(30)); len(due) != 1 {
 		t.Errorf("other folder affected: %+v", due)
 	}
 }
@@ -140,7 +140,7 @@ func TestOnServerAndStatus(t *testing.T) {
 	if err := ix.RecordCopy(ctx, ServerCopy{Account: "a", Folder: "INBOX", UIDValidity: 1, UID: 9, Hash: hash(2), Size: 5, InternalDate: now}, now); err != nil {
 		t.Fatal(err)
 	}
-	gone, _ := ix.DueCopies(ctx, "a", "INBOX", 1, now)
+	gone, _ := ix.ExpiredCopies(ctx, "a", "INBOX", 1, now)
 	if err := ix.MarkExpunged(ctx, gone[1:], now); err != nil { // hash(2) left the server
 		t.Fatal(err)
 	}
@@ -295,7 +295,7 @@ func TestVanishedAndHandledCopies(t *testing.T) {
 	}
 	live, _ = ix.LiveCopies(ctx, "a", "INBOX", 1)
 	handled, _ = ix.HandledCopies(ctx, "a", "INBOX", 1, now)
-	due, _ := ix.DueCopies(ctx, "a", "INBOX", 1, now)
+	due, _ := ix.ExpiredCopies(ctx, "a", "INBOX", 1, now)
 	on, _ := ix.OnServer(ctx, "a", []string{inbox, archived})
 	st, _ := ix.ServerStatus(ctx, "a")
 	tracked, _ := ix.TrackedFolders(ctx, "a")

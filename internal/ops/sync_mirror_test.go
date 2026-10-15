@@ -13,38 +13,6 @@ import (
 	"nought/internal/imaptest"
 )
 
-// hasNote reports whether any account or folder note contains substr.
-func hasNote(out SyncOut, substr string) bool {
-	for _, a := range out.Accounts {
-		for _, n := range a.Notes {
-			if strings.Contains(n, substr) {
-				return true
-			}
-		}
-		for _, f := range a.Folders {
-			for _, n := range f.Notes {
-				if strings.Contains(n, substr) {
-					return true
-				}
-			}
-		}
-	}
-	return false
-}
-
-func setTrashDays(t *testing.T, env *Env, days int) {
-	t.Helper()
-	cfg, err := env.Config()
-	if err != nil {
-		t.Fatal(err)
-	}
-	next := *cfg
-	next.TrashDays = &days
-	if err := saveConfig(env, &next); err != nil {
-		t.Fatal(err)
-	}
-}
-
 func TestPhoneArchiveLeavesTheInbox(t *testing.T) {
 	env, srv := syncEnv(t, imaptest.Options{}, true)
 	srv.CreateMailbox(t, "Archive")

@@ -394,3 +394,16 @@ func TestPolicyMaxDays(t *testing.T) {
 		}
 	}
 }
+
+func TestPolicyDescribe(t *testing.T) {
+	for p, want := range map[Policy]string{
+		{Action: ActionIgnore}:                            "ignore",
+		{Action: ActionArchive}:                           "archive; leaves the server once handled",
+		{Action: ActionArchive, KeepDays: 7}:              "archive; leaves the server once handled, after at least 7 days",
+		{Action: ActionArchive, KeepDays: 7, MaxDays: 90}: "archive; leaves the server once handled, after at least 7 days; in any case after 90 days",
+	} {
+		if got := p.Describe(); got != want {
+			t.Errorf("Describe(%+v) = %q, want %q", p, got, want)
+		}
+	}
+}

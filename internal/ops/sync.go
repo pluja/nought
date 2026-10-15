@@ -60,7 +60,7 @@ type FolderSyncOut struct {
 	MaxDays     int      `json:"max_days"`        // deleted after this many days even if not handled; 0: never
 	New         int      `json:"new"`             // messages not yet archived
 	Fetched     int      `json:"fetched"`         // archived and verified in this run
-	Due         int      `json:"due"`             // verified copies old enough to delete
+	Due         int      `json:"due"`             // handled or expired copies due for deletion
 	Expunged    int      `json:"expunged"`        // deleted from the server in this run
 	Vanished    int      `json:"vanished"`        // moved or deleted by another client
 	BackInInbox int      `json:"back_in_inbox"`   // known mail moved back to the INBOX by another client
@@ -72,13 +72,14 @@ type FolderSyncOut struct {
 // ("2 archived, 1 deleted"), or "" if nothing. It is shared by frontends.
 func DescribeOtherDevices(archived, deleted, back int) string {
 	var parts []string
-	for _, p := range []struct {
-		n    int
-		what string
-	}{{archived, "archived"}, {deleted, "deleted"}, {back, "moved back to the inbox"}} {
-		if p.n > 0 {
-			parts = append(parts, fmt.Sprintf("%d %s", p.n, p.what))
-		}
+	if archived > 0 {
+		parts = append(parts, fmt.Sprintf("%d archived", archived))
+	}
+	if deleted > 0 {
+		parts = append(parts, fmt.Sprintf("%d deleted", deleted))
+	}
+	if back > 0 {
+		parts = append(parts, fmt.Sprintf("%d moved back to the inbox", back))
 	}
 	return strings.Join(parts, ", ")
 }

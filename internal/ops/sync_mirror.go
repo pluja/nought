@@ -18,8 +18,9 @@ import (
 // was archived elsewhere if a copy remains in another folder, and deleted
 // elsewhere if none remains. See docs/superpowers/specs/2026-10-15-inbox-mirror-design.md.
 
-// massRemovalMin and the half-of-the-folder rule decide when removals by
-// another client look like a server glitch rather than a person's choice.
+// massRemovalMin is the most messages that may vanish from a folder at
+// once without confirmation, when they are half the folder or more (see
+// holdMassRemoval).
 const massRemovalMin = 20
 
 // minTrashDays keeps mail deleted on another client in the trash at least
@@ -90,9 +91,10 @@ func vanishedFolders(ctx context.Context, ix *index.Index, conn *imapsync.Conn, 
 	return scan, nil
 }
 
-// holdMassRemoval returns a note if many messages disappeared from a folder
-// at once and that was not accepted: a server glitch must never look like
-// "the user deleted everything".
+// holdMassRemoval returns a note if more than massRemovalMin messages, and
+// more than half of the folder, disappeared at once without being
+// accepted: a server glitch must never look like "the user deleted
+// everything".
 func holdMassRemoval(gone []index.ServerCopy, live int, accept bool) string {
 	if accept || len(gone) <= massRemovalMin || len(gone)*2 <= live {
 		return ""
