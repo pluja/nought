@@ -1,0 +1,6 @@
+# --verbose and NOU_LOG=debug are accepted and keep stdout clean.
+exec nou paths --verbose
+stdout '^config'
+env NOU_LOG=debug
+exec nou version
+stdout '^nou test'

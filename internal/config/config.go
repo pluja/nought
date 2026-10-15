@@ -7,6 +7,8 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
+	"net/mail"
 	"os"
 	"regexp"
 	"strings"
@@ -86,7 +88,7 @@ func (c *Config) Account(name string) (*Account, bool) {
 // Load reads and validates the configuration. A missing file is an empty
 // configuration, so a fresh install works without setup.
 func Load(path string) (*Config, error) {
-	data, err := os.ReadFile(path)
+	data, err := readLimited(path, maxConfigSize)
 	if errors.Is(err, os.ErrNotExist) {
 		return &Config{}, nil
 	}
@@ -109,6 +111,23 @@ func Load(path string) (*Config, error) {
 	return &c, nil
 }
 
+const maxConfigSize = 1 << 20
+
+func readLimited(path string, limit int64) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	data, err := io.ReadAll(io.LimitReader(f, limit+1))
+	if err != nil {
+		return nil, errors.Join(err, f.Close())
+	}
+	if int64(len(data)) > limit {
+		return nil, errors.Join(errors.New("file is larger than 1 MiB"), f.Close())
+	}
+	return data, f.Close()
+}
+
 // Save validates and atomically writes the configuration. Comments in a
 // hand-edited file are not preserved.
 func Save(path string, c *Config) error {
@@ -127,6 +146,10 @@ var (
 	// safe, portable alphabet.
 	validName  = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,31}$`)
 	validColor = regexp.MustCompile(`^#[0-9a-fA-F]{6}$`)
+	// Hostnames, IPv4 literals, or bracketless IPv6 literals.
+	validHost = regexp.MustCompile(`^(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)*[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$|^[0-9A-Fa-f:.]+$`)
+	// Device names Windows reserves in every directory.
+	windowsReserved = regexp.MustCompile(`^(?:con|prn|aux|nul|com[0-9]|lpt[0-9])$`)
 )
 
 // Validate checks the whole configuration and reports the first problem.
@@ -146,16 +169,19 @@ func (c *Config) Validate() error {
 }
 
 func (a *Account) validate() error {
-	if !validName.MatchString(a.Name) {
+	if !validName.MatchString(a.Name) || windowsReserved.MatchString(a.Name) {
 		return errors.New("name must be 1-32 characters of a-z, 0-9, '-' or '_', starting with a letter or digit")
 	}
-	if a.Email == "" || !strings.Contains(a.Email, "@") {
-		return errors.New("email must be an address")
+	if _, err := mail.ParseAddress(a.Email); err != nil || strings.ContainsAny(a.Email, "<>") {
+		return errors.New("email must be a plain address like me@example.org")
+	}
+	if hasControl(a.Username) || hasControl(a.PasswordCommand) {
+		return errors.New("username and password_command must not contain control characters")
 	}
 	if a.Color != "" && !validColor.MatchString(a.Color) {
 		return errors.New("color must look like #44aa99")
 	}
-	if strings.IndexFunc(a.Label, unicode.IsControl) >= 0 || len([]rune(a.Label)) > 8 {
+	if hasControl(a.Label) || len([]rune(a.Label)) > 8 {
 		return errors.New("label must be at most 8 printable characters")
 	}
 	switch a.Deletion {
@@ -180,8 +206,8 @@ func (a *Account) validate() error {
 }
 
 func (s Server) validate() error {
-	if s.Host == "" || strings.ContainsAny(s.Host, " /\t\r\n") {
-		return errors.New("host must be a hostname")
+	if len(s.Host) > 253 || !validHost.MatchString(s.Host) {
+		return errors.New("host must be a hostname or IP address")
 	}
 	if s.Port < 1 || s.Port > 65535 {
 		return errors.New("port must be between 1 and 65535")
@@ -191,3 +217,5 @@ func (s Server) validate() error {
 	}
 	return nil
 }
+
+func hasControl(s string) bool { return strings.IndexFunc(s, unicode.IsControl) >= 0 }

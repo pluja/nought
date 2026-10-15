@@ -7,6 +7,7 @@ import (
 	"context"
 	"os"
 	"os/signal"
+	"syscall"
 
 	"nought/internal/cli"
 )
@@ -19,8 +20,11 @@ func main() {
 }
 
 func run() int {
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	// After the first signal, restore default handling so a second one
+	// terminates immediately if cancellation is slow.
+	context.AfterFunc(ctx, stop)
 	return cli.Run(ctx, cli.Options{
 		Args:    os.Args[1:],
 		Stdin:   os.Stdin,

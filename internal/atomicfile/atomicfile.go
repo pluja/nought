@@ -14,7 +14,9 @@ import (
 
 // Write replaces path with the bytes produced by fill. The data is written to
 // a temporary file in the same directory, fsynced, renamed over path, and the
-// directory is fsynced so the rename itself is durable.
+// directory is fsynced so the rename itself is durable. If that final
+// directory sync fails, the new content is already in place but may not
+// survive a crash; the error is still returned.
 func Write(path string, perm os.FileMode, fill func(io.Writer) error) (err error) {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o700); err != nil {

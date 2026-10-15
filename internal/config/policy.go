@@ -4,7 +4,7 @@ package config
 
 import (
 	"errors"
-	"path"
+	"regexp"
 	"strings"
 )
 
@@ -23,10 +23,14 @@ type Policy struct {
 	KeepDays int    `json:"keep_days"`
 }
 
+// MaxKeepDays bounds keep_days to something meaningful (100 years).
+const MaxKeepDays = 36500
+
 // Policy returns the policy of the first rule matching folder, or the default.
+// Folder names use "/" as the hierarchy separator.
 func (a *Account) Policy(folder string) Policy {
 	for _, r := range a.Folders {
-		if globMatch(r.Match, folder) {
+		if re, err := compileGlob(r.Match); err == nil && re.MatchString(folder) {
 			p := Policy{Action: ActionArchive, KeepDays: DefaultKeepDays}
 			if r.Action != "" {
 				p.Action = r.Action
@@ -44,49 +48,84 @@ func (r FolderRule) validate() error {
 	if r.Match == "" {
 		return errors.New("match must not be empty")
 	}
-	for _, p := range expandBraces(r.Match) {
-		if _, err := path.Match(p, ""); err != nil {
-			return errors.New("match is not a valid glob")
-		}
+	if _, err := compileGlob(r.Match); err != nil {
+		return err
 	}
 	switch r.Action {
 	case "", ActionArchive, ActionIgnore:
 	default:
 		return errors.New(`action must be "archive" or "ignore"`)
 	}
-	if r.KeepDays != nil && *r.KeepDays < 0 {
-		return errors.New("keep_days must not be negative")
+	if r.KeepDays != nil && (*r.KeepDays < 0 || *r.KeepDays > MaxKeepDays) {
+		return errors.New("keep_days must be between 0 and 36500")
 	}
 	return nil
 }
 
-// globMatch is path.Match plus {a,b} alternatives. Invalid patterns never
-// match; Validate rejects them earlier.
-func globMatch(pattern, name string) bool {
-	for _, p := range expandBraces(pattern) {
-		if ok, err := path.Match(p, name); err == nil && ok {
-			return true
+const maxGlobLen = 256
+
+// compileGlob turns a folder glob into an anchored regexp. Unlike path.Match,
+// "*" also matches "/", so "Junk*" covers "Junk/Old": a rule meant to ignore
+// a folder must also cover its subfolders. Supported syntax: "*", "?",
+// "[abc]", "[!abc]", "{a,b}" (not nested), and "\" to escape.
+func compileGlob(glob string) (*regexp.Regexp, error) {
+	if len(glob) > maxGlobLen {
+		return nil, errors.New("match is too long")
+	}
+	var b strings.Builder
+	b.WriteString("^")
+	inBrace, inClass := false, false
+	for i := 0; i < len(glob); i++ {
+		c := glob[i]
+		switch {
+		case inClass:
+			if c == ']' {
+				inClass = false
+			}
+			if c == '\\' {
+				b.WriteByte('\\')
+			}
+			b.WriteByte(c)
+		case c == '\\':
+			if i+1 == len(glob) {
+				return nil, errors.New("match ends with a backslash")
+			}
+			i++
+			b.WriteString(regexp.QuoteMeta(glob[i : i+1]))
+		case c == '*':
+			b.WriteString(".*")
+		case c == '?':
+			b.WriteString(".")
+		case c == '[':
+			inClass = true
+			b.WriteByte('[')
+			if i+1 < len(glob) && glob[i+1] == '!' {
+				b.WriteByte('^')
+				i++
+			}
+		case c == '{':
+			if inBrace {
+				return nil, errors.New("nested braces are not supported")
+			}
+			inBrace = true
+			b.WriteString("(?:")
+		case c == '}' && inBrace:
+			inBrace = false
+			b.WriteByte(')')
+		case c == ',' && inBrace:
+			b.WriteByte('|')
+		default:
+			// Slicing (not string(c)) keeps multi-byte UTF-8 intact.
+			b.WriteString(regexp.QuoteMeta(glob[i : i+1]))
 		}
 	}
-	return false
-}
-
-// expandBraces expands the first {a,b,...} group and recurses for the rest.
-// Nested braces are not supported; an unclosed brace is taken literally.
-func expandBraces(pattern string) []string {
-	open := strings.IndexByte(pattern, '{')
-	if open < 0 {
-		return []string{pattern}
+	if inBrace || inClass {
+		return nil, errors.New("match has an unclosed bracket or brace")
 	}
-	end := strings.IndexByte(pattern[open:], '}')
-	if end < 0 {
-		return []string{pattern}
+	b.WriteString("$")
+	re, err := regexp.Compile(b.String())
+	if err != nil {
+		return nil, errors.New("match is not a valid glob")
 	}
-	end += open
-	prefix, suffix := pattern[:open], pattern[end+1:]
-	var out []string
-	for _, alt := range strings.Split(pattern[open+1:end], ",") {
-		out = append(out, expandBraces(prefix+alt+suffix)...)
-	}
-	return out
+	return re, nil
 }

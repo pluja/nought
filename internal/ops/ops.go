@@ -41,7 +41,9 @@ func (p Permission) String() string {
 }
 
 // Op is one operation. Its In and Out types are plain structs; Out's JSON
-// encoding is the operation's stable machine-readable output.
+// encoding is the operation's stable machine-readable output. Ops are
+// declared as package-level variables so frontends can list them; they are
+// definitions and are never reassigned.
 type Op[In, Out any] struct {
 	Name    string // dotted name, e.g. "msg.tag"; also the future MCP tool name
 	Summary string
@@ -69,5 +71,5 @@ var (
 )
 
 func usageError(format string, args ...any) error {
-	return fmt.Errorf(format+": %w", append(args, ErrUsage)...)
+	return fmt.Errorf("%s: %w", fmt.Sprintf(format, args...), ErrUsage)
 }

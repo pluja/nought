@@ -21,8 +21,10 @@ import (
 	"iter"
 	"os"
 	"path"
+	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 )
 
 // Errors returned by the store.
@@ -44,11 +46,17 @@ type hooks struct {
 
 // Maildir is one account's archive directory.
 type Maildir struct {
-	root    *os.Root
-	names   map[string]string // hash -> path relative to root, e.g. "cur/<hash>:2,S"
-	foreign int
-	hooks   hooks
+	root       *os.Root
+	names      map[string]string // hash -> path relative to root, e.g. "cur/<hash>:2,S"
+	foreign    int
+	duplicates int
+	hooks      hooks
+	now        func() time.Time
 }
+
+// staleTemp is how old a temp file must be before Open removes it, so a
+// concurrent writer's in-flight file is never touched (Maildir convention).
+const staleTemp = 36 * time.Hour
 
 // Hash returns the content address of a raw message.
 func Hash(raw []byte) string {
@@ -60,7 +68,7 @@ func Hash(raw []byte) string {
 // removes temporary files left behind by an interrupted write.
 func Open(dir string) (*Maildir, error) {
 	for _, sub := range []string{"", "tmp", "new", "cur"} {
-		if err := os.MkdirAll(path.Join(dir, sub), 0o700); err != nil {
+		if err := os.MkdirAll(filepath.Join(dir, sub), 0o700); err != nil {
 			return nil, fmt.Errorf("create maildir: %w", err)
 		}
 	}
@@ -68,8 +76,11 @@ func Open(dir string) (*Maildir, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open maildir: %w", err)
 	}
-	m := &Maildir{root: root, names: make(map[string]string)}
+	m := &Maildir{root: root, now: time.Now}
 	if err := m.scan(); err != nil {
+		return nil, errors.Join(err, root.Close())
+	}
+	if err := m.removeStaleTemp(); err != nil {
 		return nil, errors.Join(err, root.Close())
 	}
 	return m, nil
@@ -82,6 +93,11 @@ func (m *Maildir) Close() error { return m.root.Close() }
 // They are left alone.
 func (m *Maildir) Foreign() int { return m.foreign }
 
+// Duplicates is the number of extra files holding an already seen hash
+// (e.g. the same message with different flags, left by another program).
+// The lexicographically smallest name wins; the others are left alone.
+func (m *Maildir) Duplicates() int { return m.duplicates }
+
 // Len is the number of stored messages.
 func (m *Maildir) Len() int { return len(m.names) }
 
@@ -91,7 +107,10 @@ func (m *Maildir) Has(hash string) bool {
 	return ok
 }
 
+// scan rebuilds the hash -> name map from cur/ and new/.
 func (m *Maildir) scan() error {
+	names := make(map[string]string)
+	foreign, duplicates := 0, 0
 	for _, sub := range []string{"new", "cur"} {
 		entries, err := m.readDir(sub)
 		if err != nil {
@@ -100,24 +119,58 @@ func (m *Maildir) scan() error {
 		for _, e := range entries {
 			hash, _, ok := parseName(e.Name())
 			if !ok || !e.Type().IsRegular() {
-				m.foreign++
+				foreign++
 				continue
 			}
-			m.names[hash] = sub + "/" + e.Name()
+			name := sub + "/" + e.Name()
+			if prev, seen := names[hash]; seen {
+				duplicates++
+				if prev < name {
+					continue
+				}
+			}
+			names[hash] = name
 		}
 	}
-	tmp, err := m.readDir("tmp")
+	m.names, m.foreign, m.duplicates = names, foreign, duplicates
+	return nil
+}
+
+func (m *Maildir) removeStaleTemp() error {
+	entries, err := m.readDir("tmp")
 	if err != nil {
 		return err
 	}
-	for _, e := range tmp {
-		if isOurTemp(e.Name()) {
-			if err := m.root.Remove("tmp/" + e.Name()); err != nil {
-				return fmt.Errorf("remove stale temp file: %w", err)
-			}
+	for _, e := range entries {
+		if !isOurTemp(e.Name()) {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil || m.now().Sub(info.ModTime()) < staleTemp {
+			continue
+		}
+		if err := m.root.Remove("tmp/" + e.Name()); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return fmt.Errorf("remove stale temp file: %w", err)
 		}
 	}
 	return nil
+}
+
+// lookup returns the current name of hash, rescanning once if the file was
+// renamed by another program since the last scan.
+func (m *Maildir) lookup(hash string) (string, error) {
+	if name, ok := m.names[hash]; ok {
+		if _, err := m.root.Lstat(name); err == nil {
+			return name, nil
+		}
+	}
+	if err := m.scan(); err != nil {
+		return "", err
+	}
+	if name, ok := m.names[hash]; ok {
+		return name, nil
+	}
+	return "", ErrNotFound
 }
 
 func (m *Maildir) readDir(sub string) ([]fs.DirEntry, error) {
@@ -133,26 +186,51 @@ func (m *Maildir) readDir(sub string) ([]fs.DirEntry, error) {
 }
 
 // Put stores raw with the given Maildir flags and reports whether it was
-// newly created. An already stored message keeps its current flags.
+// newly written. A message already stored intact keeps its current flags. If
+// the stored copy is damaged, it is replaced with raw. Put only succeeds once
+// the file on disk has been read back and matches the hash.
 func (m *Maildir) Put(raw []byte, flags string) (Entry, bool, error) {
 	hash := Hash(raw)
-	if name, ok := m.names[hash]; ok {
-		_, existing, _ := parseName(path.Base(name))
-		return Entry{Hash: hash, Flags: existing}, false, nil
-	}
 	flags, err := NormalizeFlags(flags)
 	if err != nil {
 		return Entry{}, false, err
 	}
 
 	final := "cur/" + fileName(hash, flags)
+	// Only hashes already known are looked up again; rescanning the
+	// directory for every new message would make imports quadratic.
+	if _, known := m.names[hash]; !known {
+		return m.create(raw, hash, flags, final)
+	}
+	if name, err := m.lookup(hash); err == nil {
+		verr := m.verifyName(name, hash)
+		if verr == nil {
+			_, existing, _ := parseName(path.Base(name))
+			return Entry{Hash: hash, Flags: existing}, false, nil
+		}
+		if !errors.Is(verr, ErrCorrupt) && !errors.Is(verr, ErrNotFound) {
+			return Entry{}, false, verr
+		}
+		// Damaged copy: overwrite it in place, keeping its flags.
+		final = name
+		_, flags, _ = parseName(path.Base(name))
+	} else if !errors.Is(err, ErrNotFound) {
+		return Entry{}, false, err
+	}
+
+	return m.create(raw, hash, flags, final)
+}
+
+// create writes raw to final and registers it only once verified.
+func (m *Maildir) create(raw []byte, hash, flags, final string) (Entry, bool, error) {
+	delete(m.names, hash)
 	if err := m.write(raw, hash, final); err != nil {
 		return Entry{}, false, err
 	}
-	m.names[hash] = final
-	if err := m.Verify(hash); err != nil {
+	if err := m.verifyName(final, hash); err != nil {
 		return Entry{}, false, err
 	}
+	m.names[hash] = final
 	return Entry{Hash: hash, Flags: flags}, true, nil
 }
 
@@ -214,10 +292,14 @@ func (m *Maildir) syncDir(sub string) error {
 
 // Get returns the raw bytes of a stored message.
 func (m *Maildir) Get(hash string) ([]byte, error) {
-	name, ok := m.names[hash]
-	if !ok {
-		return nil, ErrNotFound
+	name, err := m.lookup(hash)
+	if err != nil {
+		return nil, err
 	}
+	return m.readName(name)
+}
+
+func (m *Maildir) readName(name string) ([]byte, error) {
 	raw, err := m.root.ReadFile(name)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, ErrNotFound
@@ -230,7 +312,15 @@ func (m *Maildir) Get(hash string) ([]byte, error) {
 
 // Verify re-reads a stored message and checks it still matches its hash.
 func (m *Maildir) Verify(hash string) error {
-	raw, err := m.Get(hash)
+	name, err := m.lookup(hash)
+	if err != nil {
+		return err
+	}
+	return m.verifyName(name, hash)
+}
+
+func (m *Maildir) verifyName(name, hash string) error {
+	raw, err := m.readName(name)
 	if err != nil {
 		return err
 	}
@@ -242,9 +332,9 @@ func (m *Maildir) Verify(hash string) error {
 
 // Flags returns the current Maildir flags of a message.
 func (m *Maildir) Flags(hash string) (string, error) {
-	name, ok := m.names[hash]
-	if !ok {
-		return "", ErrNotFound
+	name, err := m.lookup(hash)
+	if err != nil {
+		return "", err
 	}
 	_, flags, _ := parseName(path.Base(name))
 	return flags, nil
@@ -252,11 +342,11 @@ func (m *Maildir) Flags(hash string) (string, error) {
 
 // SetFlags renames a message to carry new flags. The content never changes.
 func (m *Maildir) SetFlags(hash, flags string) error {
-	name, ok := m.names[hash]
-	if !ok {
-		return ErrNotFound
-	}
 	flags, err := NormalizeFlags(flags)
+	if err != nil {
+		return err
+	}
+	name, err := m.lookup(hash)
 	if err != nil {
 		return err
 	}

@@ -12,7 +12,6 @@ import (
 	"log/slog"
 	"runtime"
 	"runtime/debug"
-	"slices"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -60,16 +59,30 @@ func Run(ctx context.Context, o Options) int {
 		return exitOK
 	}
 	code, name := exitCode(err)
-	// Flags may not have been parsed when the error happened.
-	jsonOut := a.json || slices.Contains(o.Args, "--json")
-	writeError(o.Stderr, jsonOut, name, err)
+	writeError(o.Stderr, a.json || wantsJSON(o.Args), name, err)
 	return code
 }
 
+// wantsJSON detects --json when flag parsing failed before setting a.json.
+func wantsJSON(args []string) bool {
+	for _, arg := range args {
+		switch arg {
+		case "--":
+			return false
+		case "--json", "--json=true", "--json=1":
+			return true
+		}
+	}
+	return false
+}
+
+// noPaths marks commands that work without resolvable data paths.
+const noPaths = "nopaths"
+
 // setup builds the Env once flags are parsed.
-func (a *app) setup(*cobra.Command, []string) error {
+func (a *app) setup(cmd *cobra.Command, _ []string) error {
 	paths, err := config.ResolvePaths(runtime.GOOS, a.opts.Getenv)
-	if err != nil {
+	if err != nil && cmd.Annotations[noPaths] == "" {
 		return err
 	}
 	level := slog.LevelWarn

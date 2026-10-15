@@ -12,3 +12,7 @@ code 2 nou version extra
 # No arguments prints help and succeeds.
 code 0 nou
 stdout 'archives your mail locally'
+
+# --json=false still prints plain errors; arguments after -- are not flags.
+code 2 nou paths --nope --json=false
+stderr '^nou: '

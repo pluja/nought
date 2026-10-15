@@ -3,6 +3,7 @@
 package cli
 
 import (
+	"context"
 	"errors"
 
 	"nought/internal/ops"
@@ -16,12 +17,16 @@ const (
 	exitPartial    = 3
 	exitPermission = 4
 	exitNotFound   = 5
+	// exitInterrupted follows the shell convention 128 + SIGINT.
+	exitInterrupted = 130
 )
 
 // exitCode is the single place where errors become exit codes and stable
 // error code strings.
 func exitCode(err error) (code int, name string) {
 	switch {
+	case errors.Is(err, context.Canceled):
+		return exitInterrupted, "interrupted"
 	case errors.Is(err, ops.ErrUsage):
 		return exitUsage, "usage"
 	case errors.Is(err, ops.ErrPartial):

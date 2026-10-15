@@ -33,7 +33,9 @@ func writeError(w io.Writer, asJSON bool, code string, err error) {
 	if asJSON {
 		var e jsonError
 		e.Error.Code, e.Error.Message = code, err.Error()
-		_ = json.NewEncoder(w).Encode(e)
+		enc := json.NewEncoder(w)
+		enc.SetEscapeHTML(false)
+		_ = enc.Encode(e)
 		return
 	}
 	_, _ = fmt.Fprintf(w, "nou: %v\n", err)

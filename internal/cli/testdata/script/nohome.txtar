@@ -1,0 +1,14 @@
+# version and help work even when no data paths can be resolved.
+env NOUGHT_HOME=
+env HOME=
+env XDG_CONFIG_HOME=
+env XDG_DATA_HOME=
+[windows] skip 'Windows paths come from AppData'
+exec nou version
+stdout '^nou test'
+exec nou
+stdout 'archives your mail'
+
+# Commands that need paths fail clearly.
+code 1 nou paths
+stderr 'HOME is not set'

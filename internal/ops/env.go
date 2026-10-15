@@ -4,6 +4,7 @@ package ops
 
 import (
 	"log/slog"
+	"sync"
 	"time"
 
 	"nought/internal/config"
@@ -24,6 +25,7 @@ type Env struct {
 	Now   func() time.Time
 	Build BuildInfo
 
+	mu     sync.Mutex
 	config *config.Config
 }
 
@@ -34,6 +36,8 @@ func NewEnv(paths config.Paths, log *slog.Logger, now func() time.Time, build Bu
 
 // Config loads the configuration on first use.
 func (e *Env) Config() (*config.Config, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
 	if e.config == nil {
 		c, err := config.Load(e.Paths.ConfigFile)
 		if err != nil {

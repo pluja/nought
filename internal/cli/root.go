@@ -19,6 +19,7 @@ func newRootCmd(a *app) *cobra.Command {
 		SilenceUsage:      true,
 		SilenceErrors:     true,
 		PersistentPreRunE: a.setup,
+		Annotations:       map[string]string{noPaths: "true"},
 		Args:              cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) > 0 {

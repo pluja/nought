@@ -35,8 +35,15 @@ func newPathsCmd(a *app) *cobra.Command {
 						return err
 					}
 				}
-				_, err := fmt.Fprintf(w, "\nback up:   %v\noptional:  %v (rebuild with 'nou reindex')\n",
-					out.Backup.Include, out.Backup.Optional)
+				if _, err := fmt.Fprintln(w, "\nback up:"); err != nil {
+					return err
+				}
+				for _, p := range out.Backup.Include {
+					if _, err := fmt.Fprintf(w, "  %s\n", p); err != nil {
+						return err
+					}
+				}
+				_, err := fmt.Fprintf(w, "optional (rebuild with 'nou reindex'):\n  %s\n", out.IndexFile)
 				return err
 			})
 		},
@@ -45,9 +52,10 @@ func newPathsCmd(a *app) *cobra.Command {
 
 func newVersionCmd(a *app) *cobra.Command {
 	return &cobra.Command{
-		Use:   "version",
-		Short: ops.VersionShow.Summary,
-		Args:  noArgs,
+		Use:         "version",
+		Short:       ops.VersionShow.Summary,
+		Annotations: map[string]string{noPaths: "true"},
+		Args:        noArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			out, err := ops.Call(cmd.Context(), a.env, callerPerm, ops.VersionShow, struct{}{})
 			if err != nil {

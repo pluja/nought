@@ -186,6 +186,11 @@ func TestLoadErrors(t *testing.T) {
 		{"unknown key", func(s string) string { return s + "\nbogus = 1\n" }, "bogus"},
 		{"bad toml", func(s string) string { return s + "\n[[[\n" }, "parse config"},
 		{"bad name", replace(`name = "personal"`, `name = "../evil"`), "name must be"},
+		{"reserved name", replace(`name = "personal"`, `name = "nul"`), "name must be"},
+		{"bad email", replace(`email = "me@example.org"`, `email = "Me <me@example.org>"`), "email"},
+		{"control in username", replace(`email = "me@example.org"`, "email = \"me@example.org\"\nusername = \"a\\u0007\""), "control"},
+		{"host with port", replace(`host = "imap.example.org"`, `host = "imap.example.org:993"`), "host"},
+		{"huge keep", replace(`keep_days = 7`, `keep_days = 99999`), "keep_days"},
 		{"empty email", replace(`email = "me@example.org"`, `email = ""`), "email"},
 		{"bad color", replace(`#44aa99`, `red`), "color"},
 		{"long label", replace(`label = "P"`, `label = "much too long"`), "label"},
@@ -193,7 +198,7 @@ func TestLoadErrors(t *testing.T) {
 		{"no host", replace(`host = "imap.example.org"`, `host = ""`), "host"},
 		{"bad port", replace(`port = 993`, `port = 0`), "port"},
 		{"plaintext", replace(`tls = "implicit"`, `tls = "none"`), "tls"},
-		{"bad glob", replace(`match = "INBOX"`, `match = "[INBOX"`), "glob"},
+		{"bad glob", replace(`match = "INBOX"`, `match = "[INBOX"`), "unclosed"},
 		{"empty match", replace(`match = "INBOX"`, `match = ""`), "match"},
 		{"negative keep", replace(`keep_days = 7`, `keep_days = -1`), "keep_days"},
 		{"bad action", replace(`action = "ignore"`, `action = "delete"`), "action"},
@@ -209,6 +214,13 @@ func TestLoadErrors(t *testing.T) {
 				t.Fatalf("err = %v, want it to mention %q", err, tt.wantErr)
 			}
 		})
+	}
+}
+
+func TestLoadTooLarge(t *testing.T) {
+	_, err := Load(writeConfig(t, validTOML+strings.Repeat("# padding\n", 120000)))
+	if err == nil || !strings.Contains(err.Error(), "larger") {
+		t.Fatalf("err = %v", err)
 	}
 }
 
@@ -241,6 +253,8 @@ func TestPolicy(t *testing.T) {
 		{"Junk", Policy{ActionIgnore, DefaultKeepDays}},
 		{"Trash", Policy{ActionIgnore, DefaultKeepDays}},
 		{"Archive/2024", Policy{ActionArchive, DefaultKeepDays}},
+		{"Junk/Old", Policy{ActionArchive, DefaultKeepDays}}, // rule is exact {Junk,...}
+		{"Sent/2020", Policy{ActionArchive, 0}},
 		{"Other", Policy{ActionArchive, DefaultKeepDays}},
 	}
 	for _, tt := range tests {
@@ -250,19 +264,40 @@ func TestPolicy(t *testing.T) {
 	}
 }
 
-func TestExpandBraces(t *testing.T) {
+func TestGlob(t *testing.T) {
 	tests := []struct {
-		in   string
-		want string
+		glob, name string
+		want       bool
 	}{
-		{"plain", "plain"},
-		{"{a,b}", "a b"},
-		{"x{a,b}y{1,2}", "xay1 xay2 xby1 xby2"},
-		{"open{a", "open{a"},
+		{"INBOX", "INBOX", true},
+		{"INBOX", "INBOX/sub", false},
+		{"Junk*", "Junk", true},
+		{"Junk*", "Junk/Old", true}, // "*" crosses "/" on purpose
+		{"*", "a/b/c", true},
+		{"{Junk,Spam}", "Spam", true},
+		{"{Junk,Spam}", "Trash", false},
+		{"x{a,b}y{1,2}", "xby2", true},
+		{"S?nt", "Sent", true},
+		{"[ST]ent", "Tent", true},
+		{"[!S]ent", "Sent", false},
+		{"a.b", "axb", false},
+		{"Entwürfe*", "Entwürfe/alt", true},
+		{`star\*`, "star*", true},
+		{`star\*`, "starx", false},
 	}
 	for _, tt := range tests {
-		if got := strings.Join(expandBraces(tt.in), " "); got != tt.want {
-			t.Errorf("expandBraces(%q) = %q, want %q", tt.in, got, tt.want)
+		re, err := compileGlob(tt.glob)
+		if err != nil {
+			t.Errorf("compileGlob(%q): %v", tt.glob, err)
+			continue
+		}
+		if got := re.MatchString(tt.name); got != tt.want {
+			t.Errorf("glob %q on %q = %v, want %v", tt.glob, tt.name, got, tt.want)
+		}
+	}
+	for _, bad := range []string{"[abc", "{a,b", "{a,{b}}", `trail\`, "[]", strings.Repeat("a", 300)} {
+		if _, err := compileGlob(bad); err == nil {
+			t.Errorf("compileGlob(%q) accepted", bad)
 		}
 	}
 }

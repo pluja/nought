@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 const msg = "From: a@example.org\r\nSubject: hi\r\n\r\nbody\r\n"
@@ -193,13 +194,20 @@ func TestCrashAtEachStep(t *testing.T) {
 	}
 }
 
-func TestOpenRemovesStaleTempFiles(t *testing.T) {
+func TestOpenRemovesOnlyStaleTempFiles(t *testing.T) {
 	dir := t.TempDir()
 	_ = open(t, dir)
-	stale := filepath.Join(dir, "tmp", tempPrefix+"abc")
+	stale := filepath.Join(dir, "tmp", tempPrefix+"old")
+	fresh := filepath.Join(dir, "tmp", tempPrefix+"inflight")
 	other := filepath.Join(dir, "tmp", "someone-else")
-	for _, p := range []string{stale, other} {
+	for _, p := range []string{stale, fresh, other} {
 		if err := os.WriteFile(p, []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	old := time.Now().Add(-48 * time.Hour)
+	for _, p := range []string{stale, other} {
+		if err := os.Chtimes(p, old, old); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -207,8 +215,117 @@ func TestOpenRemovesStaleTempFiles(t *testing.T) {
 	if _, err := os.Stat(stale); !errors.Is(err, os.ErrNotExist) {
 		t.Error("stale temp file survived")
 	}
+	if _, err := os.Stat(fresh); err != nil {
+		t.Error("removed a concurrent writer's in-flight temp file")
+	}
 	if _, err := os.Stat(other); err != nil {
 		t.Error("removed another program's temp file")
+	}
+}
+
+func TestPutRepairsCorruptCopy(t *testing.T) {
+	dir := t.TempDir()
+	m := open(t, dir)
+	e, _, err := m.Put([]byte(msg), "S")
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "cur", fileName(e.Hash, "S"))
+	if err := os.WriteFile(path, []byte("truncat"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, created, err := m.Put([]byte(msg), "")
+	if err != nil || !created {
+		t.Fatalf("Put over corrupt copy = %v, %v; want rewritten", created, err)
+	}
+	if got.Flags != "S" {
+		t.Errorf("flags = %q, want existing S kept", got.Flags)
+	}
+	if err := m.Verify(e.Hash); err != nil {
+		t.Errorf("not repaired: %v", err)
+	}
+}
+
+func TestPutRewritesVanishedCopy(t *testing.T) {
+	dir := t.TempDir()
+	m := open(t, dir)
+	e, _, err := m.Put([]byte(msg), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(dir, "cur", fileName(e.Hash, ""))); err != nil {
+		t.Fatal(err)
+	}
+	if _, created, err := m.Put([]byte(msg), ""); err != nil || !created {
+		t.Fatalf("Put after deletion = %v, %v", created, err)
+	}
+	if err := m.Verify(e.Hash); err != nil {
+		t.Error(err)
+	}
+}
+
+func TestFindsMessageRenamedByAnotherProgram(t *testing.T) {
+	dir := t.TempDir()
+	m := open(t, dir)
+	e, _, err := m.Put([]byte(msg), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(filepath.Join(dir, "cur", fileName(e.Hash, "")),
+		filepath.Join(dir, "cur", fileName(e.Hash, "RS"))); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Verify(e.Hash); err != nil {
+		t.Fatalf("Verify after external rename: %v", err)
+	}
+	if flags, _ := m.Flags(e.Hash); flags != "RS" {
+		t.Errorf("flags = %q, want RS", flags)
+	}
+	if _, created, err := m.Put([]byte(msg), ""); err != nil || created {
+		t.Errorf("Put = %v, %v; want existing", created, err)
+	}
+}
+
+func TestDuplicatesAreDeterministic(t *testing.T) {
+	dir := t.TempDir()
+	m := open(t, dir)
+	e, _, err := m.Put([]byte(msg), "S")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "cur", fileName(e.Hash, "FS")), []byte(msg), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for range 3 {
+		again := open(t, dir)
+		if again.Duplicates() != 1 || again.Len() != 1 {
+			t.Fatalf("Duplicates = %d, Len = %d", again.Duplicates(), again.Len())
+		}
+		if flags, _ := again.Flags(e.Hash); flags != "FS" { // "FS" sorts before "S"
+			t.Errorf("flags = %q, want FS", flags)
+		}
+	}
+}
+
+func TestSymlinksAreNotFollowed(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlinks need privileges on Windows")
+	}
+	dir := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "secret")
+	if err := os.WriteFile(outside, []byte(msg), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "cur", fileName(Hash([]byte(msg)), ""))
+	if err := os.MkdirAll(filepath.Dir(link), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, link); err != nil {
+		t.Fatal(err)
+	}
+	m := open(t, dir)
+	if m.Has(Hash([]byte(msg))) || m.Foreign() != 1 {
+		t.Errorf("symlink treated as a message: Has=%v Foreign=%d", m.Has(Hash([]byte(msg))), m.Foreign())
 	}
 }
 
