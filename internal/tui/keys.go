@@ -25,7 +25,7 @@ func (m Model) key(k tea.KeyPressMsg) (Model, tea.Cmd) {
 		return m, nil
 	}
 	if !m.quitting {
-		m.notice = ""
+		m.notice, m.noticeErr = "", false
 	}
 
 	// Two-key sequences starting with g. An unknown second key is handled

@@ -314,12 +314,12 @@ func TestLocationLinesAndMarkers(t *testing.T) {
 		want   string
 		marker string
 	}{
-		{nil, "Local only", "  "},
-		{[]ops.ServerLocation{{Folder: "INBOX"}}, "stays there (deletion is off", "☁ "},
-		{[]ops.ServerLocation{{Folder: "INBOX", LeavesAt: &soon}}, "leaves the server in 3 days", "⏳"},
-		{[]ops.ServerLocation{{Folder: "INBOX", LeavesAt: &past}}, "at the next sync", "⏳"},
+		{nil, "Local only", "●"},
+		{[]ops.ServerLocation{{Folder: "INBOX"}}, "stays there (deletion is off", "◐"},
+		{[]ops.ServerLocation{{Folder: "INBOX", LeavesAt: &soon}}, "leaves the server in 3 days", "◕"},
+		{[]ops.ServerLocation{{Folder: "INBOX", LeavesAt: &past}}, "at the next sync", "◕"},
 	}
-	m := Model{now: func() time.Time { return testNow }}
+	m := Model{now: func() time.Time { return testNow }, st: newStyles()}
 	for _, tt := range tests {
 		msg := ops.MessageOut{Account: "personal", Server: tt.server}
 		if got := strings.Join(locationLines(msg, testNow), " "); !strings.Contains(got, tt.want) {
@@ -330,7 +330,7 @@ func TestLocationLinesAndMarkers(t *testing.T) {
 		}
 	}
 	m.prefs.ASCII = true
-	if got := m.marker(ops.MessageOut{Server: []ops.ServerLocation{{LeavesAt: &soon}}}); got != "S>" {
+	if got := m.marker(ops.MessageOut{Server: []ops.ServerLocation{{LeavesAt: &soon}}}); got != "-" {
 		t.Errorf("ascii marker = %q", got)
 	}
 }
@@ -474,6 +474,25 @@ func TestTinyTerminals(t *testing.T) {
 			}
 		}
 		m = drive(t, m, key("esc"))
+	}
+}
+
+func TestListShowsStateAndTags(t *testing.T) {
+	m := newTestModel(t, 120, 30)
+	m = drive(t, m, key("s"), key("l"))
+	m = drive(t, m, append(keys("+todo"), key("enter"))...)
+	s := screen(m)
+	for _, want := range []string{"★", "•", "#todo", "●"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("list lacks %q:\n%s", want, s)
+		}
+	}
+	row := m.renderListLine(m.msgs[0], false, 200)
+	if strings.Contains(row, "#inbox") || strings.Contains(row, "#folder:") || strings.Contains(row, "#unread") {
+		t.Errorf("view-implied tags shown in the list row: %q", ansi.Strip(row))
+	}
+	if !strings.Contains(m.render(), "\x1b[") {
+		t.Error("no color in the output")
 	}
 }
 

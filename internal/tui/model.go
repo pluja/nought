@@ -8,6 +8,7 @@ package tui
 
 import (
 	"context"
+	"image/color"
 	"io"
 	"time"
 
@@ -79,18 +80,33 @@ type tagReq struct {
 	undo   *undoEntry
 }
 
+// styles use the terminal's own 16-color palette, so they follow the
+// user's theme (light or dark) instead of imposing one.
 type styles struct {
-	title, dim, unread, selected, focused, warn lipgloss.Style
+	plain, title, accent, dim, bold, warn, errText lipgloss.Style
+	unreadDot, flag, tag                           lipgloss.Style
+	local, server, leaving                         lipgloss.Style // where a message lives
+	selBG                                          color.Color
 }
 
 func newStyles() styles {
+	c := lipgloss.Color
+	s := lipgloss.NewStyle()
 	return styles{
-		title:    lipgloss.NewStyle().Bold(true),
-		dim:      lipgloss.NewStyle().Faint(true),
-		unread:   lipgloss.NewStyle().Bold(true),
-		selected: lipgloss.NewStyle().Reverse(true),
-		focused:  lipgloss.NewStyle().Underline(true),
-		warn:     lipgloss.NewStyle().Bold(true),
+		plain:     s,
+		title:     s.Bold(true).Foreground(c("6")),
+		accent:    s.Foreground(c("6")),
+		dim:       s.Faint(true),
+		bold:      s.Bold(true),
+		warn:      s.Foreground(c("3")),
+		errText:   s.Foreground(c("1")).Bold(true),
+		unreadDot: s.Foreground(c("4")).Bold(true),
+		flag:      s.Foreground(c("3")).Bold(true),
+		tag:       s.Foreground(c("5")),
+		local:     s.Foreground(c("2")),
+		server:    s.Foreground(c("4")),
+		leaving:   s.Foreground(c("3")),
+		selBG:     c("8"),
 	}
 }
 
@@ -133,6 +149,7 @@ type Model struct {
 	tagBusy     bool
 	status      []ops.AccountStatusOut
 	notice      string
+	noticeErr   bool // the notice reports a failure
 	syncing     bool
 	syncCancel  context.CancelFunc
 	quitting    bool

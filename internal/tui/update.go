@@ -38,7 +38,7 @@ func (m Model) update(msg tea.Msg) (Model, tea.Cmd) {
 			return m, nil // superseded
 		}
 		if msg.err != nil {
-			m.notice = msg.err.Error()
+			m.notice, m.noticeErr = msg.err.Error(), true
 			return m, nil
 		}
 		// The list holds the newest tags (changes apply there at once).
@@ -61,7 +61,7 @@ func (m Model) update(msg tea.Msg) (Model, tea.Cmd) {
 		m.tagBusy = false
 		switch {
 		case msg.err != nil:
-			m.notice = msg.err.Error()
+			m.notice, m.noticeErr = msg.err.Error(), true
 		case msg.req.what != "":
 			m.notice = msg.req.what
 			if msg.req.undo != nil && msg.out.Changed > 0 {
@@ -79,7 +79,7 @@ func (m Model) update(msg tea.Msg) (Model, tea.Cmd) {
 	case undoDoneMsg:
 		if msg.err != nil {
 			m.undo = append(m.undo, msg.entry) // keep it for another try
-			m.notice = "undo failed: " + msg.err.Error()
+			m.notice, m.noticeErr = "undo failed: "+msg.err.Error(), true
 			return m, nil
 		}
 		m.notice = "undid " + msg.entry.what
@@ -111,11 +111,12 @@ func (m Model) update(msg tea.Msg) (Model, tea.Cmd) {
 			return m, tea.Quit
 		}
 		m.notice = syncSummary(msg.out, msg.err)
+		m.noticeErr = msg.err != nil
 		return m.refresh()
 
 	case reindexDoneMsg:
 		if msg.err != nil {
-			m.notice = "reindex: " + msg.err.Error()
+			m.notice, m.noticeErr = "reindex: "+msg.err.Error(), true
 		} else {
 			m.notice = "reindexed " + strconv.Itoa(msg.out.Messages) + " messages"
 		}
@@ -139,7 +140,7 @@ func (m Model) searchDone(msg searchDoneMsg) (Model, tea.Cmd) {
 		return m, nil // superseded, or local changes still being saved
 	}
 	if msg.err != nil {
-		m.notice = "search: " + msg.err.Error()
+		m.notice, m.noticeErr = "search: "+msg.err.Error(), true
 		m.msgs, m.more, m.open = nil, false, nil
 		m.focus = focusList
 		return m, nil

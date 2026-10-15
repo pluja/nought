@@ -115,7 +115,7 @@ func (m Model) renderHeader() string {
 	if m.more {
 		n += "+"
 	}
-	return pad(m.st.title.Render("nought")+"  "+render.SanitizeLine(q)+m.st.dim.Render("  "+n+" messages"), m.width)
+	return fit(m.st.title.Render("nought")+"  "+m.st.bold.Render(render.SanitizeLine(q))+m.st.dim.Render("  "+n+" messages"), m.width, 1)
 }
 
 func (m Model) renderSidebar() string {
@@ -132,12 +132,23 @@ func (m Model) renderSidebar() string {
 		case it.count > 0:
 			count = strconv.Itoa(it.count)
 		}
-		line := pad(" "+label, sidebarWidth-len(count)-1) + count + " "
-		if it.query == m.query {
-			line = m.st.title.Render(line)
+		countStyle := m.st.dim
+		switch it.query {
+		case queryInbox:
+			countStyle = m.st.warn.Bold(true)
+		case queryUnread:
+			countStyle = m.st.unreadDot
 		}
+		labelStyle := m.st.plain
+		if strings.HasPrefix(it.label, "#") {
+			labelStyle = m.st.tag
+		}
+		if it.query == m.query {
+			labelStyle = m.st.title
+		}
+		line := labelStyle.Render(pad(" "+label, sidebarWidth-len(count)-1)) + countStyle.Render(count) + " "
 		if m.focus == focusSidebar && i == m.sideIdx {
-			line = m.st.selected.Render(line)
+			line = m.st.accent.Render("▌") + ansi.Cut(line, 1, sidebarWidth)
 		}
 		lines = append(lines, line)
 	}
@@ -157,30 +168,68 @@ func (m Model) renderList() string {
 }
 
 func (m Model) renderListLine(msg ops.MessageOut, selected bool, w int) string {
+	highlight := selected && m.focus == focusList
+	st := func(s lipgloss.Style) lipgloss.Style {
+		if highlight {
+			return s.Background(m.st.selBG)
+		}
+		return s
+	}
+	unread := slices.Contains(msg.Tags, ops.TagUnread)
+	text := m.st.plain
+	if unread {
+		text = m.st.bold
+	}
+	gutter := st(m.st.plain).Render(" ")
+	if selected {
+		gutter = st(m.st.accent).Render("▌")
+	}
+	state, stateStyle := " ", m.st.plain
+	switch {
+	case slices.Contains(msg.Tags, ops.TagFlagged):
+		state, stateStyle = "★", m.st.flag
+	case unread:
+		state, stateStyle = "•", m.st.unreadDot
+	}
 	date := ""
 	if msg.Date != nil {
 		date = shortDate(msg.Date.Local(), m.now())
 	}
 	from := ansi.Truncate(render.SanitizeLine(senderName(msg.From)), 22, "…")
-	line := m.marker(msg) + " " + pad(date, 6) + " " + pad(from, 22) + " " + render.SanitizeLine(msg.Subject)
-	line = pad(ansi.Truncate(line, w, "…"), w)
-	switch {
-	case selected && m.focus == focusList:
-		return m.st.selected.Render(line)
-	case selected:
-		return m.st.focused.Render(line)
-	case slices.Contains(msg.Tags, ops.TagUnread):
-		return m.st.unread.Render(line)
+	glyph, where := m.location(msg)
+	sp := st(m.st.plain).Render(" ")
+	line := gutter + st(where).Render(glyph) + sp + st(stateStyle).Render(state) + sp +
+		st(m.st.dim).Render(pad(date, 6)) + sp + st(text).Render(pad(from, 22)) + sp +
+		st(text).Render(render.SanitizeLine(msg.Subject))
+	if tags := userTags(msg.Tags); len(tags) > 0 {
+		line += sp + st(m.st.tag).Render(render.SanitizeLine("#"+strings.Join(tags, " #")))
+	}
+	line = ansi.Truncate(line, w, "…")
+	if n := ansi.StringWidth(line); n < w {
+		line += st(m.st.plain).Render(strings.Repeat(" ", w-n))
 	}
 	return line
 }
 
-// marker shows where a message lives: leaving the server soon, kept on the
-// server, or local only (blank).
-func (m Model) marker(msg ops.MessageOut) string {
-	if len(msg.Server) == 0 {
-		return "  "
+// userTags are the tags worth showing in the list: not the ones already
+// shown as symbols or implied by the view.
+func userTags(tags []string) []string {
+	var out []string
+	for _, t := range tags {
+		switch {
+		case t == ops.TagInbox, t == ops.TagUnread, t == ops.TagFlagged, t == ops.TagReplied,
+			strings.HasPrefix(t, "folder:"):
+			continue
+		}
+		out = append(out, t)
 	}
+	return out
+}
+
+// location tells where a message lives, as a circle that fills up as the
+// message becomes yours alone: ◐ also on a server (stays), ◕ leaving the
+// server soon, ● only in the local archive.
+func (m Model) location(msg ops.MessageOut) (string, lipgloss.Style) {
 	leaving := false
 	for _, l := range msg.Server {
 		if l.LeavesAt != nil {
@@ -188,15 +237,26 @@ func (m Model) marker(msg ops.MessageOut) string {
 		}
 	}
 	switch {
-	case m.prefs.ASCII && leaving:
-		return "S>"
-	case m.prefs.ASCII:
-		return "S "
+	case len(msg.Server) == 0:
+		return m.glyph("●", "L"), m.st.local
 	case leaving:
-		return "⏳"
+		return m.glyph("◕", "-"), m.st.leaving
 	default:
-		return "☁ "
+		return m.glyph("◐", "S"), m.st.server
 	}
+}
+
+func (m Model) glyph(unicode, ascii string) string {
+	if m.prefs.ASCII {
+		return ascii
+	}
+	return unicode
+}
+
+// marker is the location glyph alone (for tests and plain output).
+func (m Model) marker(msg ops.MessageOut) string {
+	g, _ := m.location(msg)
+	return g
 }
 
 func (m Model) renderSeparator() string {
@@ -233,10 +293,11 @@ func (m Model) readerContent() string {
 	if o.Message.Date != nil {
 		field("Date", o.Message.Date.Local().Format("Mon, 02 Jan 2006 15:04"))
 	}
-	field("Subject", o.Message.Subject)
+	b.WriteString(wrap.Render(m.st.dim.Render("Subject:")+" "+m.st.bold.Render(render.SanitizeLine(o.Message.Subject))) + "\n")
 	field("Tags", strings.Join(o.Message.Tags, " "))
+	_, where := m.location(o.Message)
 	for _, line := range locationLines(o.Message, m.now()) {
-		b.WriteString(wrap.Render(m.st.warn.Render(line)) + "\n")
+		b.WriteString(wrap.Render(where.Bold(true).Render(line)) + "\n")
 	}
 	for _, a := range o.Attachments {
 		field("Attach", fmt.Sprintf("%s (%s, %s)", a.Filename, a.ContentType, humanSize(a.Size)))
@@ -278,7 +339,7 @@ func (m Model) renderPromptLine() string {
 	case m.inputKind == inputPalette:
 		return pad(":"+m.input.View(), m.width)
 	case m.inputKind == inputConfirmSync:
-		return pad("Sync may delete mail from servers (accounts with deletion on). Continue? (y/N)", m.width)
+		return fit(m.st.warn.Bold(true).Render("Sync may delete mail from servers (accounts with deletion on). Continue? (y/N)"), m.width, 1)
 	case m.syncing:
 		line := "syncing…"
 		if len(m.syncLines) > 0 {
@@ -286,7 +347,11 @@ func (m Model) renderPromptLine() string {
 		}
 		return pad(line, m.width)
 	case m.notice != "":
-		return pad(render.SanitizeLine(m.notice), m.width)
+		style := m.st.accent
+		if m.noticeErr {
+			style = m.st.errText
+		}
+		return fit(style.Render(render.SanitizeLine(m.notice)), m.width, 1)
 	}
 	return ""
 }
@@ -294,15 +359,16 @@ func (m Model) renderPromptLine() string {
 func (m Model) renderStatus() string {
 	var parts []string
 	for _, s := range m.status {
-		deletion := "deletion off"
+		deletion := m.st.local.Render("deletion off")
 		if s.Deletion {
-			deletion = "deletion on"
+			deletion = m.st.warn.Render("deletion on")
 		}
 		synced := "never synced"
 		if s.LastSynced != nil {
 			synced = "synced " + ago(m.now(), *s.LastSynced)
 		}
-		parts = append(parts, fmt.Sprintf("%s: %s · %s · %d on server", render.SanitizeLine(s.Account), deletion, synced, s.OnServer))
+		parts = append(parts, m.st.bold.Render(render.SanitizeLine(s.Account))+": "+deletion+
+			m.st.dim.Render(" · "+synced+" · ")+m.st.server.Render(fmt.Sprintf("%d on server", s.OnServer)))
 	}
 	if len(parts) == 0 {
 		parts = append(parts, "no accounts (nou account add)")
@@ -311,8 +377,8 @@ func (m Model) renderStatus() string {
 	if m.width < 30 {
 		right = ""
 	}
-	left := strings.Join(parts, " │ ")
-	return m.st.dim.Render(fit(pad(ansi.Truncate(left, max(m.width-len(right)-2, 0), "…"), m.width-len(right))+right, m.width, 1))
+	left := strings.Join(parts, m.st.dim.Render(" │ "))
+	return fit(pad(ansi.Truncate(left, max(m.width-len(right)-2, 0), "…"), m.width-len(right))+m.st.dim.Render(right), m.width, 1)
 }
 
 func (m Model) renderHelp() string {
@@ -329,10 +395,11 @@ func (m Model) renderHelp() string {
   s                flag / unflag     z                undo the last change
   l, t             tags: +add -remove                  ?  help      q  quit
 
-Where messages live:
-  ⏳ (S>)  on a server, leaves it at a coming sync (deletion on)
-  ☁  (S )  on a server, stays there (deletion off)
-  blank    local only: archived, no longer on any server
+Where messages live (every message is in your local archive):
+  ◐ (S)  also on a server, stays there (deletion off)
+  ◕ (-)  also on a server, leaves it soon (deletion on)
+  ● (L)  local only: no longer on any server
+  •  unread    ★  flagged    #tag  your tags
 
 Archiving (e) only removes the inbox tag in your archive. Nothing in this
 interface deletes mail from a server: that happens only during sync, for
