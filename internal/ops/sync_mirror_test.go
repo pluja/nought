@@ -367,3 +367,16 @@ func TestMissingInboxChangesNothing(t *testing.T) {
 		t.Error("a missing INBOX changed the inbox")
 	}
 }
+
+func TestBothDuplicateCopiesDeletedOnThePhone(t *testing.T) {
+	env, srv := syncEnv(t, imaptest.Options{}, true)
+	raw := mail("dup@x", "twice")
+	a := srv.Append(t, "INBOX", raw, daysAgo(env, 0))
+	b := srv.Append(t, "INBOX", raw, daysAgo(env, 0))
+	runSyncOK(t, env, SyncIn{})
+	srv.Expunge(t, "INBOX", a)
+	srv.Expunge(t, "INBOX", b)
+	if out := runSyncOK(t, env, SyncIn{}); out.Accounts[0].DeletedElsewhere != 1 {
+		t.Errorf("deleted elsewhere = %d, want 1", out.Accounts[0].DeletedElsewhere)
+	}
+}

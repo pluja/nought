@@ -10,6 +10,7 @@ import (
 
 	"nought/internal/imapsync"
 	"nought/internal/index"
+	"nought/internal/query"
 )
 
 // The server's INBOX mirrors nought's inbox: what another client (a phone)
@@ -113,7 +114,9 @@ func applyVanished(ctx context.Context, env *Env, ix *index.Index, account strin
 }
 
 // classifyVanished applies what another client did to the messages whose
-// INBOX copy vanished. Messages already handled here are left alone.
+// INBOX copy vanished: archived there if a copy remains in another folder,
+// deleted there (to the trash, for at least minTrashDays) if none remains.
+// Messages already handled here are left alone.
 func classifyVanished(ctx context.Context, env *Env, ix *index.Index, account string,
 	vanished []index.ServerCopy, dryRun bool, out *AccountSyncOut) error {
 	var hashes []string
@@ -131,29 +134,46 @@ func classifyVanished(ctx context.Context, env *Env, ix *index.Index, account st
 	if err != nil {
 		return err
 	}
+	var archived, deleted []string
+	for _, h := range hashes {
+		// The vanished copies are not recorded yet: leave them out.
+		copies := slices.DeleteFunc(on[h], func(c index.ServerCopy) bool { return isVanished(c, vanished) })
+		switch {
+		case slices.ContainsFunc(copies, func(c index.ServerCopy) bool { return isInbox(c.FolderName) }):
+			// still in the server's INBOX (e.g. a duplicate delivery)
+		case len(copies) > 0:
+			archived = append(archived, h)
+		default:
+			deleted = append(deleted, h)
+		}
+	}
 	cfg, err := env.Config()
 	if err != nil {
 		return err
 	}
 	expiry := deleteAfterTag(env.Now().AddDate(0, 0, max(cfg.TrashKeepDays(), minTrashDays)))
-	for _, h := range hashes {
-		// The vanished copies are not recorded yet: leave them out.
-		copies := slices.DeleteFunc(on[h], func(c index.ServerCopy) bool { return isVanished(c, vanished) })
-		if slices.ContainsFunc(copies, func(c index.ServerCopy) bool { return isInbox(c.FolderName) }) {
-			continue // still in the server's INBOX (e.g. a duplicate delivery)
-		}
-		in := TagIn{Query: "hash:" + h + " account:" + account + " tag:" + TagInbox, Remove: []string{TagInbox}, DryRun: dryRun}
-		count := &out.ArchivedElsewhere
-		if len(copies) == 0 {
-			in.Add, count = []string{TagDeleted, expiry}, &out.DeletedElsewhere
-		}
-		res, err := runTag(ctx, env, in)
-		if err != nil {
-			return err
-		}
-		*count += res.Matched
+	if out.ArchivedElsewhere, err = tagInbox(ctx, env, account, archived, nil, dryRun); err != nil {
+		return err
 	}
-	return nil
+	out.DeletedElsewhere, err = tagInbox(ctx, env, account, deleted, []string{TagDeleted, expiry}, dryRun)
+	return err
+}
+
+// tagInbox takes the given messages out of the inbox, adding tags, in a few
+// batches (one tag dump each). It counts the messages that were in the
+// inbox.
+func tagInbox(ctx context.Context, env *Env, account string, hashes, add []string, dryRun bool) (int, error) {
+	const perQuery = query.MaxTerms - 4 // room for the account and inbox terms
+	n := 0
+	for chunk := range slices.Chunk(hashes, perQuery) {
+		q := "hash:" + strings.Join(chunk, " OR hash:") + " account:" + account + " tag:" + TagInbox
+		res, err := runTag(ctx, env, TagIn{Query: q, Add: add, Remove: []string{TagInbox}, DryRun: dryRun})
+		n += res.Matched
+		if err != nil {
+			return n, err
+		}
+	}
+	return n, nil
 }
 
 // foundOnServer handles a known message that appeared under a new UID: a

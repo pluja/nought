@@ -41,6 +41,11 @@ type Env struct {
 	// Network is used by account discovery; tests replace it.
 	Network autoconfig.Network
 
+	// dumpMu serializes tag dump writes (syncs of several accounts run in
+	// parallel): each write takes its snapshot under the lock, so the last
+	// one written is the newest.
+	dumpMu sync.Mutex
+
 	mu     sync.Mutex
 	config *config.Config
 	index  *index.Index
