@@ -3,6 +3,7 @@
 package index
 
 import (
+	"errors"
 	"testing"
 	"time"
 )
@@ -25,6 +26,32 @@ func TestSyncState(t *testing.T) {
 	}
 }
 
+func TestRecordCopyWithoutDateUsesFetchTime(t *testing.T) {
+	ix, _ := openIndex(t)
+	c := ServerCopy{Account: "a", Folder: "INBOX", UIDValidity: 1, UID: 1, Hash: hash(1), Size: 5}
+	if err := ix.RecordCopy(t.Context(), c, now); err != nil {
+		t.Fatal(err)
+	}
+	if due, _ := ix.DueCopies(t.Context(), "a", "INBOX", 1, now.Add(-time.Hour)); len(due) != 0 {
+		t.Errorf("dateless message due before its grace period: %+v", due)
+	}
+	due, _ := ix.DueCopies(t.Context(), "a", "INBOX", 1, now)
+	if len(due) != 1 || due[0].Size != 5 {
+		t.Errorf("due = %+v", due)
+	}
+}
+
+func TestMessageIDOf(t *testing.T) {
+	ix, _ := openIndex(t)
+	add(t, ix, Message{Account: "a", Hash: hash(1), MessageID: "m@x"}, "")
+	if got := ix.MessageIDOf(t.Context(), "a", hash(1)); got != "m@x" {
+		t.Errorf("MessageIDOf = %q", got)
+	}
+	if got := ix.MessageIDOf(t.Context(), "a", hash(2)); got != "" {
+		t.Errorf("unknown = %q", got)
+	}
+}
+
 func TestServerCopiesLifecycle(t *testing.T) {
 	ix, _ := openIndex(t)
 	ctx := t.Context()
@@ -44,6 +71,11 @@ func TestServerCopiesLifecycle(t *testing.T) {
 	}
 	if err := ix.RecordCopy(ctx, ServerCopy{Hash: "bad"}, now); err == nil {
 		t.Error("recorded a bad hash")
+	}
+	reused := copies[0]
+	reused.Hash = hash(9)
+	if err := ix.RecordCopy(ctx, reused, now); !errors.Is(err, ErrCopyConflict) {
+		t.Errorf("reused uid = %v, want ErrCopyConflict", err)
 	}
 
 	due, err := ix.DueCopies(ctx, "a", "INBOX", 5, day(5))

@@ -16,6 +16,7 @@ CREATE TABLE server_copies (
     uidvalidity   INTEGER NOT NULL,
     uid           INTEGER NOT NULL,
     hash          TEXT    NOT NULL,
+    size          INTEGER NOT NULL,  -- RFC822.SIZE, re-checked before deletion
     internal_date INTEGER NOT NULL,  -- Unix seconds: when the server received it
     fetched_at    INTEGER NOT NULL,
     expunged_at   INTEGER,           -- NULL while still on the server

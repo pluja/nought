@@ -3,9 +3,13 @@
 package imapsync
 
 import (
+	"bufio"
 	"context"
 	"crypto/tls"
 	"errors"
+	"fmt"
+	"io"
+	"net"
 	"slices"
 	"strings"
 	"testing"
@@ -21,7 +25,7 @@ const raw = "From: a@example.org\r\nMessage-ID: <1@x>\r\nSubject: hi\r\n\r\nbody
 
 func dial(t *testing.T, s *imaptest.Server) *Conn {
 	t.Helper()
-	c, err := Dial(t.Context(), s.Config(), s.Client, imaptest.User, imaptest.Password)
+	c, err := Dial(t.Context(), s.Config(), s.Client, imaptest.User, imaptest.Password, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,36 +56,61 @@ func TestFetchFlow(t *testing.T) {
 		t.Errorf("folders = %v", names)
 	}
 
-	if _, err := c.List(0); err == nil {
-		t.Error("List without a selected folder succeeded")
+	if _, err := c.UIDsAfter(0); err == nil {
+		t.Error("UIDsAfter without a selected folder succeeded")
 	}
-	mb, err := c.Select("INBOX")
+	mb, err := c.Select("INBOX", false)
 	if err != nil || mb.Messages != 2 || mb.UIDValidity == 0 {
 		t.Fatalf("select = %+v, %v", mb, err)
 	}
-	infos, err := c.List(0)
+	uids, err := c.UIDsAfter(0)
+	if err != nil || !slices.Equal(uids, []uint32{uid1, uid2}) {
+		t.Fatalf("uids = %v, %v", uids, err)
+	}
+	infos, err := c.Infos(uids)
 	if err != nil || len(infos) != 2 {
-		t.Fatalf("list = %+v, %v", infos, err)
+		t.Fatalf("infos = %+v, %v", infos, err)
 	}
 	if infos[0].UID != uid1 || !infos[0].Seen || infos[1].UID != uid2 || !infos[1].Flagged ||
 		!infos[0].InternalDate.Equal(date) || infos[0].Size != int64(len(raw)) {
 		t.Errorf("infos = %+v", infos)
 	}
-	if later, err := c.List(uid2); err != nil || len(later) != 0 {
-		t.Errorf("list after last uid = %+v, %v", later, err)
+	if later, err := c.UIDsAfter(uid2); err != nil || len(later) != 0 {
+		t.Errorf("uids after last = %v, %v", later, err)
 	}
 
-	body, err := c.Fetch(uid1)
-	if err != nil || string(body) != raw {
+	body, err := c.Fetch(uid2, 1<<20)
+	if err != nil || !strings.Contains(string(body), "<2@x>") {
 		t.Fatalf("fetch = %q, %v", body, err)
 	}
 	// Fetching with PEEK must not mark the message read.
-	again, _ := c.List(0)
-	if again[1].Seen {
+	again, _ := c.Infos([]uint32{uid2})
+	if again[0].Seen {
 		t.Error("fetch set \\Seen")
 	}
-	if _, err := c.Fetch(9999); !errors.Is(err, ErrGone) {
+	if _, err := c.Fetch(9999, 1<<20); !errors.Is(err, ErrGone) {
 		t.Errorf("fetch missing = %v", err)
+	}
+	found, err := c.Lookup([]uint32{uid1, 9999})
+	if err != nil || len(found) != 1 || found[uid1].Size != int64(len(raw)) {
+		t.Errorf("lookup = %+v, %v", found, err)
+	}
+	if empty, err := c.Lookup(nil); err != nil || len(empty) != 0 {
+		t.Errorf("empty lookup = %+v, %v", empty, err)
+	}
+}
+
+func TestExamine(t *testing.T) {
+	// imapmemserver does not enforce EXAMINE's read-only mode, so this only
+	// checks that a read-only select works; sync's dry run never expunges.
+	s := imaptest.Start(t, imaptest.Options{})
+	s.Append(t, "INBOX", raw, time.Now())
+	c := dial(t, s)
+	if mb, err := c.Select("INBOX", true); err != nil || mb.Messages != 1 {
+		t.Fatalf("examine = %+v, %v", mb, err)
+	}
+	if uids, err := c.UIDsAfter(0); err != nil || len(uids) != 1 {
+		t.Errorf("uids = %v, %v", uids, err)
 	}
 }
 
@@ -95,7 +124,7 @@ func TestExpungeOnlyGivenUIDs(t *testing.T) {
 	s.SetDeleted(t, "INBOX", other)
 
 	c := dial(t, s)
-	if _, err := c.Select("INBOX"); err != nil {
+	if _, err := c.Select("INBOX", false); err != nil {
 		t.Fatal(err)
 	}
 	if err := c.Expunge(nil); err != nil {
@@ -116,7 +145,7 @@ func TestExpungeRequiresUIDPlus(t *testing.T) {
 	if c.HasUIDPlus() {
 		t.Fatal("server advertises UIDPLUS")
 	}
-	if _, err := c.Select("INBOX"); err != nil {
+	if _, err := c.Select("INBOX", false); err != nil {
 		t.Fatal(err)
 	}
 	if err := c.Expunge([]uint32{uid}); !errors.Is(err, ErrNoUIDPlus) {
@@ -129,22 +158,22 @@ func TestExpungeRequiresUIDPlus(t *testing.T) {
 
 func TestDialErrors(t *testing.T) {
 	s := imaptest.Start(t, imaptest.Options{})
-	if _, err := Dial(t.Context(), s.Config(), s.Client, imaptest.User, "wrong"); err == nil {
+	if _, err := Dial(t.Context(), s.Config(), s.Client, imaptest.User, "wrong", 0); err == nil {
 		t.Error("bad password accepted")
 	}
 	// Without trusting the test certificate, verification must fail.
-	if _, err := Dial(t.Context(), s.Config(), &tls.Config{}, imaptest.User, imaptest.Password); err == nil {
+	if _, err := Dial(t.Context(), s.Config(), &tls.Config{}, imaptest.User, imaptest.Password, 0); err == nil {
 		t.Error("untrusted certificate accepted")
 	}
 	bad := s.Config()
 	bad.TLS = "none"
-	if _, err := Dial(t.Context(), bad, s.Client, imaptest.User, imaptest.Password); err == nil {
+	if _, err := Dial(t.Context(), bad, s.Client, imaptest.User, imaptest.Password, 0); err == nil {
 		t.Error("plaintext mode accepted")
 	}
 	// STARTTLS against an implicit-TLS port fails rather than downgrading.
 	starttls := s.Config()
 	starttls.TLS = config.TLSStartTLS
-	if _, err := Dial(t.Context(), starttls, s.Client, imaptest.User, imaptest.Password); err == nil {
+	if _, err := Dial(t.Context(), starttls, s.Client, imaptest.User, imaptest.Password, 0); err == nil {
 		t.Error("starttls against a TLS port succeeded")
 	}
 }
@@ -153,14 +182,14 @@ func TestBrokenConnection(t *testing.T) {
 	s := imaptest.Start(t, imaptest.Options{})
 	uid := s.Append(t, "INBOX", raw, time.Now())
 	c := dial(t, s)
-	if _, err := c.Select("INBOX"); err != nil {
+	if _, err := c.Select("INBOX", false); err != nil {
 		t.Fatal(err)
 	}
 	s.BreakNextConnection(200)
-	c2, err := Dial(t.Context(), s.Config(), s.Client, imaptest.User, imaptest.Password)
+	c2, err := Dial(t.Context(), s.Config(), s.Client, imaptest.User, imaptest.Password, 0)
 	if err == nil {
-		if _, err = c2.Select("INBOX"); err == nil {
-			_, err = c2.Fetch(uid)
+		if _, err = c2.Select("INBOX", false); err == nil {
+			_, err = c2.Fetch(uid, 1<<20)
 		}
 		_ = c2.Close()
 	}
@@ -172,7 +201,7 @@ func TestBrokenConnection(t *testing.T) {
 func TestContextCancelClosesConnection(t *testing.T) {
 	s := imaptest.Start(t, imaptest.Options{})
 	ctx, cancel := context.WithCancel(t.Context())
-	c, err := Dial(ctx, s.Config(), s.Client, imaptest.User, imaptest.Password)
+	c, err := Dial(ctx, s.Config(), s.Client, imaptest.User, imaptest.Password, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -181,4 +210,116 @@ func TestContextCancelClosesConnection(t *testing.T) {
 		t.Error("connection still usable after cancel")
 	}
 	_ = c.Close()
+}
+
+// fakeServer runs a scripted IMAP server: it greets, accepts LOGIN and
+// SELECT, and hands every other command line to respond.
+func fakeServer(t *testing.T, respond func(w io.Writer, tag, line string)) (config.Server, *tls.Config) {
+	t.Helper()
+	cert, client := imaptest.Certificate(t)
+	ln, err := tls.Listen("tcp", "127.0.0.1:0", &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go func() {
+				defer func() { _ = conn.Close() }()
+				_, _ = io.WriteString(conn, "* OK [CAPABILITY IMAP4rev1 UIDPLUS] fake\r\n")
+				sc := bufio.NewScanner(conn)
+				for sc.Scan() {
+					tag, line, _ := strings.Cut(sc.Text(), " ")
+					switch {
+					case strings.HasPrefix(line, "LOGIN"):
+						_, _ = io.WriteString(conn, tag+" OK [CAPABILITY IMAP4rev1 UIDPLUS] logged in\r\n")
+					case strings.HasPrefix(line, "SELECT"), strings.HasPrefix(line, "EXAMINE"):
+						_, _ = io.WriteString(conn, "* 1 EXISTS\r\n* OK [UIDVALIDITY 1] x\r\n"+tag+" OK [READ-WRITE] done\r\n")
+					case strings.HasPrefix(line, "LOGOUT"):
+						_, _ = io.WriteString(conn, "* BYE\r\n"+tag+" OK bye\r\n")
+						return
+					default:
+						respond(conn, tag, line)
+					}
+				}
+			}()
+		}
+	}()
+	port := ln.Addr().(*net.TCPAddr).Port
+	return config.Server{Host: "127.0.0.1", Port: port, TLS: config.TLSImplicit}, client
+}
+
+func TestSilentServerTimesOut(t *testing.T) {
+	srv, client := fakeServer(t, func(io.Writer, string, string) {}) // never answers
+	c, err := Dial(t.Context(), srv, client, "u", "p", 300*time.Millisecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Select("INBOX", false); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() {
+		_, err := c.UIDsAfter(0)
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Error("silent server: no error")
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("hung on a silent server")
+	}
+	closed := make(chan struct{})
+	go func() { _ = c.Close(); close(closed) }()
+	select {
+	case <-closed:
+	case <-time.After(10 * time.Second):
+		t.Fatal("Close hung on a dead connection")
+	}
+}
+
+func TestOversizedBodyIsRefused(t *testing.T) {
+	big := strings.Repeat("x", 5000)
+	srv, client := fakeServer(t, func(w io.Writer, tag, line string) {
+		if strings.Contains(line, "FETCH") {
+			// Announces nothing about size, then sends 5000 bytes.
+			_, _ = io.WriteString(w, fmt.Sprintf("* 1 FETCH (UID 1 BODY[] {%d}\r\n%s)\r\n%s OK done\r\n", len(big), big, tag))
+		}
+	})
+	c, err := Dial(t.Context(), srv, client, "u", "p", 5*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = c.Close() }()
+	if _, err := c.Select("INBOX", false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Fetch(1, 100); !errors.Is(err, ErrTooLarge) {
+		t.Fatalf("err = %v, want ErrTooLarge", err)
+	}
+	// The connection is still usable.
+	body, err := c.Fetch(1, 10000)
+	if err != nil || len(body) != len(big) {
+		t.Errorf("within the limit: %d bytes, %v", len(body), err)
+	}
+}
+
+func TestDialCancelled(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	if _, err := Dial(ctx, config.Server{Host: "127.0.0.1", Port: 1, TLS: config.TLSImplicit}, nil, "u", "p", 0); err == nil {
+		t.Fatal("cancelled dial succeeded")
+	}
+}
+
+func TestHasFlagIgnoresCase(t *testing.T) {
+	if !hasFlag([]imap.Flag{"\\SEEN"}, imap.FlagSeen) || hasFlag(nil, imap.FlagSeen) {
+		t.Error("hasFlag")
+	}
 }

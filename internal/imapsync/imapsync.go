@@ -4,6 +4,10 @@
 // folders, fetch new messages, and expunge exact UIDs. It holds no sync
 // logic (that lives in ops, where policy and verification are decided) and
 // it is the only package that imports go-imap, which is still in beta.
+//
+// The server is not trusted: every socket read and write has a deadline,
+// message bodies are size-limited while they are read, and listings are
+// fetched in bounded chunks.
 package imapsync
 
 import (
@@ -12,11 +16,14 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"slices"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
+	"unicode"
 
 	"github.com/emersion/go-imap/v2"
 	"github.com/emersion/go-imap/v2/imapclient"
@@ -24,48 +31,88 @@ import (
 	"nought/internal/config"
 )
 
+// Timeouts. defaultIOTimeout bounds every single read or write, so a server
+// that goes silent is detected, while a slow but progressing download is fine.
+const (
+	dialTimeout      = 30 * time.Second
+	defaultIOTimeout = 2 * time.Minute
+	logoutTimeout    = 5 * time.Second
+)
+
+// Limits on what a server may send.
+const (
+	MaxBatch   = 500   // UIDs per FETCH, STORE or EXPUNGE command
+	maxFolders = 10000 // folders accepted from LIST
+	maxNameLen = 1000  // bytes in a folder name
+)
+
+// Errors.
+var (
+	// ErrGone means the message disappeared from the server (another
+	// client deleted it).
+	ErrGone = errors.New("message no longer on the server")
+	// ErrNoUIDPlus means the server cannot expunge individual messages.
+	ErrNoUIDPlus = errors.New("server does not support UIDPLUS (UID EXPUNGE)")
+	// ErrTooLarge means a message body exceeded the limit and was skipped.
+	ErrTooLarge = errors.New("message larger than the limit")
+)
+
 // Conn is an authenticated IMAP connection.
 type Conn struct {
 	c        *imapclient.Client
+	raw      *deadlineConn
 	stop     func() bool
 	selected string
 }
 
-// dialTimeout bounds connecting and the TLS handshake.
-const dialTimeout = 30 * time.Second
-
 // Dial connects to srv with TLS and logs in. base may carry test roots; the
-// server name and minimum version are always set here. Plaintext is never
-// used: STARTTLS refuses servers that do not upgrade.
-func Dial(ctx context.Context, srv config.Server, base *tls.Config, user, password string) (*Conn, error) {
+// server name, minimum version and certificate verification are always set
+// here. Plaintext is never used: STARTTLS refuses servers that do not
+// upgrade. Cancelling ctx aborts the dial and closes the connection later.
+//
+// ioTimeout bounds each read and write on the connection; 0 means the
+// default of two minutes.
+func Dial(ctx context.Context, srv config.Server, base *tls.Config, user, password string, ioTimeout time.Duration) (*Conn, error) {
 	tlsConfig := &tls.Config{}
 	if base != nil {
 		tlsConfig = base.Clone()
 	}
 	tlsConfig.ServerName = srv.Host
 	tlsConfig.MinVersion = tls.VersionTLS12
-	opts := &imapclient.Options{
-		TLSConfig: tlsConfig,
-		Dialer:    &net.Dialer{Timeout: dialTimeout},
-	}
+	tlsConfig.InsecureSkipVerify = false
+	opts := &imapclient.Options{TLSConfig: tlsConfig}
 	addr := net.JoinHostPort(srv.Host, strconv.Itoa(srv.Port))
 
-	var (
-		c   *imapclient.Client
-		err error
-	)
-	switch srv.TLS {
-	case config.TLSImplicit:
-		c, err = imapclient.DialTLS(addr, opts)
-	case config.TLSStartTLS:
-		c, err = imapclient.DialStartTLS(addr, opts)
-	default:
-		return nil, fmt.Errorf("unsupported TLS mode %q", srv.TLS)
-	}
+	dialCtx, cancel := context.WithTimeout(ctx, dialTimeout)
+	defer cancel()
+	tcp, err := (&net.Dialer{}).DialContext(dialCtx, "tcp", addr)
 	if err != nil {
 		return nil, fmt.Errorf("connect to %s: %w", addr, err)
 	}
-	conn := &Conn{c: c}
+	raw := &deadlineConn{Conn: tcp}
+	raw.limit(ioTimeout)
+
+	var c *imapclient.Client
+	switch srv.TLS {
+	case config.TLSImplicit:
+		tlsConfig.NextProtos = []string{"imap"}
+		tc := tls.Client(raw, tlsConfig)
+		if err := tc.HandshakeContext(dialCtx); err != nil {
+			_ = tcp.Close()
+			return nil, fmt.Errorf("TLS with %s: %w", addr, err)
+		}
+		c = imapclient.New(tc, opts)
+	case config.TLSStartTLS:
+		c, err = imapclient.NewStartTLS(raw, opts) // refuses PREAUTH and failed upgrades
+		if err != nil {
+			_ = tcp.Close()
+			return nil, fmt.Errorf("STARTTLS with %s: %w", addr, err)
+		}
+	default:
+		_ = tcp.Close()
+		return nil, fmt.Errorf("unsupported TLS mode %q", srv.TLS)
+	}
+	conn := &Conn{c: c, raw: raw}
 	// go-imap has no context support: closing the connection unblocks any
 	// pending command when ctx is cancelled.
 	conn.stop = context.AfterFunc(ctx, func() { _ = c.Close() })
@@ -76,10 +123,11 @@ func Dial(ctx context.Context, srv config.Server, base *tls.Config, user, passwo
 	return conn, nil
 }
 
-// Close logs out and closes the connection.
+// Close logs out (briefly; the server may be gone) and closes the connection.
 func (c *Conn) Close() error {
+	c.raw.limit(logoutTimeout)
+	_ = c.c.Logout().Wait()
 	c.stop()
-	_ = c.c.Logout().Wait() // best effort; the server may already be gone
 	return c.c.Close()
 }
 
@@ -99,8 +147,8 @@ func (c *Conn) HasUIDPlus() bool { return c.c.Caps().Has(imap.CapUIDPlus) }
 
 // Folder is a selectable server folder.
 type Folder struct {
-	Name string // hierarchy separated by "/" whatever the server uses
-	Raw  string // the server's own name, used to select it
+	Name string // for display, tags and policies: "/"-separated, no control characters
+	Raw  string // the server's own name, used to select it and to key sync state
 }
 
 // Folders lists selectable folders.
@@ -109,15 +157,25 @@ func (c *Conn) Folders() ([]Folder, error) {
 	if err != nil {
 		return nil, fmt.Errorf("list folders: %w", err)
 	}
+	if len(list) > maxFolders {
+		return nil, fmt.Errorf("server listed %d folders, more than the limit of %d", len(list), maxFolders)
+	}
 	var out []Folder
 	for _, l := range list {
-		if slices.Contains(l.Attrs, imap.MailboxAttrNoSelect) || slices.Contains(l.Attrs, imap.MailboxAttrNonExistent) {
+		if slices.Contains(l.Attrs, imap.MailboxAttrNoSelect) || slices.Contains(l.Attrs, imap.MailboxAttrNonExistent) ||
+			len(l.Mailbox) > maxNameLen {
 			continue
 		}
 		name := l.Mailbox
 		if l.Delim != 0 && l.Delim != '/' {
 			name = strings.ReplaceAll(name, string(l.Delim), "/")
 		}
+		name = strings.Map(func(r rune) rune {
+			if unicode.IsControl(r) {
+				return -1
+			}
+			return r
+		}, name)
 		out = append(out, Folder{Name: name, Raw: l.Mailbox})
 	}
 	slices.SortFunc(out, func(a, b Folder) int { return strings.Compare(a.Name, b.Name) })
@@ -130,9 +188,11 @@ type Mailbox struct {
 	Messages    uint32
 }
 
-// Select opens a folder read-write (needed for expunge).
-func (c *Conn) Select(raw string) (Mailbox, error) {
-	data, err := c.c.Select(raw, nil).Wait()
+// Select opens a folder: read-write (needed for expunge), or read-only
+// (EXAMINE), which changes nothing on the server.
+func (c *Conn) Select(raw string, readOnly bool) (Mailbox, error) {
+	c.selected = ""
+	data, err := c.c.Select(raw, &imap.SelectOptions{ReadOnly: readOnly}).Wait()
 	if err != nil {
 		return Mailbox{}, fmt.Errorf("select %s: %w", raw, err)
 	}
@@ -144,91 +204,216 @@ func (c *Conn) Select(raw string) (Mailbox, error) {
 type MessageInfo struct {
 	UID          uint32
 	Size         int64
-	InternalDate time.Time
+	InternalDate time.Time // zero if the server sent none
 	Seen         bool
 	Flagged      bool
 	Answered     bool
+	Deleted      bool // marked \Deleted (by another client, or a failed expunge)
 }
 
-// List returns every message with a UID above after, in UID order.
-func (c *Conn) List(after uint32) ([]MessageInfo, error) {
+// UIDsAfter returns the UIDs above after, in order.
+func (c *Conn) UIDsAfter(after uint32) ([]uint32, error) {
 	if c.selected == "" {
 		return nil, errors.New("no folder selected")
 	}
 	var set imap.UIDSet
 	set.AddRange(imap.UID(after+1), 0) // after+1:*
-	msgs, err := c.c.Fetch(set, &imap.FetchOptions{
-		UID: true, Flags: true, InternalDate: true, RFC822Size: true,
-	}).Collect()
+	data, err := c.c.UIDSearch(&imap.SearchCriteria{UID: []imap.UIDSet{set}}, nil).Wait()
 	if err != nil {
-		return nil, fmt.Errorf("list messages: %w", err)
+		return nil, fmt.Errorf("search messages: %w", err)
 	}
-	var out []MessageInfo
-	for _, m := range msgs {
+	var out []uint32
+	for _, uid := range data.AllUIDs() {
 		// "after+1:*" includes the last message even if its UID is lower.
-		if uint32(m.UID) <= after {
-			continue
+		if uint32(uid) > after {
+			out = append(out, uint32(uid))
 		}
-		out = append(out, MessageInfo{
-			UID:          uint32(m.UID),
-			Size:         m.RFC822Size,
-			InternalDate: m.InternalDate.UTC(),
-			Seen:         slices.Contains(m.Flags, imap.FlagSeen),
-			Flagged:      slices.Contains(m.Flags, imap.FlagFlagged),
-			Answered:     slices.Contains(m.Flags, imap.FlagAnswered),
-		})
+	}
+	slices.Sort(out)
+	return slices.Compact(out), nil
+}
+
+// Lookup returns the current metadata of the given UIDs, fetched in
+// batches; UIDs no longer on the server are absent from the result.
+func (c *Conn) Lookup(uids []uint32) (map[uint32]MessageInfo, error) {
+	if c.selected == "" {
+		return nil, errors.New("no folder selected")
+	}
+	out := make(map[uint32]MessageInfo, len(uids))
+	for batch := range slices.Chunk(uids, MaxBatch) {
+		msgs, err := c.c.Fetch(uidSet(batch), &imap.FetchOptions{
+			UID: true, Flags: true, InternalDate: true, RFC822Size: true,
+		}).Collect()
+		if err != nil {
+			return nil, fmt.Errorf("look up messages: %w", err)
+		}
+		for _, m := range msgs {
+			if !slices.Contains(batch, uint32(m.UID)) {
+				continue // unrequested data from the server
+			}
+			out[uint32(m.UID)] = MessageInfo{
+				UID:          uint32(m.UID),
+				Size:         m.RFC822Size,
+				InternalDate: m.InternalDate.UTC(),
+				Seen:         hasFlag(m.Flags, imap.FlagSeen),
+				Flagged:      hasFlag(m.Flags, imap.FlagFlagged),
+				Answered:     hasFlag(m.Flags, imap.FlagAnswered),
+				Deleted:      hasFlag(m.Flags, imap.FlagDeleted),
+			}
+		}
+	}
+	return out, nil
+}
+
+// Infos returns the metadata of uids in UID order, skipping vanished ones.
+func (c *Conn) Infos(uids []uint32) ([]MessageInfo, error) {
+	found, err := c.Lookup(uids)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]MessageInfo, 0, len(found))
+	for _, m := range found {
+		out = append(out, m)
 	}
 	slices.SortFunc(out, func(a, b MessageInfo) int { return cmp.Compare(a.UID, b.UID) })
 	return out, nil
 }
 
-// Fetch downloads one message without setting \Seen.
-func (c *Conn) Fetch(uid uint32) ([]byte, error) {
-	section := &imap.FetchItemBodySection{Peek: true}
-	msgs, err := c.c.Fetch(imap.UIDSetNum(imap.UID(uid)), &imap.FetchOptions{
-		UID: true, BodySection: []*imap.FetchItemBodySection{section},
-	}).Collect()
-	if err != nil {
-		return nil, fmt.Errorf("fetch uid %d: %w", uid, err)
-	}
-	for _, m := range msgs {
-		if uint32(m.UID) == uid {
-			if raw := m.FindBodySection(section); raw != nil {
-				return raw, nil
-			}
-		}
-	}
-	return nil, fmt.Errorf("fetch uid %d: %w", uid, ErrGone)
+// IMAP flags are case-insensitive.
+func hasFlag(flags []imap.Flag, want imap.Flag) bool {
+	return slices.ContainsFunc(flags, func(f imap.Flag) bool { return strings.EqualFold(string(f), string(want)) })
 }
 
-// ErrGone means the message disappeared from the server (another client
-// deleted it).
-var ErrGone = errors.New("message no longer on the server")
-
-// ErrNoUIDPlus means the server cannot expunge individual messages.
-var ErrNoUIDPlus = errors.New("server does not support UIDPLUS (UID EXPUNGE)")
-
-// Expunge permanently deletes exactly these UIDs from the selected folder.
-// It marks them \Deleted and runs UID EXPUNGE on the same set. A plain
-// EXPUNGE is never used: it would also remove messages other clients marked
-// for deletion.
-func (c *Conn) Expunge(uids []uint32) error {
-	if len(uids) == 0 {
-		return nil
-	}
-	if !c.HasUIDPlus() {
-		return ErrNoUIDPlus
-	}
+func uidSet(uids []uint32) imap.UIDSet {
 	var set imap.UIDSet
 	for _, uid := range uids {
 		set.AddNum(imap.UID(uid))
 	}
-	store := &imap.StoreFlags{Op: imap.StoreFlagsAdd, Silent: true, Flags: []imap.Flag{imap.FlagDeleted}}
-	if err := c.c.Store(set, store, nil).Close(); err != nil {
+	return set
+}
+
+// Fetch downloads one message without setting \Seen, keeping at most max
+// bytes in memory. A larger body is read and discarded (the size the server
+// announced is not trusted) and ErrTooLarge is returned; the connection
+// stays usable.
+func (c *Conn) Fetch(uid uint32, max int64) ([]byte, error) {
+	if c.selected == "" {
+		return nil, errors.New("no folder selected")
+	}
+	section := &imap.FetchItemBodySection{Peek: true}
+	cmd := c.c.Fetch(imap.UIDSetNum(imap.UID(uid)), &imap.FetchOptions{
+		UID: true, BodySection: []*imap.FetchItemBodySection{section},
+	})
+	var body []byte
+	found, tooLarge := false, false
+	for msg := cmd.Next(); msg != nil; msg = cmd.Next() {
+		var msgUID uint32
+		var msgBody []byte
+		for item := msg.Next(); item != nil; item = msg.Next() {
+			switch item := item.(type) {
+			case imapclient.FetchItemDataUID:
+				msgUID = uint32(item.UID)
+			case imapclient.FetchItemDataBodySection:
+				b, err := io.ReadAll(io.LimitReader(item.Literal, max+1))
+				if err != nil {
+					return nil, fmt.Errorf("fetch uid %d: %w", uid, err)
+				}
+				if int64(len(b)) > max {
+					// Drain the rest so the protocol stays in step; the
+					// deadlines bound how long a hostile server can stream.
+					if _, err := io.Copy(io.Discard, item.Literal); err != nil {
+						return nil, fmt.Errorf("fetch uid %d: %w", uid, err)
+					}
+					tooLarge = true
+					continue
+				}
+				msgBody = b
+			}
+		}
+		if msgUID == uid && msgBody != nil {
+			body, found = msgBody, true
+		}
+	}
+	if err := cmd.Close(); err != nil {
+		return nil, fmt.Errorf("fetch uid %d: %w", uid, err)
+	}
+	if tooLarge {
+		return nil, fmt.Errorf("uid %d: %w", uid, ErrTooLarge)
+	}
+	if !found {
+		return nil, fmt.Errorf("fetch uid %d: %w", uid, ErrGone)
+	}
+	return body, nil
+}
+
+// Expunge permanently deletes exactly these UIDs from the selected folder.
+// It marks them \Deleted and runs UID EXPUNGE on the same set. A plain
+// EXPUNGE is never used: it would also remove messages other clients marked
+// for deletion. If UID EXPUNGE fails, the \Deleted flag is removed again
+// from the messages that did not carry it before, so no other client
+// deletes them later. Callers pass at most MaxBatch UIDs.
+func (c *Conn) Expunge(uids []uint32) error {
+	if len(uids) == 0 {
+		return nil
+	}
+	if len(uids) > MaxBatch {
+		return fmt.Errorf("expunge: %d UIDs, more than %d", len(uids), MaxBatch)
+	}
+	if !c.HasUIDPlus() {
+		return ErrNoUIDPlus
+	}
+	before, err := c.Lookup(uids)
+	if err != nil {
+		return err
+	}
+	var ours []uint32 // messages we are about to flag
+	for _, uid := range uids {
+		if m, ok := before[uid]; ok && !m.Deleted {
+			ours = append(ours, uid)
+		}
+	}
+	set := uidSet(uids)
+	mark := &imap.StoreFlags{Op: imap.StoreFlagsAdd, Silent: true, Flags: []imap.Flag{imap.FlagDeleted}}
+	if err := c.c.Store(set, mark, nil).Close(); err != nil {
 		return fmt.Errorf("mark deleted: %w", err)
 	}
 	if err := c.c.UIDExpunge(set).Close(); err != nil {
+		if len(ours) > 0 {
+			unmark := &imap.StoreFlags{Op: imap.StoreFlagsDel, Silent: true, Flags: []imap.Flag{imap.FlagDeleted}}
+			_ = c.c.Store(uidSet(ours), unmark, nil).Close() // best effort; the connection may be gone
+		}
 		return fmt.Errorf("uid expunge: %w", err)
 	}
 	return nil
+}
+
+// deadlineConn sets a fresh deadline before every read and write, so a
+// silent server fails the current command instead of hanging forever.
+type deadlineConn struct {
+	net.Conn
+	timeout atomic.Int64 // nanoseconds; 0 means defaultIOTimeout
+}
+
+func (d *deadlineConn) Read(p []byte) (int, error) {
+	if err := d.SetReadDeadline(time.Now().Add(d.current())); err != nil {
+		return 0, err
+	}
+	return d.Conn.Read(p)
+}
+
+func (d *deadlineConn) Write(p []byte) (int, error) {
+	if err := d.SetWriteDeadline(time.Now().Add(d.current())); err != nil {
+		return 0, err
+	}
+	return d.Conn.Write(p)
+}
+
+// limit sets the timeout, e.g. shorter for a courtesy logout.
+func (d *deadlineConn) limit(t time.Duration) { d.timeout.Store(int64(t)) }
+
+func (d *deadlineConn) current() time.Duration {
+	if t := time.Duration(d.timeout.Load()); t > 0 {
+		return t
+	}
+	return defaultIOTimeout
 }

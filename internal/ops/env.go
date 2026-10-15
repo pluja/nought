@@ -34,6 +34,9 @@ type Env struct {
 	// TLS is the base TLS configuration for mail servers; nil means the
 	// system's trusted roots. Tests use it to trust a test certificate.
 	TLS *tls.Config
+	// IMAPTimeout bounds each read and write to a mail server; 0 means the
+	// default. Tests shorten it.
+	IMAPTimeout time.Duration
 
 	mu     sync.Mutex
 	config *config.Config

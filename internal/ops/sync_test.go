@@ -16,9 +16,12 @@ import (
 	"github.com/emersion/go-imap/v2"
 
 	"nought/internal/config"
+	"nought/internal/imapsync"
 	"nought/internal/imaptest"
+	"nought/internal/index"
 	"nought/internal/journal"
 	"nought/internal/lock"
+	"nought/internal/store"
 )
 
 // syncEnv returns an Env with one account pointing at a fresh test server.
@@ -372,5 +375,102 @@ func TestAccountTest(t *testing.T) {
 	}
 	if _, err := Call(t.Context(), env, Read, AccountTest, AccountName{Name: "nope"}); !errors.Is(err, ErrNotFound) {
 		t.Errorf("unknown account = %v", err)
+	}
+}
+
+// inboxValidity reads the test server's INBOX UIDVALIDITY.
+func inboxValidity(t *testing.T, srv *imaptest.Server) uint32 {
+	t.Helper()
+	c, err := imapsync.Dial(t.Context(), srv.Config(), srv.Client, imaptest.User, imaptest.Password, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = c.Close() }()
+	mb, err := c.Select("INBOX", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return mb.UIDValidity
+}
+
+func TestSyncRecoversFromReusedUID(t *testing.T) {
+	env, srv := syncEnv(t, imaptest.Options{}, true)
+	uid := srv.Append(t, "INBOX", mail("1@x", "real"), daysAgo(env, 30))
+	// Pretend an earlier sync saw different content under this UID.
+	ix, _ := env.Index(t.Context())
+	other := store.Hash([]byte("something else"))
+	if err := ix.RecordCopy(t.Context(), index.ServerCopy{Account: "personal", Folder: "INBOX",
+		UIDValidity: inboxValidity(t, srv), UID: uid, Hash: other, Size: 14, InternalDate: daysAgo(env, 30)}, env.Now()); err != nil {
+		t.Fatal(err)
+	}
+	out := runSyncOK(t, env, SyncIn{})
+	f := folder(t, out, "INBOX")
+	if f.Expunged != 0 || len(f.Notes) == 0 || !strings.Contains(f.Notes[len(f.Notes)-1], "reused") {
+		t.Fatalf("INBOX = %+v", f)
+	}
+	if len(srv.UIDs(t, "INBOX")) != 1 {
+		t.Fatal("deleted after a UID conflict")
+	}
+	// The next sync starts the folder over and handles it normally.
+	if f := folder(t, runSyncOK(t, env, SyncIn{}), "INBOX"); f.Expunged != 1 {
+		t.Errorf("second sync INBOX = %+v", f)
+	}
+}
+
+func TestSyncKeepsMessageWhoseSizeChanged(t *testing.T) {
+	env, srv := syncEnv(t, imaptest.Options{}, true)
+	raw := mail("1@x", "real")
+	uid := srv.Append(t, "INBOX", raw, daysAgo(env, 30))
+	// The archive has the message, but the recorded size no longer matches
+	// what the server reports for this UID.
+	if _, _, err := archive(t.Context(), env, "personal", []byte(raw), "", nil); err != nil {
+		t.Fatal(err)
+	}
+	ix, _ := env.Index(t.Context())
+	validity := inboxValidity(t, srv)
+	if err := ix.SetSyncState(t.Context(), "personal", "INBOX", index.SyncState{UIDValidity: validity, LastUID: uid}); err != nil {
+		t.Fatal(err)
+	}
+	if err := ix.RecordCopy(t.Context(), index.ServerCopy{Account: "personal", Folder: "INBOX", UIDValidity: validity,
+		UID: uid, Hash: store.Hash([]byte(raw)), Size: int64(len(raw)) + 1, InternalDate: daysAgo(env, 30)}, env.Now()); err != nil {
+		t.Fatal(err)
+	}
+	out, err := Call(t.Context(), env, Delete, SyncRun, SyncIn{})
+	if !errors.Is(err, ErrPartial) {
+		t.Fatalf("sync = %v", err)
+	}
+	if f := folder(t, out, "INBOX"); f.Expunged != 0 || !strings.Contains(strings.Join(f.Notes, " "), "changed on the server") {
+		t.Errorf("INBOX = %+v", f)
+	}
+	if len(srv.UIDs(t, "INBOX")) != 1 {
+		t.Fatal("deleted a message whose size changed")
+	}
+}
+
+func TestSyncDeduplicatesAccountArguments(t *testing.T) {
+	env, _ := syncEnv(t, imaptest.Options{}, false)
+	out := runSyncOK(t, env, SyncIn{Accounts: []string{"personal", "personal"}})
+	if len(out.Accounts) != 1 {
+		t.Errorf("accounts = %d", len(out.Accounts))
+	}
+}
+
+func TestSizeMatches(t *testing.T) {
+	tests := []struct {
+		raw  string
+		size int64
+		want bool
+	}{
+		{"a\r\nb\r\n", 6, true}, // exact
+		{"a\r\nb\r\n", 4, true}, // server counted LF only
+		{"a\nb\n", 6, true},     // server counted CRLF
+		{"a\nb\n", 4, true},
+		{"a\r\nb\r\n", 3, false}, // truncated
+		{"", 10, false},
+	}
+	for _, tt := range tests {
+		if got := sizeMatches([]byte(tt.raw), tt.size); got != tt.want {
+			t.Errorf("sizeMatches(%q, %d) = %v", tt.raw, tt.size, got)
+		}
 	}
 }

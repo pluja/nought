@@ -222,6 +222,14 @@ func (c *breakingConn) Write(p []byte) (int, error) {
 	return c.Conn.Write(p)
 }
 
+// Certificate returns a fresh self-signed server certificate for 127.0.0.1
+// and a client configuration that trusts it, for hand-written fake servers.
+func Certificate(t testing.TB) (tls.Certificate, *tls.Config) {
+	t.Helper()
+	cert, _, pool := selfSigned(t)
+	return cert, &tls.Config{RootCAs: pool}
+}
+
 func selfSigned(t testing.TB) (tls.Certificate, []byte, *x509.CertPool) {
 	t.Helper()
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)

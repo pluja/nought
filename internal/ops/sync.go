@@ -7,17 +7,13 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"strings"
 	"sync"
-	"time"
 
 	"nought/internal/config"
 	"nought/internal/imapsync"
 	"nought/internal/index"
-	"nought/internal/journal"
 	"nought/internal/lock"
 	"nought/internal/secret"
-	"nought/internal/store"
 )
 
 // SyncIn selects accounts to sync. No accounts means all of them.
@@ -84,11 +80,25 @@ func runSync(ctx context.Context, env *Env, in SyncIn) (SyncOut, error) {
 		return out, err
 	}
 
-	// Accounts sync in parallel; each uses its own connection and Maildir.
+	// Passwords are looked up one account at a time, so password commands
+	// that prompt (gpg-agent, pinentry) never compete. Accounts then sync in
+	// parallel, each with its own connection and Maildir.
 	out.Accounts = make([]AccountSyncOut, len(accounts))
+	passwords := make([]string, len(accounts))
+	for i, a := range accounts {
+		pw, err := secret.Password(ctx, env.Secrets, a.Name, a.PasswordCommand)
+		if err != nil {
+			out.Accounts[i] = AccountSyncOut{Account: a.Name, Deletion: a.DeletionEnabled(), Folders: []FolderSyncOut{}, Error: err.Error()}
+			continue
+		}
+		passwords[i] = pw
+	}
 	var wg sync.WaitGroup
 	for i, a := range accounts {
-		wg.Go(func() { out.Accounts[i] = syncAccount(ctx, env, a, in.DryRun) })
+		if out.Accounts[i].Error != "" {
+			continue
+		}
+		wg.Go(func() { out.Accounts[i] = syncAccount(ctx, env, a, passwords[i], in.DryRun) })
 	}
 	wg.Wait()
 
@@ -130,7 +140,7 @@ func selectAccounts(env *Env, names []string) ([]config.Account, error) {
 		return slices.Clone(cfg.Accounts), nil
 	}
 	var out []config.Account
-	for _, n := range names {
+	for _, n := range slices.Compact(slices.Sorted(slices.Values(names))) {
 		a, ok := cfg.Account(n)
 		if !ok {
 			return nil, fmt.Errorf("account %q: %w", n, ErrNotFound)
@@ -140,9 +150,9 @@ func selectAccounts(env *Env, names []string) ([]config.Account, error) {
 	return out, nil
 }
 
-func syncAccount(ctx context.Context, env *Env, a config.Account, dryRun bool) AccountSyncOut {
+func syncAccount(ctx context.Context, env *Env, a config.Account, password string, dryRun bool) AccountSyncOut {
 	out := AccountSyncOut{Account: a.Name, Deletion: a.DeletionEnabled(), Folders: []FolderSyncOut{}}
-	conn, err := connect(ctx, env, &a)
+	conn, err := imapsync.Dial(ctx, a.IMAP, env.TLS, a.Login(), password, env.IMAPTimeout)
 	if err != nil {
 		out.Error = err.Error()
 		return out
@@ -175,21 +185,23 @@ func connect(ctx context.Context, env *Env, a *config.Account) (*imapsync.Conn, 
 	if err != nil {
 		return nil, err
 	}
-	return imapsync.Dial(ctx, a.IMAP, env.TLS, a.Login(), pw)
+	return imapsync.Dial(ctx, a.IMAP, env.TLS, a.Login(), pw, env.IMAPTimeout)
 }
 
 // syncFolder archives a folder's new messages, then deletes its due ones.
+// State and server copies are keyed by the server's raw folder name, so two
+// folders whose display names collide never share state.
 func syncFolder(ctx context.Context, env *Env, conn *imapsync.Conn, a *config.Account, f imapsync.Folder,
 	policy config.Policy, dryRun bool, out *FolderSyncOut) error {
 	ix, err := env.Index(ctx)
 	if err != nil {
 		return err
 	}
-	mb, err := conn.Select(f.Raw)
+	mb, err := conn.Select(f.Raw, dryRun)
 	if err != nil {
 		return err
 	}
-	st, found, err := ix.SyncState(ctx, a.Name, f.Name)
+	st, found, err := ix.SyncState(ctx, a.Name, f.Raw)
 	if err != nil {
 		return err
 	}
@@ -198,168 +210,32 @@ func syncFolder(ctx context.Context, env *Env, conn *imapsync.Conn, a *config.Ac
 			out.Notes = append(out.Notes, "UIDVALIDITY changed: the folder is fetched again and matched to the archive")
 		}
 		if !dryRun {
-			if err := ix.ResetFolder(ctx, a.Name, f.Name, mb.UIDValidity); err != nil {
+			if err := ix.ResetFolder(ctx, a.Name, f.Raw, mb.UIDValidity); err != nil {
 				return err
 			}
 		}
 		st = index.SyncState{UIDValidity: mb.UIDValidity}
 	}
 
-	infos, err := conn.List(st.LastUID)
+	uids, err := conn.UIDsAfter(st.LastUID)
 	if err != nil {
 		return err
 	}
-	out.New = len(infos)
+	out.New = len(uids)
 	if !dryRun {
-		if err := fetchNew(ctx, env, ix, conn, a.Name, f.Name, infos, &st, out); err != nil {
+		err := fetchNew(ctx, env, ix, conn, a.Name, f, uids, &st, out)
+		if errors.Is(err, index.ErrCopyConflict) {
+			// The server reused a UID for other content. Trust no UID in
+			// this folder: forget its pending copies, delete nothing now,
+			// and fetch it again from the start next time.
+			out.Notes = append(out.Notes, "the server reused a message UID; nothing was deleted, and the folder will be fetched again")
+			return ix.ForgetFolder(ctx, a.Name, f.Raw, st.UIDValidity)
+		}
+		if err != nil {
 			return err
 		}
 	}
-	return expungeDue(ctx, env, ix, conn, a, f.Name, st.UIDValidity, policy, dryRun, out)
-}
-
-func fetchNew(ctx context.Context, env *Env, ix *index.Index, conn *imapsync.Conn, account, folder string,
-	infos []imapsync.MessageInfo, st *index.SyncState, out *FolderSyncOut) error {
-	tags := []string{folderTag(folder)}
-	if strings.EqualFold(folder, "INBOX") {
-		tags = append(tags, TagInbox)
-	}
-	for _, info := range infos {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		switch raw, err := fetchOne(conn, info); {
-		case errors.Is(err, errSkip):
-			out.Notes = append(out.Notes, fmt.Sprintf("uid %d: %v; left on the server", info.UID, err))
-		case err != nil:
-			return err
-		default:
-			// Tags only apply to new messages: a message already archived
-			// (and maybe already triaged) keeps its tags.
-			if _, _, err := archive(ctx, env, account, raw, flagsOf(info), tags); err != nil {
-				return fmt.Errorf("archive uid %d: %w", info.UID, err)
-			}
-			if err := ix.RecordCopy(ctx, index.ServerCopy{
-				Account: account, Folder: folder, UIDValidity: st.UIDValidity, UID: info.UID,
-				Hash: store.Hash(raw), InternalDate: info.InternalDate,
-			}, env.Now()); err != nil {
-				return err
-			}
-			out.Fetched++
-		}
-		st.LastUID = info.UID
-		if err := ix.SetSyncState(ctx, account, folder, *st); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-var errSkip = errors.New("skipped")
-
-func fetchOne(conn *imapsync.Conn, info imapsync.MessageInfo) ([]byte, error) {
-	if info.Size > maxMessageSize {
-		return nil, fmt.Errorf("%w: larger than %d MiB", errSkip, maxMessageSize>>20)
-	}
-	raw, err := conn.Fetch(info.UID)
-	if errors.Is(err, imapsync.ErrGone) {
-		return nil, fmt.Errorf("%w: deleted on the server meanwhile", errSkip)
-	}
-	return raw, err
-}
-
-func flagsOf(info imapsync.MessageInfo) string {
-	var b strings.Builder
-	if info.Flagged {
-		b.WriteByte('F')
-	}
-	if info.Answered {
-		b.WriteByte('R')
-	}
-	if info.Seen {
-		b.WriteByte('S')
-	}
-	return b.String()
-}
-
-// expungeDue deletes from the server the folder's messages that are old
-// enough under its policy, but only those whose local copy still verifies,
-// only with deletion enabled, and only with UID EXPUNGE. Every deletion is
-// journaled (and fsynced) before it happens.
-func expungeDue(ctx context.Context, env *Env, ix *index.Index, conn *imapsync.Conn, a *config.Account,
-	folder string, uidValidity uint32, policy config.Policy, dryRun bool, out *FolderSyncOut) error {
-	cutoff := env.Now().Add(-time.Duration(policy.KeepDays) * 24 * time.Hour)
-	due, err := ix.DueCopies(ctx, a.Name, folder, uidValidity, cutoff)
-	if err != nil {
-		return err
-	}
-	out.Due = len(due)
-	switch {
-	case len(due) == 0 || dryRun:
-		return nil
-	case !a.DeletionEnabled():
-		out.Notes = append(out.Notes, "deletion is disabled for this account; nothing was deleted")
-		return nil
-	case !conn.HasUIDPlus():
-		out.Notes = append(out.Notes, "the server does not support UIDPLUS; nothing was deleted")
-		return nil
-	}
-
-	st, err := env.Store(a.Name)
-	if err != nil {
-		return err
-	}
-	var verified []index.ServerCopy
-	var bad []string
-	for _, c := range due {
-		if err := st.Verify(c.Hash); err != nil {
-			bad = append(bad, fmt.Sprintf("uid %d (%s: %v)", c.UID, c.Hash[:IDLen], err))
-			continue
-		}
-		verified = append(verified, c)
-	}
-	if len(bad) > 0 {
-		out.Notes = append(out.Notes, "local copy missing or damaged, kept on the server: "+strings.Join(bad, ", "))
-	}
-	if len(verified) == 0 {
-		if len(bad) > 0 {
-			return errors.New("no verified local copies to delete")
-		}
-		return nil
-	}
-
-	if err := journal.Append(env.Paths.Journal, journalEntries(env.Now(), journal.Intent, verified)); err != nil {
-		return fmt.Errorf("journal (nothing was deleted): %w", err)
-	}
-	uids := make([]uint32, len(verified))
-	for i, c := range verified {
-		uids[i] = c.UID
-	}
-	if err := conn.Expunge(uids); err != nil {
-		return err
-	}
-	if err := ix.MarkExpunged(ctx, verified, env.Now()); err != nil {
-		return err
-	}
-	out.Expunged = len(verified)
-	if err := journal.Append(env.Paths.Journal, journalEntries(env.Now(), journal.Done, verified)); err != nil {
-		return err
-	}
-	if len(bad) > 0 {
-		return fmt.Errorf("%d local copies failed verification", len(bad))
-	}
-	return nil
-}
-
-func journalEntries(at time.Time, phase string, copies []index.ServerCopy) []journal.Entry {
-	entries := make([]journal.Entry, len(copies))
-	for i, c := range copies {
-		entries[i] = journal.Entry{
-			Time: at.UTC(), Phase: phase, Account: c.Account, Folder: c.Folder,
-			UIDValidity: c.UIDValidity, UID: c.UID, Hash: c.Hash,
-		}
-	}
-	return entries
+	return expungeDue(ctx, env, ix, conn, a, f.Raw, st.UIDValidity, policy, dryRun, out)
 }
 
 // AccountTestOut reports what nou sees on an account's server.

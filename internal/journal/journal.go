@@ -13,6 +13,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"nought/internal/atomicfile"
 )
 
 // Phases of a deletion.
@@ -29,6 +31,7 @@ type Entry struct {
 	Folder      string    `json:"folder"`
 	UIDValidity uint32    `json:"uidvalidity"`
 	UID         uint32    `json:"uid"`
+	MessageID   string    `json:"message_id,omitempty"`
 	Hash        string    `json:"hash"` // content hash; names the archived file
 }
 
@@ -40,11 +43,19 @@ func Append(path string, entries []Entry) (err error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return fmt.Errorf("create journal directory: %w", err)
 	}
+	_, statErr := os.Stat(path)
+	created := errors.Is(statErr, os.ErrNotExist)
 	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o600)
 	if err != nil {
 		return fmt.Errorf("open journal: %w", err)
 	}
-	defer func() { err = errors.Join(err, f.Close()) }()
+	defer func() {
+		err = errors.Join(err, f.Close())
+		if err == nil && created {
+			// Make the new file's directory entry durable too.
+			err = atomicfile.SyncDir(filepath.Dir(path))
+		}
+	}()
 	var buf []byte
 	for _, e := range entries {
 		line, err := json.Marshal(e)
