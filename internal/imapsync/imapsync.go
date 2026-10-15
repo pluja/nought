@@ -240,9 +240,22 @@ func (c *Conn) UIDsAfter(after uint32) ([]uint32, error) {
 	return slices.Compact(out), nil
 }
 
-// AllUIDs returns every UID in the selected folder, in order.
+// ErrIncompleteList means the server listed fewer or more UIDs than the
+// folder holds (a server problem, or mail arriving or leaving meanwhile).
+var ErrIncompleteList = errors.New("the server's message list does not match the folder's message count")
+
+// AllUIDs returns every UID in the selected folder, in order. The list is
+// checked against the folder's message count, so a truncated answer is
+// never taken for the folder's contents.
 func (c *Conn) AllUIDs() ([]uint32, error) {
-	return c.UIDsAfter(0)
+	uids, err := c.UIDsAfter(0)
+	if err != nil {
+		return nil, err
+	}
+	if mb := c.c.Mailbox(); mb == nil || uint32(len(uids)) != mb.NumMessages {
+		return nil, ErrIncompleteList
+	}
+	return uids, nil
 }
 
 // Lookup returns the current metadata of the given UIDs, fetched in

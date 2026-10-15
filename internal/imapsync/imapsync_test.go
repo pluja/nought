@@ -370,3 +370,24 @@ func TestAllUIDsAfterMovesAndExpunges(t *testing.T) {
 		t.Error("deleted mailbox still listed")
 	}
 }
+
+// A UID list shorter than the folder's message count is never taken for
+// the folder's contents.
+func TestAllUIDsRejectsAnIncompleteList(t *testing.T) {
+	srv, client := fakeServer(t, func(w io.Writer, tag, line string) {
+		if strings.Contains(line, "SEARCH") {
+			_, _ = io.WriteString(w, "* SEARCH\r\n"+tag+" OK done\r\n") // the folder has 1 message
+		}
+	})
+	c, err := Dial(t.Context(), srv, client, "u", "p", 5*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = c.Close() }()
+	if _, err := c.Select("INBOX", true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.AllUIDs(); !errors.Is(err, ErrIncompleteList) {
+		t.Errorf("AllUIDs = %v, want ErrIncompleteList", err)
+	}
+}

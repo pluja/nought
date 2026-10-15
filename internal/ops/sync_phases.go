@@ -102,6 +102,12 @@ func scanFolder(ctx context.Context, env *Env, ix *index.Index, conn *imapsync.C
 		scan.gone, scan.held, err = checkPresence(ctx, ix, conn, a.Name, f, uidValidity, in.AcceptRemovals, out)
 		scan.trusted = scan.trusted && !scan.held
 	}
+	if errors.Is(err, imapsync.ErrIncompleteList) {
+		// Often mail arriving or leaving during the sync: try next time.
+		out.Notes = append(out.Notes, "the server's message list did not match its message count; "+
+			"changes made on other devices are applied next time")
+		return folderScan{}
+	}
 	if err != nil {
 		out.Error = err.Error()
 		return folderScan{}
