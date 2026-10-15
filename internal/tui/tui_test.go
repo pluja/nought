@@ -727,3 +727,40 @@ func TestExpiryLine(t *testing.T) {
 		}
 	}
 }
+
+func TestSwitchBodyVersion(t *testing.T) {
+	m := newTestModel(t, 120, 30)
+	export := filepath.Join(t.TempDir(), "export", "Inbox")
+	if err := os.MkdirAll(export, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	raw := "From: news@example.org\r\nTo: me@example.org\r\nMessage-ID: <alt@x>\r\nDate: Thu, 15 Oct 2026 09:00:00 +0000\r\n" +
+		"Subject: Newsletter\r\nMIME-Version: 1.0\r\nContent-Type: multipart/alternative; boundary=b\r\n\r\n" +
+		"--b\r\nContent-Type: text/plain\r\n\r\n*** plain version ***\r\n" +
+		"--b\r\nContent-Type: text/html\r\n\r\n<p>html version</p><p style=\"display:none\">hidden preheader</p>\r\n--b--\r\n"
+	if err := os.WriteFile(filepath.Join(export, "n.eml"), []byte(raw), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ops.Call(t.Context(), m.env, ops.Delete, ops.ImportRun,
+		ops.ImportIn{Path: filepath.Dir(export), Account: "personal", Inbox: true}); err != nil {
+		t.Fatal(err)
+	}
+	m = drive(t, m, keys("gi")...)
+	m = drive(t, m, append(keys("gg"), key("enter"))...)
+	if s := screen(m); !strings.Contains(s, "html version") || strings.Contains(s, "hidden preheader") {
+		t.Fatalf("default should be the HTML version without hidden text:\n%s", s)
+	}
+	m = drive(t, m, key("v"))
+	if s := screen(m); !strings.Contains(s, "plain version") || m.bodyPrefer != "plain" {
+		t.Fatalf("after v:\n%s", s)
+	}
+	m = drive(t, m, key("v"))
+	if !strings.Contains(screen(m), "html version") {
+		t.Error("v did not switch back")
+	}
+	m = drive(t, m, key("J"))
+	m = drive(t, m, key("v"))
+	if m.notice != "this message has only one version" {
+		t.Errorf("notice = %q", m.notice)
+	}
+}

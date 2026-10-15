@@ -370,7 +370,7 @@ func (m *Model) relayout() {
 	key, id := "", ""
 	if m.open != nil {
 		id = m.open.Message.ID
-		key = id + "/" + strconv.Itoa(w) + "/" + strings.Join(m.open.Message.Tags, ",")
+		key = id + "/" + strconv.Itoa(w) + "/" + m.open.BodyFrom + "/" + strings.Join(m.open.Message.Tags, ",")
 	}
 	if m.showLinks {
 		key += "/links"

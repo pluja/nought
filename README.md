@@ -16,7 +16,10 @@ use it as easily as you can.
   written, fsynced, read back and hash-verified, and only when you have enabled deletion for that
   account. Every deletion is journaled first.
 - **Privacy by default.** No telemetry, no update checks, no remote content. HTML mail is never
-  rendered: it is converted to text.
+  rendered: it is converted to text, and text hidden from view (preheaders, invisible blocks) is
+  dropped. When a message has both versions, the converted HTML is shown; `v` in the TUI, or
+  `nou msg show --prefer plain`, shows the sender's plain text, and `prefer_body = "plain"` in
+  the config makes that the default.
 - **No lock-in.** Mail is stored as one `.eml` file per message in a standard Maildir; tags are
   dumped in notmuch's format. neomutt, notmuch, grep, restic and rclone all work on it.
 - **Simple and auditable.** Go, a single static binary, few dependencies.

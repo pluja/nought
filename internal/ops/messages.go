@@ -116,14 +116,20 @@ type ShowIn struct {
 	ID      string `json:"id"`
 	Account string `json:"account,omitempty"` // disambiguates a message stored in several accounts
 	Raw     bool   `json:"raw,omitempty"`     // include the raw RFC 5322 message
+	// Prefer picks the version of a message that has both: "html" or
+	// "plain"; empty uses the configured prefer_body (default html).
+	Prefer string `json:"prefer,omitempty"`
 }
 
 // ShowOut is a message's readable content. HTML is never rendered: an
 // HTML-only message is converted to text.
 type ShowOut struct {
-	Message     MessageOut           `json:"message"`
-	Body        string               `json:"body"`
-	BodyFrom    string               `json:"body_from"` // "text/plain", "text/html" or "" if none
+	Message  MessageOut `json:"message"`
+	Body     string     `json:"body"`
+	BodyFrom string     `json:"body_from"` // "text/plain", "text/html" or "" if none
+	// Alternative is the other version available ("text/plain" or
+	// "text/html"), if the message has both.
+	Alternative string               `json:"alternative,omitempty"`
 	Attachments []mailmsg.Attachment `json:"attachments"`
 	Raw         string               `json:"raw,omitempty"`
 	// Source is the original body part (HTML or plain text), for frontends
@@ -171,17 +177,44 @@ var MsgShow = Op[ShowIn, ShowOut]{
 		if out.Attachments == nil {
 			out.Attachments = []mailmsg.Attachment{}
 		}
+		prefer, err := preferredBody(env, in.Prefer)
+		if err != nil {
+			return ShowOut{}, err
+		}
+		useHTML := content.HTML != "" && (prefer == config.BodyHTML || content.Plain == "")
 		switch {
+		case useHTML:
+			out.Body, out.BodyFrom, out.Source = render.HTMLToText(content.HTML), "text/html", content.HTML
+			if content.Plain != "" {
+				out.Alternative = "text/plain"
+			}
 		case content.Plain != "":
 			out.Body, out.BodyFrom, out.Source = content.Plain, "text/plain", content.Plain
-		case content.HTML != "":
-			out.Body, out.BodyFrom, out.Source = render.HTMLToText(content.HTML), "text/html", content.HTML
+			if content.HTML != "" {
+				out.Alternative = "text/html"
+			}
 		}
 		if in.Raw {
 			out.Raw = string(raw)
 		}
 		return out, nil
 	},
+}
+
+// preferredBody resolves which version to show of a message with both.
+func preferredBody(env *Env, prefer string) (string, error) {
+	switch prefer {
+	case config.BodyHTML, config.BodyPlain:
+		return prefer, nil
+	case "":
+	default:
+		return "", usageError("prefer must be %q or %q", config.BodyHTML, config.BodyPlain)
+	}
+	cfg, err := env.Config()
+	if err != nil || cfg.PreferBody == "" {
+		return config.BodyHTML, err
+	}
+	return cfg.PreferBody, nil
 }
 
 func resolve(ctx context.Context, env *Env, account, id string) (index.Message, error) {

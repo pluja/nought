@@ -12,7 +12,7 @@ nought: keys
   l, t             tags: +add -remove                  ?  help      q  quit     
   #                trash / restore   D                delete for good (asks)    
   o                open a link: asks first, can open or copy it without tracking
-  L                show / hide the message's links                              
+  L                show / hide the message's links    v  plain / HTML version   
                                                                                 
 Where messages live (every message is in your local archive):                   
   ◐ (S)  also on a server, stays there (deletion off for the account)           

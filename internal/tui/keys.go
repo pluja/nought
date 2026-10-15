@@ -88,6 +88,8 @@ func (m Model) key(k tea.KeyPressMsg) (Model, tea.Cmd) {
 		return m.undoLast()
 	case "o":
 		return m.startLinkPick()
+	case "v":
+		return m.switchBody()
 	case "L":
 		if m.open == nil || len(m.links) == 0 {
 			m.notice = "no links in this message"
@@ -381,4 +383,20 @@ func (m Model) command(line string) (Model, tea.Cmd) {
 	}
 	m.notice = "unknown command: " + render.SanitizeLine(name) + " (try :help)"
 	return m, nil
+}
+
+// switchBody shows the other version of a message that has both (plain
+// text, or HTML converted to text), and keeps that choice for the session.
+func (m Model) switchBody() (Model, tea.Cmd) {
+	sel, ok := m.selected()
+	if m.open == nil || !ok || m.open.Alternative == "" {
+		m.notice = "this message has only one version"
+		return m, nil
+	}
+	m.bodyPrefer, m.notice = "plain", "plain-text version (v switches back)"
+	if m.open.Alternative == "text/html" {
+		m.bodyPrefer, m.notice = "html", "HTML version, as text (v switches back)"
+	}
+	m.showGen++
+	return m, m.show(sel, m.showGen)
 }

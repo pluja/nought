@@ -72,54 +72,87 @@ func HTMLToText(s string) string {
 
 // HTMLToStyled is HTMLToText with emphasis, headings, links and quotes
 // decorated by st, returning the links separately instead of listing them.
-// Nothing is ever fetched.
+// Nothing is ever fetched. The HTML is parsed into a tree the way a browser
+// would, so hidden elements and omitted end tags are handled exactly.
 func HTMLToStyled(s string, st Styler) (string, []Link) {
 	if len(s) > MaxHTMLInput {
 		s = s[:MaxHTMLInput]
 	}
 	w := &textWriter{st: st}
-	z := html.NewTokenizer(strings.NewReader(s))
-	var skipDepth int
-	var skipTag atom.Atom
+	// Scripting off: <noscript> content is parsed as markup (and skipped).
+	doc, err := html.ParseWithOptions(strings.NewReader(s), html.ParseOptionEnableScripting(false))
+	if err != nil {
+		return "", nil
+	}
 	var open []int // link number of each open <a> (0: not listed)
+	w.walk(doc, 0, &open)
+	return w.result(), w.links
+}
 
-	for {
-		tt := z.Next()
-		if tt == html.ErrorToken || w.b.Len() >= MaxTextOutput {
-			break
+// maxDepth bounds recursion on hostile, deeply nested HTML; deeper content
+// is dropped.
+const maxDepth = 512
+
+func (w *textWriter) walk(n *html.Node, depth int, open *[]int) {
+	if depth > maxDepth || w.b.Len() >= MaxTextOutput {
+		return
+	}
+	switch n.Type {
+	case html.TextNode:
+		w.text(n.Data)
+		return
+	case html.ElementNode:
+		if skipped[n.DataAtom] || hidden(n) {
+			return
 		}
-		tok := z.Token()
-		if skipDepth > 0 {
-			// HTML allows omitting </head>; the body still starts at <body>.
-			if skipTag == atom.Head && tt == html.StartTagToken && tok.DataAtom == atom.Body {
-				skipDepth = 0
-				continue
-			}
-			switch {
-			case tt == html.StartTagToken && tok.DataAtom == skipTag:
-				skipDepth++
-			case tt == html.EndTagToken && tok.DataAtom == skipTag:
-				skipDepth--
-			}
-			continue
+		tok := html.Token{Type: html.StartTagToken, DataAtom: n.DataAtom, Data: n.Data, Attr: n.Attr}
+		w.start(n.DataAtom, tok, html.StartTagToken, open)
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			w.walk(c, depth+1, open)
 		}
-		switch tt {
-		case html.TextToken:
-			w.text(tok.Data)
-		case html.StartTagToken, html.SelfClosingTagToken:
-			a := tok.DataAtom
-			if skipped[a] {
-				if tt == html.StartTagToken {
-					skipDepth, skipTag = 1, a
-				}
-				continue
-			}
-			w.start(a, tok, tt, &open)
-		case html.EndTagToken:
-			w.end(tok.DataAtom, &open)
+		w.end(n.DataAtom, open)
+		return
+	case html.DocumentNode:
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			w.walk(c, depth+1, open)
 		}
 	}
-	return w.result(), w.links
+}
+
+// hidden reports whether an element is invisible in a mail client: the
+// hidden attribute, or inline styles that hide it. Newsletters use these for
+// preheaders and duplicate mobile layouts; phishing and prompt injection use
+// them to show machines text that people never see.
+func hidden(n *html.Node) bool {
+	var style string
+	for _, a := range n.Attr {
+		switch a.Key {
+		case "hidden":
+			return true
+		case "style":
+			style = a.Val
+		}
+	}
+	if style == "" {
+		return false
+	}
+	decl := map[string]string{}
+	for _, d := range strings.Split(strings.ToLower(style), ";") {
+		k, v, ok := strings.Cut(d, ":")
+		if !ok {
+			continue
+		}
+		v = strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(v), "!important"))
+		decl[strings.TrimSpace(k)] = v
+	}
+	switch {
+	case decl["display"] == "none", decl["visibility"] == "hidden":
+		return true
+	case decl["overflow"] == "hidden":
+		h := decl["max-height"]
+		return h == "0" || h == "0px"
+	}
+	return false
 }
 
 func (w *textWriter) start(a atom.Atom, tok html.Token, tt html.TokenType, open *[]int) {

@@ -37,10 +37,19 @@ const (
 type Config struct {
 	Accounts []Account `toml:"account"`
 	// TrashDays is how long deleted mail stays in the trash (default 30).
-	TrashDays *int   `toml:"trash_days,omitempty"`
-	Rules     []Rule `toml:"rule,omitempty"`
-	TUI       TUI    `toml:"tui,omitempty"`
+	TrashDays *int `toml:"trash_days,omitempty"`
+	// PreferBody picks the version shown when a message has both: "html"
+	// (converted to text, the default) or "plain".
+	PreferBody string `toml:"prefer_body,omitempty"`
+	Rules      []Rule `toml:"rule,omitempty"`
+	TUI        TUI    `toml:"tui,omitempty"`
 }
+
+// Body versions for PreferBody.
+const (
+	BodyHTML  = "html"
+	BodyPlain = "plain"
+)
 
 // Rule acts on newly archived messages that match a query: it adds tags,
 // and can make them expire (be deleted for good, locally and from the
@@ -203,6 +212,9 @@ var (
 
 // Validate checks the whole configuration and reports the first problem.
 func (c *Config) Validate() error {
+	if c.PreferBody != "" && c.PreferBody != BodyHTML && c.PreferBody != BodyPlain {
+		return fmt.Errorf("prefer_body must be %q or %q", BodyHTML, BodyPlain)
+	}
 	if c.TrashDays != nil && (*c.TrashDays < 0 || *c.TrashDays > 3650) {
 		return errors.New("trash_days must be between 0 and 3650")
 	}

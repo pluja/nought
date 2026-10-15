@@ -110,6 +110,7 @@ func newMsgShowCmd(a *app) *cobra.Command {
 	cmd.Flags().StringVarP(&in.Account, "account", "a", "", "account, if the id exists in several")
 	cmd.Flags().BoolVar(&in.Raw, "raw", false, "print the raw message bytes (for piping to other programs)")
 	cmd.Flags().BoolVar(&force, "force", false, "allow --raw output to a terminal")
+	cmd.Flags().StringVar(&in.Prefer, "prefer", "", "version to show when there are both: html (as text) or plain")
 	return cmd
 }
 

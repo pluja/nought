@@ -229,3 +229,37 @@ func FuzzCleanURL(f *testing.F) {
 		}
 	})
 }
+
+func TestHTMLToTextDropsHiddenText(t *testing.T) {
+	got := HTMLToText(`<h1>Big news</h1><p style="color:#fff;display:none;text-align:left">&nbsp;<strong>preheader junk</strong></p>` +
+		`<p style="DISPLAY: NONE">caps</p><div hidden>attr</div><span style="visibility:hidden">invisible</span>` +
+		`<table><tr class="bu" style="display:none;mso-hide:all"><td><p>mobile copy</p></td></tr></table>` +
+		`<div style="display:none"><div>nested</div><img alt="pic"><br>still hidden</div>` +
+		`<p style="max-height:0;overflow:hidden">squeezed</p>` +
+		`<div style="mso-hide:all">outlook only</div>` +
+		`<p style="display:block">shown</p><img style="display:none" alt="hidden pic">after`)
+	for _, bad := range []string{"junk", "caps", "attr", "invisible", "mobile", "nested", "pic", "still hidden", "squeezed"} {
+		if strings.Contains(got, bad) {
+			t.Errorf("hidden text %q shown: %q", bad, got)
+		}
+	}
+	for _, want := range []string{"Big news", "shown", "after", "outlook only"} { // mso-hide hides in Outlook only
+		if !strings.Contains(got, want) {
+			t.Errorf("lost %q: %q", want, got)
+		}
+	}
+}
+
+// An unclosed hidden <p> ends where a browser ends it, not at the end of
+// the message.
+func TestHiddenParagraphWithoutEndTag(t *testing.T) {
+	got := HTMLToText(`<div><p style="display:none">secret<p>visible one</div><p>visible two`)
+	if strings.Contains(got, "secret") || !strings.Contains(got, "visible one") || !strings.Contains(got, "visible two") {
+		t.Errorf("got %q", got)
+	}
+}
+
+func TestDeepNestingIsBounded(t *testing.T) {
+	got := HTMLToText(strings.Repeat("<div>", 5000) + "deep" + "<p>x")
+	_ = got // must simply return
+}

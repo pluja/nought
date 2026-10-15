@@ -70,7 +70,7 @@ func (m Model) search(query string, gen int) tea.Cmd {
 
 func (m Model) show(msg ops.MessageOut, gen int) tea.Cmd {
 	return func() tea.Msg {
-		out, err := ops.Call(m.ctx, m.env, permTag, ops.MsgShow, ops.ShowIn{ID: msg.ID, Account: msg.Account})
+		out, err := ops.Call(m.ctx, m.env, permTag, ops.MsgShow, ops.ShowIn{ID: msg.ID, Account: msg.Account, Prefer: m.bodyPrefer})
 		return showDoneMsg{gen: gen, id: msg.ID, out: out, err: err}
 	}
 }

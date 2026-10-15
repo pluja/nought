@@ -149,8 +149,9 @@ type Model struct {
 	showLinks   bool
 	linkPick    int // >0: the confirmation box for this link is open
 	openURL     func(string) error
-	showGen     int // results of older show requests are ignored
-	previewSeq  int // debounces previews while moving
+	showGen     int    // results of older show requests are ignored
+	bodyPrefer  string // "html" or "plain" once the user switched with v; "" follows the config
+	previewSeq  int    // debounces previews while moving
 	previewWait time.Duration
 	reader      viewport.Model
 	inputKind   inputKind

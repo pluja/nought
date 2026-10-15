@@ -217,3 +217,32 @@ func TestMsgCount(t *testing.T) {
 		t.Errorf("bad query = %v", err)
 	}
 }
+
+func TestShowPrefersHTMLWithoutHiddenText(t *testing.T) {
+	env := newTestEnv(t)
+	root := filepath.Join(t.TempDir(), "export")
+	writeFile(t, filepath.Join(root, "Inbox", "cur", "1:2,S"), "From: news@example.org\r\nMessage-ID: <alt@x>\r\n"+
+		"Subject: newsletter\r\nMIME-Version: 1.0\r\nContent-Type: multipart/alternative; boundary=b\r\n\r\n"+
+		"--b\r\nContent-Type: text/plain\r\n\r\n****\r\n*Big news*\r\n****\r\npreheader junk\r\n"+
+		"--b\r\nContent-Type: text/html\r\n\r\n<h1>Big news</h1><p style=\"display:none\">preheader junk</p><p>Body.</p>\r\n--b--\r\n")
+	if _, err := Call(t.Context(), env, Delete, ImportRun, ImportIn{Path: root, Account: "personal"}); err != nil {
+		t.Fatal(err)
+	}
+	id := idOf(t, env, "subject:newsletter")
+	for _, c := range []struct{ prefer, from, alt, want, not string }{
+		{"", "text/html", "text/plain", "Big news", "junk"},
+		{"plain", "text/plain", "text/html", "****", ""},
+	} {
+		out, err := Call(t.Context(), env, Read, MsgShow, ShowIn{ID: id, Prefer: c.prefer})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if out.BodyFrom != c.from || out.Alternative != c.alt || !strings.Contains(out.Body, c.want) ||
+			(c.not != "" && strings.Contains(out.Body, c.not)) {
+			t.Errorf("prefer %q: from %q alt %q body %q", c.prefer, out.BodyFrom, out.Alternative, out.Body)
+		}
+	}
+	if _, err := Call(t.Context(), env, Read, MsgShow, ShowIn{ID: id, Prefer: "pdf"}); !errors.Is(err, ErrUsage) {
+		t.Errorf("bad prefer = %v", err)
+	}
+}
