@@ -1,0 +1,21 @@
+Weekly news
+
+Hello friend,
+welcome & enjoy.
+
+[Company logo]
+
+- First item
+- Second item <https://example.org/2>
+
+Visit https://example.org or click here or mail hi@example.org.
+
+> Quoted line one.
+
+> Quoted line two.
+
+  keep
+    this   spacing
+
+Name | Qty
+Apples | 3

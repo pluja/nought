@@ -38,6 +38,9 @@ func newRootCmd(a *app) *cobra.Command {
 	flags.BoolVarP(&a.verbose, "verbose", "v", false, "log debug information to stderr")
 
 	root.AddCommand(
+		newImportCmd(a),
+		newReindexCmd(a),
+		newTagsCmd(a),
 		newPathsCmd(a),
 		newVersionCmd(a),
 	)
@@ -48,6 +51,16 @@ func newRootCmd(a *app) *cobra.Command {
 func exactArgs(n int) cobra.PositionalArgs {
 	return func(cmd *cobra.Command, args []string) error {
 		if err := cobra.ExactArgs(n)(cmd, args); err != nil {
+			return fmt.Errorf("%w: %w", err, ops.ErrUsage)
+		}
+		return nil
+	}
+}
+
+// rangeArgs is cobra.RangeArgs with errors classified as usage errors.
+func rangeArgs(min, max int) cobra.PositionalArgs {
+	return func(cmd *cobra.Command, args []string) error {
+		if err := cobra.RangeArgs(min, max)(cmd, args); err != nil {
 			return fmt.Errorf("%w: %w", err, ops.ErrUsage)
 		}
 		return nil

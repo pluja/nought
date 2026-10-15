@@ -5,6 +5,7 @@ package index
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 
 	"nought/internal/query"
@@ -101,4 +102,32 @@ const hasTag = "EXISTS (SELECT 1 FROM tags t WHERE t.message_id = m.id AND t.tag
 // column filters in user input are never interpreted.
 func ftsPhrase(s string) string {
 	return `"` + strings.ReplaceAll(s, `"`, `""`) + `"`
+}
+
+// eachPage is how many messages Each loads at a time.
+const eachPage = 1000
+
+// Each calls fn with successive pages of every message matching q, in index
+// order. No database rows are held open while fn runs, so fn may use the
+// index.
+func (ix *Index) Each(ctx context.Context, q query.Query, fn func([]Message) error) error {
+	where, args, err := compile(q)
+	if err != nil {
+		return err
+	}
+	// Keyset pagination on id is stable even if fn changes tags.
+	lastID := int64(-1)
+	for {
+		page, err := ix.selectMessages(ctx, "("+where+") AND m.id > ?", append(slices.Clone(args), lastID), "m.id", eachPage)
+		if err != nil {
+			return err
+		}
+		if len(page) == 0 {
+			return nil
+		}
+		lastID = page[len(page)-1].ID
+		if err := fn(page); err != nil {
+			return err
+		}
+	}
 }

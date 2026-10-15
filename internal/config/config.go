@@ -168,9 +168,18 @@ func (c *Config) Validate() error {
 	return nil
 }
 
-func (a *Account) validate() error {
-	if !validName.MatchString(a.Name) || windowsReserved.MatchString(a.Name) {
+// ValidateAccountName checks that name is usable as an account name, which
+// is also a directory name in the archive.
+func ValidateAccountName(name string) error {
+	if !validName.MatchString(name) || windowsReserved.MatchString(name) {
 		return errors.New("name must be 1-32 characters of a-z, 0-9, '-' or '_', starting with a letter or digit")
+	}
+	return nil
+}
+
+func (a *Account) validate() error {
+	if err := ValidateAccountName(a.Name); err != nil {
+		return err
 	}
 	if _, err := mail.ParseAddress(a.Email); err != nil || strings.ContainsAny(a.Email, "<>") {
 		return errors.New("email must be a plain address like me@example.org")

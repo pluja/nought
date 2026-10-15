@@ -3,11 +3,15 @@
 package ops
 
 import (
+	"context"
+	"errors"
 	"log/slog"
 	"sync"
 	"time"
 
 	"nought/internal/config"
+	"nought/internal/index"
+	"nought/internal/store"
 )
 
 // BuildInfo describes the running binary.
@@ -27,11 +31,13 @@ type Env struct {
 
 	mu     sync.Mutex
 	config *config.Config
+	index  *index.Index
+	stores map[string]*store.Maildir
 }
 
 // NewEnv returns an Env. Nothing is opened until an op needs it.
 func NewEnv(paths config.Paths, log *slog.Logger, now func() time.Time, build BuildInfo) *Env {
-	return &Env{Paths: paths, Log: log, Now: now, Build: build}
+	return &Env{Paths: paths, Log: log, Now: now, Build: build, stores: make(map[string]*store.Maildir)}
 }
 
 // Config loads the configuration on first use.
@@ -48,7 +54,63 @@ func (e *Env) Config() (*config.Config, error) {
 	return e.config, nil
 }
 
+// Index opens the index on first use.
+func (e *Env) Index(ctx context.Context) (*index.Index, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.index == nil {
+		ix, err := index.Open(ctx, e.Paths.IndexFile)
+		if err != nil {
+			return nil, err
+		}
+		e.index = ix
+	}
+	return e.index, nil
+}
+
+// closeIndex closes the index so it can be replaced (see reindex).
+func (e *Env) closeIndex() error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.index == nil {
+		return nil
+	}
+	err := e.index.Close()
+	e.index = nil
+	return err
+}
+
+// Store opens an account's Maildir on first use. A Maildir is not safe for
+// concurrent use; callers use one account per goroutine.
+func (e *Env) Store(account string) (*store.Maildir, error) {
+	if err := config.ValidateAccountName(account); err != nil {
+		return nil, usageError("account %q: %v", account, err)
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if st, ok := e.stores[account]; ok {
+		return st, nil
+	}
+	st, err := store.Open(e.Paths.AccountArchive(account))
+	if err != nil {
+		return nil, err
+	}
+	e.stores[account] = st
+	return st, nil
+}
+
 // Close releases everything the Env opened.
 func (e *Env) Close() error {
-	return nil
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	var errs []error
+	for name, st := range e.stores {
+		errs = append(errs, st.Close())
+		delete(e.stores, name)
+	}
+	if e.index != nil {
+		errs = append(errs, e.index.Close())
+		e.index = nil
+	}
+	return errors.Join(errs...)
 }

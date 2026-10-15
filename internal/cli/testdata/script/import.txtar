@@ -1,0 +1,51 @@
+# Import a Thunderbird-style export: dry run first, then for real.
+exec nou import export --account personal --dry-run
+stdout '^would import 2, duplicates 0, deleted in source 1, failed 0$'
+
+exec nou import export --account personal --tag imported
+stdout '^imported 2, duplicates 0, deleted in source 1, failed 0$'
+
+# Importing again finds only duplicates; JSON output for scripts.
+exec nou import export --account personal --json
+stdout '^\{"imported":0,"duplicates":2,"deleted":1,"failed":0,"dry_run":false\}$'
+
+# Tags reflect source folders and read state.
+exec nou tags list
+stdout '^ +2  folder:inbox$'
+stdout '^ +2  imported$'
+stdout '^ +1  unread$'
+
+# The dump is notmuch-compatible and survives a reindex.
+exec nou tags dump
+stdout '^\+folder:inbox \+imported \+unread -- id:2@example.org$'
+exec nou reindex
+stdout '^indexed 2 messages in 1 accounts; restored tags for 2'
+exec nou tags list
+stdout '^ +2  imported$'
+
+# Usage errors.
+code 2 nou import export
+stderr 'a path and an account are required'
+code 2 nou import export --account ../evil
+code 5 nou import missing.mbox --account personal --format mbox
+code 2 nou tags restore
+code 5 nou tags restore nope.dump
+
+-- export/Inbox/cur/1;2,S --
+From: alice@example.org
+Message-ID: <1@example.org>
+Subject: read one
+
+hello
+-- export/Inbox/cur/2;2, --
+From: bob@example.org
+Message-ID: <2@example.org>
+Subject: unread two
+
+hello
+-- export/Inbox/cur/3;2, --
+X-Mozilla-Status: 0008
+Message-ID: <3@example.org>
+Subject: deleted in thunderbird
+
+gone

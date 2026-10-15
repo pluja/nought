@@ -4,10 +4,14 @@ package cli
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 
 	"github.com/spf13/cobra"
+
+	"nought/internal/ops"
+	"nought/internal/render"
 )
 
 // emit prints an op's output: JSON with --json, otherwise the human form.
@@ -19,6 +23,27 @@ func (a *app) emit(cmd *cobra.Command, out any, human func(w io.Writer) error) e
 		return enc.Encode(out)
 	}
 	return human(w)
+}
+
+// result emits an op's output and returns its error. Output is still shown
+// for partial failures, which carry useful per-item results.
+func (a *app) result(cmd *cobra.Command, out any, err error, human func(w io.Writer) error) error {
+	if err != nil && !errors.Is(err, ops.ErrPartial) {
+		return err
+	}
+	if emitErr := a.emit(cmd, out, human); emitErr != nil {
+		return emitErr
+	}
+	return err
+}
+
+// sanitize makes mail-derived text safe for the terminal.
+func sanitize(s string) string { return render.SanitizeLine(s) }
+
+// printf writes formatted text, for human output functions.
+func printf(w io.Writer, format string, args ...any) error {
+	_, err := fmt.Fprintf(w, format, args...)
+	return err
 }
 
 type jsonError struct {
