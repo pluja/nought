@@ -133,6 +133,13 @@ func (ix *Index) exists(ctx context.Context, query string, args ...any) (bool, e
 	return err == nil, err
 }
 
+// Candidates returns the account's messages that have this hash or, if
+// messageID is not empty, this Message-ID.
+func (ix *Index) Candidates(ctx context.Context, account, hash, messageID string) ([]Message, error) {
+	return ix.selectMessages(ctx, "a.name = ? AND (m.hash = ? OR (? != '' AND m.message_id = ?))",
+		[]any{account, hash, messageID, messageID}, "m.id", 100)
+}
+
 // MinPrefix is the shortest accepted ID prefix.
 const MinPrefix = 6
 

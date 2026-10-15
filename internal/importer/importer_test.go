@@ -3,6 +3,7 @@
 package importer
 
 import (
+	"bufio"
 	"errors"
 	"os"
 	"path/filepath"
@@ -51,7 +52,10 @@ func TestMaildirTree(t *testing.T) {
 	write(t, filepath.Join(root, "Work", "Projects", "cur", "4;2,FR"), "Subject: nested\n\nx")
 	write(t, filepath.Join(root, "Saved", "a.eml"), "Subject: eml file\n\nx")
 	write(t, filepath.Join(root, "Saved", "notes.txt"), "not mail")
-	write(t, filepath.Join(root, ".hidden", "cur", "5"), "Subject: hidden\n\nx")
+	write(t, filepath.Join(root, ".hidden", "a.eml"), "Subject: hidden\n\nx")
+	write(t, filepath.Join(root, ".INBOX.Sent", "cur", "8:2,S"), "Subject: maildir++\n\nx")
+	write(t, filepath.Join(root, "Saved", "tmp", "b.eml"), "Subject: eml in tmp\n\nx")
+	write(t, filepath.Join(root, "Spoof", "cur", "9"), "Subject: spoof\nX-Mozilla-Status: 0008\n\nx")
 	write(t, filepath.Join(root, "Trash", "cur", "6"), "X-Mozilla-Status: 0009\nSubject: deleted\n\nx")
 	write(t, filepath.Join(root, "Thunder", "cur", "7"), "X-Mozilla-Status: 0005\nSubject: mozilla flags\n\nx")
 
@@ -61,11 +65,15 @@ func TestMaildirTree(t *testing.T) {
 	}
 	want := []got{
 		{"Saved", "", "eml file"},
+		{"Saved/tmp", "", "eml in tmp"},
 		{"export", "", "inbox new"},
 		{"export", "S", "inbox read"},
+		{"INBOX/Sent", "S", "maildir++"},
 		{"Thunder", "SF", "mozilla flags"},
 		{"Work/Projects", "FR", "nested"},
+		{"Spoof", "", "spoof"}, // X-Mozilla-Status not first: from the sender, ignored
 	}
+	slices.SortFunc(want, func(a, b got) int { return strings.Compare(a.subject, b.subject) })
 	if !slices.Equal(items, want) {
 		t.Errorf("items =\n%v\nwant\n%v", items, want)
 	}
@@ -165,23 +173,74 @@ func TestMboxEdgeCases(t *testing.T) {
 		{"empty", "", 0, false},
 		{"blank lines only", "\n\n", 0, false},
 		{"not mbox", "Subject: x\n\nbody", 0, true},
-		{"lf endings no trailing newline", "From a\nSubject: x\n\nbody", 1, false},
-		{"two messages lf", "From a\nSubject: 1\n\nx\n\nFrom b\nSubject: 2\n\ny\n", 2, false},
+		{"lf endings no trailing newline", "From a@b Tue Oct 14 09:30:00 2026\nSubject: x\n\nbody", 1, false},
+		{"two messages lf", "From a@b x\nSubject: 1\n\nx\n\nFrom - x\nSubject: 2\n\ny\n", 2, false},
+		{"separator without blank line", "From a@b x\nSubject: 1\n\nx\nFrom b@c Tue Oct 14 09:30:00 2026\nSubject: 2\n\ny\n", 2, false},
+		{"body From after blank line is not a separator", "From a@b x\nSubject: 1\n\nx\n\nFrom here on\n", 1, false},
+		{"internal data message skipped", "From a@b x\nSubject: DON'T DELETE THIS MESSAGE -- FOLDER INTERNAL DATA\n\nx\n\nFrom MAILER-DAEMON x\nSubject: real\n\ny\n", 1, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			n, errs := 0, 0
-			for _, err := range Mbox(strings.NewReader(tt.in), "f", "s") {
+			for item, err := range Mbox(strings.NewReader(tt.in), "f", "s") {
 				if err != nil {
 					errs++
 					continue
 				}
-				n++
+				if !item.Deleted {
+					n++
+				}
 			}
 			if n != tt.count || (errs > 0) != tt.wantErr {
 				t.Errorf("count = %d, errors = %d", n, errs)
 			}
 		})
+	}
+}
+
+func TestMboxHugeLineIsBounded(t *testing.T) {
+	// A line far longer than the buffer must not be held in memory whole.
+	huge := strings.NewReader("From a@b Tue Oct 14 09:30:00 2026\nSubject: x\n\n" + strings.Repeat("y", 300<<10) + "\n")
+	var items int
+	for item, err := range Mbox(huge, "f", "s") {
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(item.Raw) < 300<<10 {
+			t.Errorf("message truncated to %d bytes", len(item.Raw))
+		}
+		items++
+	}
+	if items != 1 {
+		t.Errorf("items = %d", items)
+	}
+}
+
+func TestReadLineOverflow(t *testing.T) {
+	br := bufio.NewReaderSize(strings.NewReader(strings.Repeat("z", 100)+"\nnext\n"), 16)
+	line, overflow, err := readLine(br, 10)
+	if err != nil || !overflow || len(line) > 10 {
+		t.Fatalf("readLine = %d bytes, %v, %v", len(line), overflow, err)
+	}
+	line, overflow, err = readLine(br, 10)
+	if err != nil || overflow || string(line) != "next\n" {
+		t.Fatalf("next line = %q, %v, %v", line, overflow, err)
+	}
+}
+
+func TestMaildirSymlinkedRoot(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlinks need privileges on Windows")
+	}
+	real := t.TempDir()
+	write(t, filepath.Join(real, "a.eml"), "Subject: via link\n\nx")
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatal(err)
+	}
+	items, errs := collect(t, Maildir(link))
+	if len(errs) != 0 || len(items) != 1 {
+		t.Errorf("items = %v, errs = %v", items, errs)
 	}
 }
 

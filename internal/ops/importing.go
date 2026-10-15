@@ -84,6 +84,7 @@ func runImport(ctx context.Context, env *Env, in ImportIn) (ImportOut, error) {
 		return out, err
 	}
 
+	changedTags := false
 	for item, err := range items {
 		if err := ctx.Err(); err != nil {
 			return out, err
@@ -96,21 +97,29 @@ func runImport(ctx context.Context, env *Env, in ImportIn) (ImportOut, error) {
 			out.Deleted++
 			continue
 		}
-		dup, err := isDuplicate(ctx, ix, in.Account, item.Raw)
+		tags := mergeTags([]string{folderTag(item.Folder)}, in.Tags)
+		if in.Inbox {
+			tags = mergeTags(tags, []string{TagInbox})
+		}
+		dups, err := duplicates(ctx, ix, in.Account, item.Raw)
 		if err != nil {
 			return out, err
 		}
-		if dup {
+		if len(dups) > 0 {
+			// The same message filed in several folders: keep one copy and
+			// give it every folder's tag.
 			out.Duplicates++
+			if !in.DryRun {
+				if err := ix.ModifyTags(ctx, dups, tags, nil); err != nil {
+					return out, err
+				}
+				changedTags = true
+			}
 			continue
 		}
 		if in.DryRun {
 			out.Imported++
 			continue
-		}
-		tags := mergeTags([]string{folderTag(item.Folder)}, in.Tags)
-		if in.Inbox {
-			tags = mergeTags(tags, []string{TagInbox})
 		}
 		if _, _, err := archive(ctx, env, in.Account, item.Raw, item.Flags, tags); err != nil {
 			out.fail(item.Source, err)
@@ -119,7 +128,7 @@ func runImport(ctx context.Context, env *Env, in ImportIn) (ImportOut, error) {
 		out.Imported++
 	}
 
-	if !in.DryRun && out.Imported > 0 {
+	if !in.DryRun && (out.Imported > 0 || changedTags) {
 		if err := writeTagsDump(ctx, env); err != nil {
 			return out, err
 		}
@@ -130,12 +139,25 @@ func runImport(ctx context.Context, env *Env, in ImportIn) (ImportOut, error) {
 	return out, nil
 }
 
-func isDuplicate(ctx context.Context, ix *index.Index, account string, raw []byte) (bool, error) {
-	if dup, err := ix.HasHash(ctx, account, store.Hash(raw)); err != nil || dup {
-		return dup, err
-	}
+// duplicates returns the IDs of messages already in the account that are
+// the same message: identical content, or the same Message-ID, From and
+// Date (a copy whose headers a mail program changed, e.g. Thunderbird's
+// X-Mozilla-Status). Requiring From and Date too means a sender cannot hide
+// a new message by reusing another message's Message-ID.
+func duplicates(ctx context.Context, ix *index.Index, account string, raw []byte) ([]int64, error) {
+	hash := store.Hash(raw)
 	h, _ := mailmsg.Parse(raw)
-	return ix.HasMessageID(ctx, account, h.MessageID)
+	candidates, err := ix.Candidates(ctx, account, hash, h.MessageID)
+	if err != nil {
+		return nil, err
+	}
+	var ids []int64
+	for _, c := range candidates {
+		if c.Hash == hash || c.From == h.From && c.Date.Equal(h.Date) {
+			ids = append(ids, c.ID)
+		}
+	}
+	return ids, nil
 }
 
 func openSource(path, format string) (iter.Seq2[importer.Item, error], func() error, error) {

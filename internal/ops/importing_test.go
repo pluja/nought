@@ -3,6 +3,7 @@
 package ops
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -116,8 +117,28 @@ func TestImportMboxDedupesByMessageID(t *testing.T) {
 	if err != nil || out.Imported != 1 || out.Duplicates != 1 {
 		t.Fatalf("mbox import = %+v, %v", out, err)
 	}
-	if got := search(t, env, "tag:inbox tag:folder:archive"); !slices.Equal(got, []string{"new nine"}) {
+	// The duplicate keeps one copy but gains this import's tags.
+	if got := search(t, env, "tag:inbox tag:folder:archive"); !slices.Equal(got, []string{"new nine", "read one"}) {
 		t.Errorf("inbox = %v", got)
+	}
+}
+
+func TestImportDuplicateMergesFolderTags(t *testing.T) {
+	env := newTestEnv(t)
+	root := filepath.Join(t.TempDir(), "export")
+	writeFile(t, filepath.Join(root, "Inbox", "a.eml"), mail("1@x", "filed twice"))
+	writeFile(t, filepath.Join(root, "Projects", "a.eml"), "X-Mozilla-Status: 0001\r\n"+mail("1@x", "filed twice"))
+	// Same Message-ID, different sender: not a duplicate.
+	writeFile(t, filepath.Join(root, "Other", "b.eml"), strings.Replace(mail("1@x", "forged id"), "alice@", "mallory@", 1))
+	out, err := Call(t.Context(), env, Delete, ImportRun, ImportIn{Path: root, Account: "personal"})
+	if err != nil || out.Imported != 2 || out.Duplicates != 1 {
+		t.Fatalf("import = %+v, %v", out, err)
+	}
+	if got := search(t, env, "tag:folder:inbox tag:folder:projects"); !slices.Equal(got, []string{"filed twice"}) {
+		t.Errorf("merged folder tags = %v", got)
+	}
+	if got := search(t, env, "subject:forged"); len(got) != 1 {
+		t.Errorf("forged Message-ID hid a message: %v", got)
 	}
 }
 
@@ -179,6 +200,51 @@ func TestReindexRestoresTags(t *testing.T) {
 	}
 	if got := search(t, env, "is:unread"); !slices.Equal(got, []string{"unread two"}) {
 		t.Errorf("unread after reindex = %v", got)
+	}
+}
+
+func TestReindexInterruptedKeepsOldIndexAndTags(t *testing.T) {
+	env := newTestEnv(t)
+	if _, err := Call(t.Context(), env, Delete, ImportRun, ImportIn{Path: thunderbirdExport(t), Account: "personal", Inbox: true}); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	if _, err := Call(ctx, env, Delete, IndexRebuild, struct{}{}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled reindex = %v", err)
+	}
+	if _, err := os.Stat(env.Paths.IndexFile + ".new"); !errors.Is(err, os.ErrNotExist) {
+		t.Error("partial index left behind")
+	}
+	// The old index is intact, and a second reindex keeps every tag.
+	if got := search(t, env, "tag:inbox"); len(got) != 3 {
+		t.Fatalf("inbox after interrupted reindex = %v", got)
+	}
+	if _, err := Call(t.Context(), env, Delete, IndexRebuild, struct{}{}); err != nil {
+		t.Fatal(err)
+	}
+	if got := search(t, env, "tag:inbox"); len(got) != 3 {
+		t.Errorf("inbox after second reindex = %v", got)
+	}
+}
+
+func TestReindexStopsWhenDumpCannotBeWritten(t *testing.T) {
+	env := newTestEnv(t)
+	if _, err := Call(t.Context(), env, Delete, ImportRun, ImportIn{Path: thunderbirdExport(t), Account: "personal"}); err != nil {
+		t.Fatal(err)
+	}
+	// Make the dump path unwritable: a directory in its place.
+	if err := os.Remove(env.Paths.TagsDump); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(env.Paths.TagsDump, "block"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Call(t.Context(), env, Delete, IndexRebuild, struct{}{}); err == nil {
+		t.Fatal("reindex continued without a fresh dump")
+	}
+	if got := search(t, env, "tag:folder:inbox"); len(got) != 2 {
+		t.Errorf("index changed: %v", got)
 	}
 }
 

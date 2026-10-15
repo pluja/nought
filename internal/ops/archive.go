@@ -37,16 +37,16 @@ func archive(ctx context.Context, env *Env, account string, raw []byte, flags st
 	if err != nil {
 		return index.Message{}, false, fmt.Errorf("store message: %w", err)
 	}
-	return indexMessage(ctx, env, account, raw, entry.Flags, tags)
-}
-
-// indexMessage adds a stored message to the index. Parsing is best effort:
-// a message that cannot be parsed is still indexed by its hash.
-func indexMessage(ctx context.Context, env *Env, account string, raw []byte, flags string, tags []string) (index.Message, bool, error) {
 	ix, err := env.Index(ctx)
 	if err != nil {
 		return index.Message{}, false, err
 	}
+	return indexMessage(ctx, env, ix, account, raw, entry.Flags, tags)
+}
+
+// indexMessage adds a stored message to the index. Parsing is best effort:
+// a message that cannot be parsed is still indexed by its hash.
+func indexMessage(ctx context.Context, env *Env, ix *index.Index, account string, raw []byte, flags string, tags []string) (index.Message, bool, error) {
 	hash := store.Hash(raw)
 	h, err := mailmsg.Parse(raw)
 	if err != nil {

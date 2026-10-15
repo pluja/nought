@@ -57,11 +57,12 @@ type jsonError struct {
 func writeError(w io.Writer, asJSON bool, code string, err error) {
 	if asJSON {
 		var e jsonError
-		e.Error.Code, e.Error.Message = code, err.Error()
+		e.Error.Code, e.Error.Message = code, sanitize(err.Error())
 		enc := json.NewEncoder(w)
 		enc.SetEscapeHTML(false)
 		_ = enc.Encode(e)
 		return
 	}
-	_, _ = fmt.Fprintf(w, "nou: %v\n", err)
+	// Errors can quote file names, queries or dump lines: sanitize them.
+	_, _ = fmt.Fprintf(w, "nou: %s\n", sanitize(err.Error()))
 }

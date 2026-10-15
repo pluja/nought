@@ -61,6 +61,28 @@ func TestHTMLToTextNestedSkip(t *testing.T) {
 	}
 }
 
+func TestHTMLToTextUnclosedHead(t *testing.T) {
+	got := HTMLToText(`<html><head><meta charset="utf-8"><title>t</title><body><p>hello body</p>`)
+	if got != "hello body" {
+		t.Errorf("got %q", got)
+	}
+}
+
+func TestHTMLToTextBounded(t *testing.T) {
+	nested := strings.Repeat("<blockquote>", 100000) + strings.Repeat("a<br>", 20000)
+	got := HTMLToText(nested)
+	if len(got) > MaxTextOutput {
+		t.Fatalf("output %d bytes", len(got))
+	}
+	if strings.Contains(got, strings.Repeat("> ", maxQuoteDepth+1)) {
+		t.Error("quote depth not capped")
+	}
+	big := HTMLToText(strings.Repeat("<p>word</p>", 1<<20))
+	if len(big) > MaxTextOutput {
+		t.Errorf("output %d bytes", len(big))
+	}
+}
+
 func TestSanitize(t *testing.T) {
 	tests := []struct{ in, want string }{
 		{"plain", "plain"},

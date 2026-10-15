@@ -27,8 +27,12 @@ var blocks = map[atom.Atom]bool{
 	atom.Center: true, atom.Address: true, atom.Figure: true, atom.Main: true, atom.Nav: true,
 }
 
-// MaxHTMLInput bounds the HTML that HTMLToText will process.
-const MaxHTMLInput = 4 << 20
+// Limits that keep hostile HTML cheap to convert.
+const (
+	MaxHTMLInput  = 4 << 20 // bytes of HTML processed
+	MaxTextOutput = 1 << 20 // bytes of text produced
+	maxQuoteDepth = 8       // nested quotes shown with "> " prefixes
+)
 
 // HTMLToText reduces HTML to readable plain text. It keeps text, paragraph
 // structure, list bullets, quotes and link targets, and drops everything
@@ -50,8 +54,16 @@ func HTMLToText(s string) string {
 		if tt == html.ErrorToken {
 			break
 		}
+		if w.b.Len() >= MaxTextOutput {
+			break
+		}
 		tok := z.Token()
 		if skipDepth > 0 {
+			// HTML allows omitting </head>; the body still starts at <body>.
+			if skipTag == atom.Head && tt == html.StartTagToken && tok.DataAtom == atom.Body {
+				skipDepth = 0
+				continue
+			}
 			switch {
 			case tt == html.StartTagToken && tok.DataAtom == skipTag:
 				skipDepth++
@@ -122,7 +134,11 @@ func HTMLToText(s string) string {
 			}
 		}
 	}
-	return Sanitize(w.String())
+	out := w.String()
+	if len(out) > MaxTextOutput {
+		out = strings.ToValidUTF8(out[:MaxTextOutput], "")
+	}
+	return Sanitize(out)
 }
 
 func attr(tok html.Token, name string) string {
@@ -169,7 +185,7 @@ func (w *textWriter) raw(s string) {
 			continue
 		}
 		if w.lineLen == 0 && w.quote > 0 {
-			w.b.WriteString(strings.Repeat("> ", w.quote))
+			w.b.WriteString(strings.Repeat("> ", min(w.quote, maxQuoteDepth)))
 		}
 		w.b.WriteRune(r)
 		w.lineLen++

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 
 	"nought/internal/atomicfile"
 	"nought/internal/config"
@@ -115,61 +116,80 @@ var IndexRebuild = Op[struct{}, ReindexOut]{
 
 func runReindex(ctx context.Context, env *Env, _ struct{}) (ReindexOut, error) {
 	var out ReindexOut
-	// Refresh the dump from the current index first, so tags changed since
-	// the last dump survive. A broken index keeps the previous dump.
-	if _, err := os.Stat(env.Paths.IndexFile); err == nil {
-		if err := writeTagsDump(ctx, env); err != nil {
-			env.Log.Warn("could not refresh the tag dump from the old index; using the existing dump", "err", err)
-		}
-	}
-	if err := env.closeIndex(); err != nil {
+	if err := refreshDumpBeforeReindex(ctx, env); err != nil {
 		return out, err
 	}
-	for _, suffix := range []string{"", "-wal", "-shm"} {
-		if err := os.Remove(env.Paths.IndexFile + suffix); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return out, fmt.Errorf("remove old index: %w", err)
-		}
+
+	// Build the new index beside the old one and swap it in only when it is
+	// complete, so an interrupted reindex never leaves a partial index (whose
+	// dump would lose tags) in place.
+	next := env.Paths.IndexFile + ".new"
+	if err := removeDB(next); err != nil {
+		return out, err
 	}
+	ix, err := index.Open(ctx, next)
+	if err != nil {
+		return out, err
+	}
+	built := false
+	defer func() {
+		if !built {
+			_ = ix.Close()
+			_ = removeDB(next)
+		}
+	}()
 
 	accounts, err := archivedAccounts(env.Paths.ArchiveDir)
 	if err != nil {
 		return out, err
 	}
 	for _, account := range accounts {
-		if err := ctx.Err(); err != nil {
-			return out, err
-		}
 		st, err := env.Store(account)
 		if err != nil {
 			return out, err
 		}
 		out.Accounts++
 		for entry := range st.All() {
+			if err := ctx.Err(); err != nil {
+				return out, err
+			}
 			raw, err := st.Get(entry.Hash)
 			if err == nil {
-				_, _, err = indexMessage(ctx, env, account, raw, entry.Flags, nil)
+				_, _, err = indexMessage(ctx, env, ix, account, raw, entry.Flags, nil)
 			}
 			if err != nil {
 				out.Failed++
 				if len(out.Failures) < maxFailures {
-					out.Failures = append(out.Failures, Failure{Source: account + "/" + entry.Hash[:12], Error: err.Error()})
+					out.Failures = append(out.Failures, Failure{Source: account + "/" + entry.Hash[:IDLen], Error: err.Error()})
 				}
 				continue
 			}
 			out.Messages++
 		}
 	}
+	if out.Restored, err = restoreDumpFile(ctx, ix, env.Paths.TagsDump); err != nil {
+		return out, err
+	}
 
-	if f, err := os.Open(env.Paths.TagsDump); err == nil {
-		ix, err := env.Index(ctx)
-		if err != nil {
-			return out, errors.Join(err, f.Close())
-		}
-		out.Restored, err = ix.Restore(ctx, f)
-		if err := errors.Join(err, f.Close()); err != nil {
-			return out, fmt.Errorf("restore tags: %w", err)
-		}
-	} else if !errors.Is(err, os.ErrNotExist) {
+	// Swap: close both, drop the old database and its WAL files, rename.
+	if err := ix.Close(); err != nil {
+		return out, err
+	}
+	built = true
+	if err := env.closeIndex(); err != nil {
+		return out, err
+	}
+	if err := removeDB(env.Paths.IndexFile); err != nil {
+		return out, err
+	}
+	if err := os.Rename(next, env.Paths.IndexFile); err != nil {
+		return out, fmt.Errorf("install new index: %w", err)
+	}
+	if err := atomicfile.SyncDir(filepath.Dir(env.Paths.IndexFile)); err != nil {
+		return out, err
+	}
+
+	if err := syncFlagsFromTags(ctx, env); err != nil {
 		return out, err
 	}
 	if err := writeTagsDump(ctx, env); err != nil {
@@ -179,6 +199,49 @@ func runReindex(ctx context.Context, env *Env, _ struct{}) (ReindexOut, error) {
 		return out, fmt.Errorf("%d messages could not be indexed: %w", out.Failed, ErrPartial)
 	}
 	return out, nil
+}
+
+// refreshDumpBeforeReindex writes the dump from the current index so tag
+// changes since the last dump survive. If the index cannot be opened (it is
+// what is being repaired), the existing dump is used. If it opens but the
+// dump cannot be written, reindexing stops: continuing would lose tags.
+func refreshDumpBeforeReindex(ctx context.Context, env *Env) error {
+	if _, err := os.Stat(env.Paths.IndexFile); errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if _, err := env.Index(ctx); err != nil {
+		env.Log.Warn("the current index cannot be opened; rebuilding from the existing tag dump", "err", err)
+		return nil
+	}
+	if err := writeTagsDump(ctx, env); err != nil {
+		return fmt.Errorf("refresh tag dump before reindex (nothing was changed): %w", err)
+	}
+	return nil
+}
+
+func restoreDumpFile(ctx context.Context, ix *index.Index, path string) (index.RestoreResult, error) {
+	f, err := os.Open(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return index.RestoreResult{}, nil
+	}
+	if err != nil {
+		return index.RestoreResult{}, err
+	}
+	res, err := ix.Restore(ctx, f)
+	if err := errors.Join(err, f.Close()); err != nil {
+		return res, fmt.Errorf("restore tags from %s: %w", path, err)
+	}
+	return res, nil
+}
+
+// removeDB removes an SQLite database and its WAL and shared-memory files.
+func removeDB(path string) error {
+	for _, suffix := range []string{"", "-wal", "-shm"} {
+		if err := os.Remove(path + suffix); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("remove %s: %w", filepath.Base(path+suffix), err)
+		}
+	}
+	return nil
 }
 
 // archivedAccounts lists account directories in the archive.
@@ -227,7 +290,12 @@ func applyFlags(env *Env, msgs []index.Message) error {
 			errs = append(errs, err)
 			continue
 		}
-		if want := tagFlags(current, m.Tags); want != current {
+		want, err := store.NormalizeFlags(tagFlags(current, m.Tags))
+		if err != nil {
+			errs = append(errs, err)
+			continue
+		}
+		if want != current {
 			if err := st.SetFlags(m.Hash, want); err != nil {
 				errs = append(errs, fmt.Errorf("%s: %w", m.Hash[:12], err))
 			}
