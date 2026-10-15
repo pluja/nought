@@ -64,8 +64,14 @@ func (m Model) bodyHeight() int {
 	if m.renderPromptLine() != "" {
 		h--
 	}
+	if m.hintsShown() {
+		h--
+	}
 	return max(h, 1)
 }
+
+// hintsShown: the key hints line needs a little room.
+func (m Model) hintsShown() bool { return m.prefs.ShowHints() && m.height >= 10 }
 
 func (m Model) listHeight() int { return m.bodyHeight() }
 
@@ -110,6 +116,9 @@ func (m Model) renderScreen() string {
 		lines = append(lines, line)
 	}
 	lines = append(lines, m.renderStatus())
+	if m.hintsShown() {
+		lines = append(lines, m.renderHints())
+	}
 	return strings.Join(lines, "\n")
 }
 
@@ -370,6 +379,31 @@ func (m Model) renderPromptLine() string {
 	return ""
 }
 
+// renderHints shows the most useful keys for what is on screen.
+func (m Model) renderHints() string {
+	var hints [][2]string
+	switch {
+	case m.inputKind == inputLinkNumber:
+		hints = [][2]string{{"1-" + strconv.Itoa(len(m.links)), "link"}, {"enter", "confirm"}, {"esc", "cancel"}}
+	case m.inputKind != inputNone:
+		hints = [][2]string{{"enter", "confirm"}, {"esc", "cancel"}}
+	case m.focus == focusReader:
+		hints = [][2]string{{"o", "open link"}, {"L", "links"}, {"e", "archive"}, {"u", "unread"}, {"s", "flag"},
+			{"l", "tags"}, {"J/K", "next/prev"}, {"esc", "back"}}
+	case m.focus == focusSidebar:
+		hints = [][2]string{{"j/k", "move"}, {"enter", "show"}, {"esc", "back"}}
+	default:
+		hints = [][2]string{{"enter", "open"}, {"e", "archive"}, {"u", "unread"}, {"s", "flag"}, {"l", "tags"},
+			{"/", "search"}, {"S", "sync"}, {"z", "undo"}, {"b", "sidebar"}}
+	}
+	hints = append(hints, [2]string{"?", "all keys"})
+	var parts []string
+	for _, h := range hints {
+		parts = append(parts, m.st.accent.Render(h[0])+" "+m.st.dim.Render(h[1]))
+	}
+	return fit(" "+strings.Join(parts, m.st.dim.Render("  ")), m.width, 1)
+}
+
 func (m Model) renderStatus() string {
 	var parts []string
 	for _, s := range m.status {
@@ -388,7 +422,7 @@ func (m Model) renderStatus() string {
 		parts = append(parts, "no accounts (nou account add)")
 	}
 	right := "? help"
-	if m.width < 30 {
+	if m.width < 30 || m.hintsShown() {
 		right = ""
 	}
 	left := strings.Join(parts, m.st.dim.Render(" │ "))

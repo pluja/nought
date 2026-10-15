@@ -44,7 +44,12 @@ type TUI struct {
 	// ASCII uses plain characters instead of symbols for status markers.
 	ASCII    bool          `toml:"ascii,omitempty"`
 	Searches []SavedSearch `toml:"search,omitempty"`
+	// Hints shows a line of useful keys for the current screen (default true).
+	Hints *bool `toml:"hints,omitempty"`
 }
+
+// ShowHints reports whether the key hints line is shown.
+func (t TUI) ShowHints() bool { return t.Hints == nil || *t.Hints }
 
 // SavedSearch is a named query shown in the TUI sidebar.
 type SavedSearch struct {

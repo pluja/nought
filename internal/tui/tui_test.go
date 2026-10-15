@@ -156,7 +156,7 @@ func TestOpensOnTheInbox(t *testing.T) {
 	m := newTestModel(t, 120, 30)
 	s := screen(m)
 	for _, want := range []string{"tag:inbox", "3 messages", "Lunch on Friday?", "Invoice 2026-114",
-		"Inbox", "no accounts", "? help"} {
+		"Inbox", "no accounts", "? all keys"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("screen lacks %q:\n%s", want, s)
 		}
@@ -568,7 +568,7 @@ func TestOpenLinkAsksFirst(t *testing.T) {
 	var opened []string
 	m.openURL = func(u string) error { opened = append(opened, u); return nil }
 
-	m = drive(t, m, key("o"), key("2"), key("enter"))
+	m = drive(t, m, key("o"), key("2"))
 	s := screen(m)
 	if m.linkPick != 2 || !strings.Contains(s, "Goes to: evil.example") || !strings.Contains(s, "different site") ||
 		!strings.Contains(s, "tells the sender you clicked") {
@@ -582,26 +582,31 @@ func TestOpenLinkAsksFirst(t *testing.T) {
 		t.Errorf("cancel: pick %d opened %v notice %q", m.linkPick, opened, m.notice)
 	}
 
-	m = drive(t, m, key("o"), key("1"), key("enter"))
+	m = drive(t, m, key("o"), key("1"))
 	if s := screen(m); !strings.Contains(s, "Without tracking") || !strings.Contains(s, "removed: utm_source") {
 		t.Errorf("no clean option:\n%s", s)
 	}
-	m = drive(t, m, key("o"), key("o"), key("1"), key("enter"), key("O"))
+	m = drive(t, m, key("o"), key("o"), key("1"), key("O"))
 	if len(opened) != 2 || opened[0] != "https://example.org/post?track=123&utm_source=news" ||
 		opened[1] != "https://example.org/post?track=123" {
 		t.Errorf("opened = %v", opened)
 	}
 
-	m = drive(t, m, key("o"), key("1"), key("enter"))
+	m = drive(t, m, key("o"), key("1"))
 	next, cmd := m.Update(key("c"))
 	m = next.(Model)
 	if cmd == nil || m.linkPick != 0 || !strings.Contains(m.notice, "copied") {
 		t.Errorf("copy: cmd %v pick %d notice %q", cmd != nil, m.linkPick, m.notice)
 	}
 
-	m = drive(t, m, key("o"), key("9"), key("enter"))
+	m = drive(t, m, key("o"), key("9"))
 	if m.linkPick != 0 || !strings.Contains(m.notice, "no link 9") {
 		t.Errorf("bad number: pick %d notice %q", m.linkPick, m.notice)
+	}
+	// With 2 links, a single digit is enough: no Enter.
+	m = drive(t, m, key("o"), key("2"))
+	if m.linkPick != 2 {
+		t.Errorf("o2 did not open the box at once: pick %d", m.linkPick)
 	}
 }
 
@@ -616,5 +621,36 @@ func TestOpenableSchemes(t *testing.T) {
 	}
 	if err := openInBrowser("file:///etc/passwd"); err == nil {
 		t.Error("opened a file: URL")
+	}
+}
+
+func TestLinkNumberComplete(t *testing.T) {
+	for _, tt := range []struct {
+		typed string
+		links int
+		want  bool
+	}{
+		{"3", 9, true}, {"3", 25, true}, {"2", 25, false}, {"24", 25, true}, {"1", 10, false},
+		{"10", 10, true}, {"1", 150, false}, {"15", 150, false}, {"150", 150, true}, {"x", 5, false}, {"0", 5, false},
+	} {
+		if got := linkNumberComplete(tt.typed, tt.links); got != tt.want {
+			t.Errorf("linkNumberComplete(%q, %d) = %v", tt.typed, tt.links, got)
+		}
+	}
+}
+
+func TestHintsFollowTheScreen(t *testing.T) {
+	m := newTestModel(t, 120, 30)
+	if s := screen(m); !strings.Contains(s, "e archive") || !strings.Contains(s, "/ search") {
+		t.Errorf("list hints missing:\n%s", s)
+	}
+	m = drive(t, m, key("enter"))
+	if s := screen(m); !strings.Contains(s, "o open link") || !strings.Contains(s, "J/K next/prev") {
+		t.Errorf("reader hints missing:\n%s", s)
+	}
+	off := false
+	m.prefs.Hints = &off
+	if strings.Contains(screen(m), "o open link") {
+		t.Error("hints shown although disabled")
 	}
 }

@@ -4,6 +4,7 @@ package tui
 
 import (
 	"slices"
+	"strconv"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -287,7 +288,23 @@ func (m Model) inputKey(k tea.KeyPressMsg) (Model, tea.Cmd) {
 	}
 	var cmd tea.Cmd
 	m.input, cmd = m.input.Update(k)
+	if m.inputKind == inputLinkNumber && linkNumberComplete(m.input.Value(), len(m.links)) {
+		value := m.input.Value()
+		m.inputKind = inputNone
+		m.input.Blur()
+		return m.pickLink(value)
+	}
 	return m, cmd
+}
+
+// linkNumberComplete reports whether a typed link number cannot grow into
+// another valid one ("3" with 25 links), so no Enter is needed.
+func linkNumberComplete(typed string, links int) bool {
+	n, err := strconv.Atoi(typed)
+	if err != nil || n < 1 {
+		return false
+	}
+	return n*10 > links
 }
 
 func (m Model) submit(kind inputKind, value string) (Model, tea.Cmd) {
