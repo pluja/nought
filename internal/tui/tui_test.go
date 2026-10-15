@@ -517,3 +517,99 @@ func TestSenderShowsDomain(t *testing.T) {
 		t.Errorf("senderName = %q", got)
 	}
 }
+
+// withLinksMessage adds an HTML message with links to the test archive and
+// opens it.
+func withLinksMessage(t *testing.T, m Model) Model {
+	t.Helper()
+	dir := filepath.Join(t.TempDir(), "x", "Inbox")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	raw := "From: News <news@example.org>\r\nMessage-ID: <links@x>\r\nDate: Thu, 15 Oct 2026 09:00:00 +0000\r\n" +
+		"Subject: With links\r\nContent-Type: text/html\r\n\r\n" +
+		`<p>Read <a href="https://example.org/post?track=123">the post</a> or log in at ` +
+		`<a href="https://evil.example/login">paypal.com</a>.</p>` + "\r\n"
+	if err := os.WriteFile(filepath.Join(dir, "l.eml"), []byte(raw), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ops.Call(t.Context(), m.env, ops.Delete, ops.ImportRun,
+		ops.ImportIn{Path: filepath.Dir(dir), Account: "personal", Inbox: true}); err != nil {
+		t.Fatal(err)
+	}
+	next, _ := m.refresh()
+	m = drive(t, next, append([]tea.Msg{}, run(next.search(next.query, next.searchGen))...)...)
+	m = drive(t, m, key("g"), key("g"), key("enter"))
+	if m.open == nil || m.open.Message.Subject != "With links" {
+		t.Fatalf("open = %+v", m.open)
+	}
+	return m
+}
+
+func TestLinksCollapsedAndToggled(t *testing.T) {
+	m := withLinksMessage(t, newTestModel(t, 120, 30))
+	s := screen(m)
+	if !strings.Contains(s, "the post[1]") || !strings.Contains(s, "2 links · o open · L show") || strings.Contains(s, "track=123") {
+		t.Fatalf("collapsed links:\n%s", s)
+	}
+	m = drive(t, m, key("L"))
+	s = screen(m)
+	if !strings.Contains(s, "[1] example.org https://example.org/") || !strings.Contains(s, "[2] ! evil.example") {
+		t.Errorf("link list:\n%s", s)
+	}
+	m = drive(t, m, key("L"))
+	if strings.Contains(screen(m), "track=123") {
+		t.Error("list not hidden again")
+	}
+}
+
+func TestOpenLinkAsksFirst(t *testing.T) {
+	m := withLinksMessage(t, newTestModel(t, 120, 30))
+	var opened []string
+	m.openURL = func(u string) error { opened = append(opened, u); return nil }
+
+	m = drive(t, m, key("o"), key("2"), key("enter"))
+	s := screen(m)
+	if m.linkPick != 2 || !strings.Contains(s, "Goes to: evil.example") || !strings.Contains(s, "different site") ||
+		!strings.Contains(s, "tells the sender you clicked") {
+		t.Fatalf("confirmation box:\n%s", s)
+	}
+	if len(opened) != 0 {
+		t.Fatal("opened before confirming")
+	}
+	m = drive(t, m, key("esc"))
+	if m.linkPick != 0 || len(opened) != 0 || m.notice != "link not opened" {
+		t.Errorf("cancel: pick %d opened %v notice %q", m.linkPick, opened, m.notice)
+	}
+
+	m = drive(t, m, key("o"), key("1"), key("enter"), key("o"))
+	if len(opened) != 1 || opened[0] != "https://example.org/post?track=123" {
+		t.Errorf("opened = %v", opened)
+	}
+
+	m = drive(t, m, key("o"), key("1"), key("enter"))
+	next, cmd := m.Update(key("c"))
+	m = next.(Model)
+	if cmd == nil || m.linkPick != 0 || !strings.Contains(m.notice, "copied") {
+		t.Errorf("copy: cmd %v pick %d notice %q", cmd != nil, m.linkPick, m.notice)
+	}
+
+	m = drive(t, m, key("o"), key("9"), key("enter"))
+	if m.linkPick != 0 || !strings.Contains(m.notice, "no link 9") {
+		t.Errorf("bad number: pick %d notice %q", m.linkPick, m.notice)
+	}
+}
+
+func TestOpenableSchemes(t *testing.T) {
+	for link, want := range map[string]bool{
+		"https://x.example": true, "http://x.example": true, "mailto:a@x.example": true,
+		"javascript:alert(1)": false, "file:///etc/passwd": false, "x": false,
+	} {
+		if got := openable(link); got != want {
+			t.Errorf("openable(%q) = %v", link, got)
+		}
+	}
+	if err := openInBrowser("file:///etc/passwd"); err == nil {
+		t.Error("opened a file: URL")
+	}
+}

@@ -54,15 +54,26 @@ func apply(f func(string) string, s string) string {
 	return f(s)
 }
 
+// Link is a link found in a message: its target and the text it was shown
+// with (empty if unknown).
+type Link struct {
+	URL   string `json:"url"`
+	Label string `json:"label,omitempty"`
+}
+
 // HTMLToText reduces HTML to readable plain text: paragraphs, lists,
 // quotes, and links as numbered references ("label[1]") with the targets
 // listed at the end. Scripts, styles, forms and images (except their alt
 // text) are dropped, and only http, https and mailto links are kept.
-func HTMLToText(s string) string { return HTMLToStyled(s, Styler{}) }
+func HTMLToText(s string) string {
+	text, links := HTMLToStyled(s, Styler{})
+	return WithLinkList(text, links, Styler{})
+}
 
 // HTMLToStyled is HTMLToText with emphasis, headings, links and quotes
-// decorated by st. Nothing is ever fetched.
-func HTMLToStyled(s string, st Styler) string {
+// decorated by st, returning the links separately instead of listing them.
+// Nothing is ever fetched.
+func HTMLToStyled(s string, st Styler) (string, []Link) {
 	if len(s) > MaxHTMLInput {
 		s = s[:MaxHTMLInput]
 	}
@@ -108,7 +119,7 @@ func HTMLToStyled(s string, st Styler) string {
 			w.end(tok.DataAtom, &open)
 		}
 	}
-	return w.result()
+	return w.result(), w.links
 }
 
 func (w *textWriter) start(a atom.Atom, tok html.Token, tt html.TokenType, open *[]int) {
@@ -131,6 +142,7 @@ func (w *textWriter) start(a atom.Atom, tok html.Token, tt html.TokenType, open 
 	case a == atom.A && tt == html.StartTagToken:
 		*open = append(*open, w.addLink(safeURL(attr(tok, "href"))))
 		w.link++
+		w.label.Reset()
 	case a == atom.B || a == atom.Strong:
 		w.bold++
 	case a == atom.I || a == atom.Em:
@@ -156,6 +168,9 @@ func (w *textWriter) end(a atom.Atom, open *[]int) {
 		*open = (*open)[:len(*open)-1]
 		w.link = max(w.link-1, 0)
 		if n > 0 {
+			if w.links[n-1].Label == "" {
+				w.links[n-1].Label = strings.TrimSpace(w.label.String())
+			}
 			w.space = false
 			w.raw(apply(w.st.Dim, "["+strconv.Itoa(n)+"]"))
 		}
@@ -217,7 +232,8 @@ type textWriter struct {
 	lineLen int  // characters on the current line
 	space   bool // a collapsed space is pending
 	breaks  int  // newlines already at the end
-	links   []string
+	links   []Link
+	label   strings.Builder // plain text of the link being read
 }
 
 // addLink numbers a URL (reusing the number of a repeated one); 0 means
@@ -227,14 +243,14 @@ func (w *textWriter) addLink(u string) int {
 		return 0
 	}
 	for i, l := range w.links {
-		if l == u {
+		if l.URL == u {
 			return i + 1
 		}
 	}
 	if len(w.links) >= maxLinks {
 		return 0
 	}
-	w.links = append(w.links, u)
+	w.links = append(w.links, Link{URL: u})
 	return len(w.links)
 }
 
@@ -272,6 +288,9 @@ func (w *textWriter) wordStyle(word string) string {
 	word = SanitizeLine(word)
 	switch {
 	case w.link > 0:
+		if w.label.Len() < 200 {
+			w.label.WriteString(word + " ")
+		}
 		return apply(w.st.Link, word)
 	case w.heading > 0:
 		return apply(w.st.Heading, word)
@@ -330,24 +349,24 @@ func (w *textWriter) ensureBreaks(n int) {
 	}
 }
 
-// result is the text with the link list appended, within the size limit.
+// result is the text within the size limit.
 func (w *textWriter) result() string {
 	out := strings.TrimSpace(w.b.String())
-	if len(w.links) > 0 {
-		out += "\n\n" + linkList(w.links, w.st)
-	}
 	if len(out) > MaxTextOutput {
 		out = strings.ToValidUTF8(out[:MaxTextOutput], "")
 	}
 	return out
 }
 
-// linkList formats numbered link targets.
-func linkList(links []string, st Styler) string {
+// WithLinkList appends a numbered list of link targets to text.
+func WithLinkList(text string, links []Link, st Styler) string {
+	if len(links) == 0 {
+		return text
+	}
 	var b strings.Builder
-	b.WriteString(apply(st.Heading, "Links"))
+	b.WriteString(text + "\n\n" + apply(st.Heading, "Links"))
 	for i, l := range links {
-		b.WriteString("\n" + apply(st.Dim, "["+strconv.Itoa(i+1)+"] "+SanitizeLine(l)))
+		b.WriteString("\n" + apply(st.Dim, "["+strconv.Itoa(i+1)+"] "+SanitizeLine(l.URL)))
 	}
 	return b.String()
 }

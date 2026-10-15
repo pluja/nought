@@ -19,6 +19,7 @@ import (
 
 	"nought/internal/config"
 	"nought/internal/ops"
+	"nought/internal/render"
 )
 
 // Permissions: the TUI acts for the local user. Everyday actions use the
@@ -53,6 +54,7 @@ const (
 	inputTags
 	inputPalette
 	inputConfirmSync
+	inputLinkNumber
 )
 
 // sideItem is one entry in the sidebar.
@@ -141,8 +143,12 @@ type Model struct {
 
 	open        *ops.ShowOut
 	openKey     string // message, width and tags the reader content was built for
-	showGen     int    // results of older show requests are ignored
-	previewSeq  int    // debounces previews while moving
+	links       []render.Link
+	showLinks   bool
+	linkPick    int // >0: the confirmation box for this link is open
+	openURL     func(string) error
+	showGen     int // results of older show requests are ignored
+	previewSeq  int // debounces previews while moving
 	previewWait time.Duration
 	reader      viewport.Model
 	inputKind   inputKind
@@ -165,6 +171,9 @@ type Model struct {
 type Options struct {
 	Input  io.Reader
 	Output io.Writer
+	// OpenURL opens a link in the user's browser; nil uses the system's
+	// default handler.
+	OpenURL func(string) error
 }
 
 // Run starts the TUI and returns when the user quits.
@@ -176,6 +185,9 @@ func Run(ctx context.Context, env *ops.Env, opts Options) error {
 	}
 	if opts.Output != nil {
 		progOpts = append(progOpts, tea.WithOutput(opts.Output))
+	}
+	if opts.OpenURL != nil {
+		m.openURL = opts.OpenURL
 	}
 	sender := &sendBox{}
 	m.send = sender.send

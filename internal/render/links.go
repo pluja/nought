@@ -3,6 +3,7 @@
 package render
 
 import (
+	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -19,22 +20,22 @@ var (
 const longURL = 40
 
 // TextWithLinks tidies a plain-text body for reading: bracketed URLs and
-// long bare URLs become numbered references, listed at the end, so long
+// long bare URLs become numbered references (returned separately), so long
 // tracking links do not bury the text. The text is sanitized; st styles
 // the references (nil functions leave them plain).
-func TextWithLinks(s string, st Styler) string {
+func TextWithLinks(s string, st Styler) (string, []Link) {
 	s = Sanitize(s)
-	var links []string
-	number := func(u string) string {
+	var links []Link
+	number := func(u, label string) string {
 		for i, l := range links {
-			if l == u {
+			if l.URL == u {
 				return strconv.Itoa(i + 1)
 			}
 		}
 		if len(links) >= maxLinks {
 			return ""
 		}
-		links = append(links, u)
+		links = append(links, Link{URL: u, Label: label})
 		return strconv.Itoa(len(links))
 	}
 	var b strings.Builder
@@ -44,7 +45,7 @@ func TextWithLinks(s string, st Styler) string {
 		}
 		line = bracketURL.ReplaceAllStringFunc(line, func(m string) string {
 			u := bracketURL.FindStringSubmatch(m)[1]
-			if n := number(u); n != "" {
+			if n := number(u, ""); n != "" {
 				return apply(st.Dim, "["+n+"]")
 			}
 			return m
@@ -53,7 +54,7 @@ func TextWithLinks(s string, st Styler) string {
 			if len(u) < longURL {
 				return apply(st.Link, u)
 			}
-			n := number(u)
+			n := number(u, u)
 			if n == "" {
 				return u
 			}
@@ -65,9 +66,34 @@ func TextWithLinks(s string, st Styler) string {
 		})
 		b.WriteString(line)
 	}
-	out := strings.TrimRight(b.String(), "\n")
-	if len(links) > 0 {
-		out += "\n\n" + linkList(links, st)
+	return strings.TrimRight(b.String(), "\n"), links
+}
+
+// Host returns the host a link leads to ("" for mailto: and junk).
+func (l Link) Host() string {
+	u, err := url.Parse(l.URL)
+	if err != nil {
+		return ""
 	}
-	return out
+	return strings.ToLower(u.Hostname())
+}
+
+// Misleading reports whether the link's text names a different site than
+// the one it leads to, a common phishing trick ("paypal.com" leading to
+// evil.example).
+func (l Link) Misleading() bool {
+	host := l.Host()
+	label := strings.ToLower(strings.TrimSpace(l.Label))
+	if host == "" || label == "" || strings.ContainsAny(label, " \t") || !strings.Contains(label, ".") {
+		return false
+	}
+	shown := label
+	if u, err := url.Parse(label); err == nil && u.Hostname() != "" {
+		shown = strings.ToLower(u.Hostname())
+	} else if i := strings.IndexAny(label, "/?#"); i >= 0 {
+		shown = label[:i]
+	}
+	shown = strings.TrimPrefix(shown, "www.")
+	h := strings.TrimPrefix(host, "www.")
+	return shown != h && !strings.HasSuffix(h, "."+shown) && !strings.HasSuffix(shown, "."+h)
 }

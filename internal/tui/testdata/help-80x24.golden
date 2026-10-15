@@ -10,6 +10,7 @@ nought: keys
   u                read / unread     S                sync now                  
   s                flag / unflag     z                undo the last change      
   l, t             tags: +add -remove                  ?  help      q  quit     
+  o                open a link (asks first)   L      show / hide the message's l
                                                                                 
 Where messages live (every message is in your local archive):                   
   ◐ (S)  also on a server, stays there (deletion off)                           
@@ -21,4 +22,3 @@ Archiving (e) only removes the inbox tag in your archive. Nothing in this
 interface deletes mail from a server: that happens only during sync, for        
 accounts with deletion enabled, after each message's local copy is verified.    
                                                                                 
-Reply and compose arrive with sub-project 4.               (any key closes)     

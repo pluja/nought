@@ -348,8 +348,19 @@ func (m *Model) relayout() {
 		id = m.open.Message.ID
 		key = id + "/" + strconv.Itoa(w) + "/" + strings.Join(m.open.Message.Tags, ",")
 	}
+	if m.showLinks {
+		key += "/links"
+	}
 	if key != m.openKey {
 		sameMessage := id != "" && strings.HasPrefix(m.openKey, id+"/")
+		if !sameMessage {
+			m.showLinks, m.linkPick = false, 0
+			key = strings.TrimSuffix(key, "/links")
+		}
+		m.links = nil
+		if m.open != nil {
+			_, m.links = m.styledBody(m.open)
+		}
 		m.openKey = key
 		m.reader.SetContent(m.readerContent())
 		if !sameMessage {

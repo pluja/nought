@@ -17,6 +17,9 @@ func (m Model) key(k tea.KeyPressMsg) (Model, tea.Cmd) {
 	if key == "ctrl+c" {
 		return m.requestQuit()
 	}
+	if m.linkPick > 0 {
+		return m.linkKey(key)
+	}
 	if m.inputKind != inputNone {
 		return m.inputKey(k)
 	}
@@ -80,6 +83,15 @@ func (m Model) key(k tea.KeyPressMsg) (Model, tea.Cmd) {
 		return m.askSync()
 	case "z":
 		return m.undoLast()
+	case "o":
+		return m.startLinkPick()
+	case "L":
+		if m.open == nil || len(m.links) == 0 {
+			m.notice = "no links in this message"
+			return m, nil
+		}
+		m.showLinks = !m.showLinks
+		return m, nil
 	case "r", "R", "a", "f", "c":
 		m.notice = "reply and compose arrive with sub-project 4"
 		return m, nil
@@ -291,6 +303,8 @@ func (m Model) submit(kind inputKind, value string) (Model, tea.Cmd) {
 		return m.enqueue(newTagReq(sel, add, remove, "tags changed"))
 	case inputPalette:
 		return m.command(value)
+	case inputLinkNumber:
+		return m.pickLink(value)
 	}
 	return m, nil
 }

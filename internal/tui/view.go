@@ -84,6 +84,13 @@ func (m Model) render() string {
 	if m.help {
 		return m.renderHelp()
 	}
+	if m.linkPick > 0 && m.linkPick <= len(m.links) {
+		return overlay(m.renderScreen(), m.renderLinkBox(), m.width, m.height)
+	}
+	return m.renderScreen()
+}
+
+func (m Model) renderScreen() string {
 	header := m.renderHeader()
 	var main string
 	switch {
@@ -309,7 +316,9 @@ func (m Model) readerContent() string {
 	}
 	b.WriteString("\n")
 	b.WriteString(m.st.dim.Render(strings.Repeat("─", w)) + "\n")
-	b.WriteString(wrap.Render(m.styledBody(o)))
+	body, _ := m.styledBody(o)
+	b.WriteString(wrap.Render(body))
+	b.WriteString(m.linksFooter(w))
 	return b.String()
 }
 
@@ -341,6 +350,8 @@ func (m Model) renderPromptLine() string {
 		return pad("tags (+add -remove): "+m.input.View(), m.width)
 	case m.inputKind == inputPalette:
 		return pad(":"+m.input.View(), m.width)
+	case m.inputKind == inputLinkNumber:
+		return pad("open link number (1-"+strconv.Itoa(len(m.links))+"): "+m.input.View(), m.width)
 	case m.inputKind == inputConfirmSync:
 		return fit(m.st.warn.Bold(true).Render("Sync may delete mail from servers (accounts with deletion on). Continue? (y/N)"), m.width, 1)
 	case m.syncing:
@@ -397,6 +408,7 @@ func (m Model) renderHelp() string {
   u                read / unread     S                sync now
   s                flag / unflag     z                undo the last change
   l, t             tags: +add -remove                  ?  help      q  quit
+  o                open a link (asks first)   L      show / hide the message's links
 
 Where messages live (every message is in your local archive):
   ◐ (S)  also on a server, stays there (deletion off)
@@ -500,7 +512,7 @@ func humanSize(n int64) string {
 
 // styledBody renders the message body with emphasis, headings and link
 // references; nothing is fetched and all text is sanitized first.
-func (m Model) styledBody(o *ops.ShowOut) string {
+func (m Model) styledBody(o *ops.ShowOut) (string, []render.Link) {
 	fn := func(s lipgloss.Style) func(string) string { return func(t string) string { return s.Render(t) } }
 	st := render.Styler{
 		Bold:    fn(m.st.bold),
@@ -516,5 +528,5 @@ func (m Model) styledBody(o *ops.ShowOut) string {
 	case "text/plain":
 		return render.TextWithLinks(strings.TrimRight(o.Source, "\n"), st)
 	}
-	return render.Sanitize(o.Body)
+	return render.Sanitize(o.Body), nil
 }

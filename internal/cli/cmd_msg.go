@@ -154,7 +154,8 @@ func printMessage(w io.Writer, out ops.ShowOut) error {
 	}
 	body := out.Body
 	if out.BodyFrom == "text/plain" {
-		body = render.TextWithLinks(body, render.Styler{})
+		text, links := render.TextWithLinks(body, render.Styler{})
+		body = render.WithLinkList(text, links, render.Styler{})
 	}
 	return printf(w, "\n%s\n", strings.TrimRight(render.Sanitize(body), "\n"))
 }
