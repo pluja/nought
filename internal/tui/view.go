@@ -307,8 +307,9 @@ func (m Model) readerContent() string {
 	if o.BodyFrom == "text/html" {
 		b.WriteString(m.st.dim.Render("HTML shown as text; nothing was loaded.") + "\n")
 	}
-	b.WriteString(strings.Repeat("─", w) + "\n")
-	b.WriteString(lipgloss.NewStyle().Width(w).Render(render.Sanitize(strings.TrimRight(o.Body, "\n"))))
+	b.WriteString("\n")
+	b.WriteString(m.st.dim.Render(strings.Repeat("─", w)) + "\n")
+	b.WriteString(wrap.Render(m.styledBody(o)))
 	return b.String()
 }
 
@@ -495,4 +496,25 @@ func humanSize(n int64) string {
 	default:
 		return fmt.Sprintf("%d B", n)
 	}
+}
+
+// styledBody renders the message body with emphasis, headings and link
+// references; nothing is fetched and all text is sanitized first.
+func (m Model) styledBody(o *ops.ShowOut) string {
+	fn := func(s lipgloss.Style) func(string) string { return func(t string) string { return s.Render(t) } }
+	st := render.Styler{
+		Bold:    fn(m.st.bold),
+		Italic:  fn(m.st.italic),
+		Heading: fn(m.st.title),
+		Link:    fn(m.st.link),
+		Dim:     fn(m.st.dim),
+		Quote:   fn(m.st.accent),
+	}
+	switch o.BodyFrom {
+	case "text/html":
+		return render.HTMLToStyled(o.Source, st)
+	case "text/plain":
+		return render.TextWithLinks(strings.TrimRight(o.Source, "\n"), st)
+	}
+	return render.Sanitize(o.Body)
 }

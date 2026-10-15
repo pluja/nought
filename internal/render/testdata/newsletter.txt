@@ -5,17 +5,22 @@ welcome & enjoy.
 
 [Company logo]
 
-- First item
-- Second item <https://example.org/2>
+• First item
+• Second item[1]
 
-Visit https://example.org or click here or mail hi@example.org.
+Visit https://example.org[2] or click here or mail hi@example.org[3].
 
-> Quoted line one.
+│ Quoted line one.
 
-> Quoted line two.
+│ Quoted line two.
 
   keep
     this   spacing
 
-Name | Qty
-Apples | 3
+Name  Qty
+Apples  3
+
+Links
+[1] https://example.org/2
+[2] https://example.org
+[3] mailto:hi@example.org

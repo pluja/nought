@@ -84,7 +84,7 @@ type tagReq struct {
 // user's theme (light or dark) instead of imposing one.
 type styles struct {
 	plain, title, accent, dim, bold, warn, errText lipgloss.Style
-	unreadDot, flag, tag                           lipgloss.Style
+	unreadDot, flag, tag, italic, link             lipgloss.Style
 	local, server, leaving                         lipgloss.Style // where a message lives
 	selBG                                          color.Color
 }
@@ -103,6 +103,8 @@ func newStyles() styles {
 		unreadDot: s.Foreground(c("4")).Bold(true),
 		flag:      s.Foreground(c("3")).Bold(true),
 		tag:       s.Foreground(c("5")),
+		italic:    s.Italic(true),
+		link:      s.Foreground(c("4")).Underline(true),
 		local:     s.Foreground(c("2")),
 		server:    s.Foreground(c("4")),
 		leaving:   s.Foreground(c("3")),

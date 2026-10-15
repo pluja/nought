@@ -4,6 +4,7 @@ package render
 
 import (
 	"net/url"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -27,34 +28,53 @@ var blocks = map[atom.Atom]bool{
 	atom.Center: true, atom.Address: true, atom.Figure: true, atom.Main: true, atom.Nav: true,
 }
 
+var headings = map[atom.Atom]bool{
+	atom.H1: true, atom.H2: true, atom.H3: true, atom.H4: true, atom.H5: true, atom.H6: true,
+}
+
 // Limits that keep hostile HTML cheap to convert.
 const (
 	MaxHTMLInput  = 4 << 20 // bytes of HTML processed
 	MaxTextOutput = 1 << 20 // bytes of text produced
-	maxQuoteDepth = 8       // nested quotes shown with "> " prefixes
+	maxQuoteDepth = 8       // nested quotes shown with prefixes
+	maxLinks      = 500     // links listed at the end
 )
 
-// HTMLToText reduces HTML to readable plain text. It keeps text, paragraph
-// structure, list bullets, quotes and link targets, and drops everything
-// else: scripts, styles, images (their alt text is kept), forms, and any
-// URL scheme other than http, https and mailto.
-func HTMLToText(s string) string {
+// Styler decorates text for display. Every function receives text that is
+// already sanitized and must return it styled (e.g. with terminal escape
+// codes). A nil function leaves text plain.
+type Styler struct {
+	Bold, Italic, Heading, Link, Dim, Quote func(string) string
+}
+
+func apply(f func(string) string, s string) string {
+	if f == nil {
+		return s
+	}
+	return f(s)
+}
+
+// HTMLToText reduces HTML to readable plain text: paragraphs, lists,
+// quotes, and links as numbered references ("label[1]") with the targets
+// listed at the end. Scripts, styles, forms and images (except their alt
+// text) are dropped, and only http, https and mailto links are kept.
+func HTMLToText(s string) string { return HTMLToStyled(s, Styler{}) }
+
+// HTMLToStyled is HTMLToText with emphasis, headings, links and quotes
+// decorated by st. Nothing is ever fetched.
+func HTMLToStyled(s string, st Styler) string {
 	if len(s) > MaxHTMLInput {
 		s = s[:MaxHTMLInput]
 	}
-	w := &textWriter{}
+	w := &textWriter{st: st}
 	z := html.NewTokenizer(strings.NewReader(s))
 	var skipDepth int
 	var skipTag atom.Atom
-	var links []string // href of each open <a>
-	var linkText []int // w.b.Len() when each <a> opened
+	var open []int // link number of each open <a> (0: not listed)
 
 	for {
 		tt := z.Next()
-		if tt == html.ErrorToken {
-			break
-		}
-		if w.b.Len() >= MaxTextOutput {
+		if tt == html.ErrorToken || w.b.Len() >= MaxTextOutput {
 			break
 		}
 		tok := z.Token()
@@ -83,62 +103,80 @@ func HTMLToText(s string) string {
 				}
 				continue
 			}
-			switch {
-			case a == atom.Br:
-				w.newline()
-			case a == atom.Li:
-				w.line()
-				w.raw("- ")
-			case a == atom.Tr || a == atom.Dt || a == atom.Dd:
-				w.line()
-			case a == atom.Td || a == atom.Th:
-				if w.lineLen > 0 {
-					w.raw(" | ")
-				}
-			case a == atom.Img:
-				if alt := strings.TrimSpace(attr(tok, "alt")); alt != "" {
-					w.text("[" + alt + "]")
-				}
-			case a == atom.A && tt == html.StartTagToken:
-				links = append(links, safeURL(attr(tok, "href")))
-				linkText = append(linkText, w.b.Len())
-			case a == atom.Pre:
-				w.block()
-				w.pre++
-			case a == atom.Blockquote:
-				w.block()
-				w.quote++
-			case blocks[a]:
-				w.block()
-			}
+			w.start(a, tok, tt, &open)
 		case html.EndTagToken:
-			a := tok.DataAtom
-			switch {
-			case a == atom.A && len(links) > 0:
-				href, start := links[len(links)-1], linkText[len(linkText)-1]
-				links, linkText = links[:len(links)-1], linkText[:len(linkText)-1]
-				label := strings.TrimSpace(w.b.String()[start:])
-				if href != "" && href != label && "mailto:"+label != href {
-					w.raw(" <" + href + ">")
-				}
-			case a == atom.Pre && w.pre > 0:
-				w.pre--
-				w.block()
-			case a == atom.Blockquote && w.quote > 0:
-				w.block()
-				w.quote--
-			case a == atom.Li || a == atom.Tr || a == atom.Dt || a == atom.Dd:
-				w.line()
-			case blocks[a]:
-				w.block()
-			}
+			w.end(tok.DataAtom, &open)
 		}
 	}
-	out := w.String()
-	if len(out) > MaxTextOutput {
-		out = strings.ToValidUTF8(out[:MaxTextOutput], "")
+	return w.result()
+}
+
+func (w *textWriter) start(a atom.Atom, tok html.Token, tt html.TokenType, open *[]int) {
+	switch {
+	case a == atom.Br:
+		w.newline()
+	case a == atom.Li:
+		w.line()
+		w.raw("• ")
+	case a == atom.Tr || a == atom.Dt || a == atom.Dd:
+		w.line()
+	case a == atom.Td || a == atom.Th:
+		if w.lineLen > 0 {
+			w.raw("  ")
+		}
+	case a == atom.Img:
+		if alt := strings.TrimSpace(attr(tok, "alt")); alt != "" {
+			w.styled(w.st.Dim, "["+alt+"]")
+		}
+	case a == atom.A && tt == html.StartTagToken:
+		*open = append(*open, w.addLink(safeURL(attr(tok, "href"))))
+		w.link++
+	case a == atom.B || a == atom.Strong:
+		w.bold++
+	case a == atom.I || a == atom.Em:
+		w.italic++
+	case a == atom.Pre:
+		w.block()
+		w.pre++
+	case a == atom.Blockquote:
+		w.block()
+		w.quote++
+	case headings[a]:
+		w.block()
+		w.heading++
+	case blocks[a]:
+		w.block()
 	}
-	return Sanitize(out)
+}
+
+func (w *textWriter) end(a atom.Atom, open *[]int) {
+	switch {
+	case a == atom.A && len(*open) > 0:
+		n := (*open)[len(*open)-1]
+		*open = (*open)[:len(*open)-1]
+		w.link = max(w.link-1, 0)
+		if n > 0 {
+			w.space = false
+			w.raw(apply(w.st.Dim, "["+strconv.Itoa(n)+"]"))
+		}
+	case a == atom.B || a == atom.Strong:
+		w.bold = max(w.bold-1, 0)
+	case a == atom.I || a == atom.Em:
+		w.italic = max(w.italic-1, 0)
+	case a == atom.Pre && w.pre > 0:
+		w.pre--
+		w.block()
+	case a == atom.Blockquote && w.quote > 0:
+		w.block()
+		w.quote--
+	case headings[a]:
+		w.heading = max(w.heading-1, 0)
+		w.block()
+	case a == atom.Li || a == atom.Tr || a == atom.Dt || a == atom.Dd:
+		w.line()
+	case blocks[a]:
+		w.block()
+	}
 }
 
 func attr(tok html.Token, name string) string {
@@ -165,17 +203,43 @@ func safeURL(raw string) string {
 	}
 }
 
-// textWriter accumulates text, collapsing whitespace outside <pre> and
-// prefixing quoted lines with "> ".
+// textWriter accumulates text, collapsing whitespace outside <pre>,
+// prefixing quoted lines, and collecting links.
 type textWriter struct {
 	b       strings.Builder
+	st      Styler
 	pre     int
 	quote   int
+	bold    int
+	italic  int
+	heading int
+	link    int
 	lineLen int  // characters on the current line
 	space   bool // a collapsed space is pending
 	breaks  int  // newlines already at the end
+	links   []string
 }
 
+// addLink numbers a URL (reusing the number of a repeated one); 0 means
+// the link is not listed (unsafe scheme, empty, or too many).
+func (w *textWriter) addLink(u string) int {
+	if u == "" {
+		return 0
+	}
+	for i, l := range w.links {
+		if l == u {
+			return i + 1
+		}
+	}
+	if len(w.links) >= maxLinks {
+		return 0
+	}
+	w.links = append(w.links, u)
+	return len(w.links)
+}
+
+// raw writes trusted text: structure produced here, or mail text that was
+// already sanitized (and maybe styled).
 func (w *textWriter) raw(s string) {
 	for _, r := range s {
 		if r == '\n' {
@@ -185,7 +249,7 @@ func (w *textWriter) raw(s string) {
 			continue
 		}
 		if w.lineLen == 0 && w.quote > 0 {
-			w.b.WriteString(strings.Repeat("> ", min(w.quote, maxQuoteDepth)))
+			w.b.WriteString(apply(w.st.Quote, strings.Repeat("│ ", min(w.quote, maxQuoteDepth))))
 		}
 		w.b.WriteRune(r)
 		w.lineLen++
@@ -193,9 +257,35 @@ func (w *textWriter) raw(s string) {
 	}
 }
 
+// styled writes one piece of mail text as a separate word: sanitized
+// first, then styled.
+func (w *textWriter) styled(style func(string) string, word string) {
+	if w.space && w.lineLen > 0 {
+		w.raw(" ")
+	}
+	w.space = false
+	w.raw(apply(style, SanitizeLine(word)))
+}
+
+// wordStyle sanitizes a word of mail text and applies the emphasis in effect.
+func (w *textWriter) wordStyle(word string) string {
+	word = SanitizeLine(word)
+	switch {
+	case w.link > 0:
+		return apply(w.st.Link, word)
+	case w.heading > 0:
+		return apply(w.st.Heading, word)
+	case w.bold > 0:
+		return apply(w.st.Bold, word)
+	case w.italic > 0:
+		return apply(w.st.Italic, word)
+	}
+	return word
+}
+
 func (w *textWriter) text(s string) {
 	if w.pre > 0 {
-		w.raw(s)
+		w.raw(Sanitize(s))
 		return
 	}
 	first, _ := utf8.DecodeRuneInString(s)
@@ -206,7 +296,7 @@ func (w *textWriter) text(s string) {
 		if (i > 0 || w.space) && w.lineLen > 0 {
 			w.raw(" ")
 		}
-		w.raw(f)
+		w.raw(w.wordStyle(f))
 		w.space = false
 	}
 	last, _ := utf8.DecodeLastRuneInString(s)
@@ -240,6 +330,24 @@ func (w *textWriter) ensureBreaks(n int) {
 	}
 }
 
-func (w *textWriter) String() string {
-	return strings.TrimSpace(w.b.String())
+// result is the text with the link list appended, within the size limit.
+func (w *textWriter) result() string {
+	out := strings.TrimSpace(w.b.String())
+	if len(w.links) > 0 {
+		out += "\n\n" + linkList(w.links, w.st)
+	}
+	if len(out) > MaxTextOutput {
+		out = strings.ToValidUTF8(out[:MaxTextOutput], "")
+	}
+	return out
+}
+
+// linkList formats numbered link targets.
+func linkList(links []string, st Styler) string {
+	var b strings.Builder
+	b.WriteString(apply(st.Heading, "Links"))
+	for i, l := range links {
+		b.WriteString("\n" + apply(st.Dim, "["+strconv.Itoa(i+1)+"] "+SanitizeLine(l)))
+	}
+	return b.String()
 }

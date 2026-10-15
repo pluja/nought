@@ -116,3 +116,49 @@ func FuzzHTMLToText(f *testing.F) {
 		}
 	})
 }
+
+func TestTextWithLinks(t *testing.T) {
+	in := "Re-subscribe here <https://email.mg-d1.substack.com/c/very-long-tracking-token-abcdef1234567890>.\n" +
+		"See https://example.org/a or the long https://news.example.com/track?u=1234567890abcdefghijklmnop\n" +
+		"Again <https://email.mg-d1.substack.com/c/very-long-tracking-token-abcdef1234567890>"
+	got := TextWithLinks(in, Styler{})
+	want := "Re-subscribe here[1].\n" +
+		"See https://example.org/a or the long news.example.com/…[2]\n" +
+		"Again[1]\n\n" +
+		"Links\n[1] https://email.mg-d1.substack.com/c/very-long-tracking-token-abcdef1234567890\n" +
+		"[2] https://news.example.com/track?u=1234567890abcdefghijklmnop"
+	if got != want {
+		t.Errorf("TextWithLinks =\n%s\nwant\n%s", got, want)
+	}
+	if got := TextWithLinks("no links\x1b[31m here", Styler{}); got != "no links here" {
+		t.Errorf("sanitize: %q", got)
+	}
+}
+
+func TestHTMLToStyled(t *testing.T) {
+	mark := func(tag string) func(string) string { return func(s string) string { return "<" + tag + ">" + s } }
+	st := Styler{Bold: mark("b"), Italic: mark("i"), Heading: mark("h"), Link: mark("a"), Dim: mark("d"), Quote: mark("q")}
+	got := HTMLToStyled(`<h2>News</h2><p><b>big</b> <em>soft</em> <a href="https://x.example">go</a></p><blockquote>q</blockquote>`, st)
+	for _, want := range []string{"<h>News", "<b>big", "<i>soft", "<a>go<d>[1]", "<q>│ q", "<h>Links", "<d>[1] https://x.example"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("styled output lacks %q:\n%s", want, got)
+		}
+	}
+	// Styling never sees raw control characters.
+	got = HTMLToStyled("<b>a\x1b]0;x\x07b</b>", Styler{Bold: func(s string) string {
+		if strings.ContainsAny(s, "\x1b\x07") {
+			t.Errorf("unsanitized text reached the styler: %q", s)
+		}
+		return s
+	}})
+	if strings.Contains(got, "\x1b") {
+		t.Errorf("escape in output: %q", got)
+	}
+}
+
+func TestRepeatedLinksShareANumber(t *testing.T) {
+	got := HTMLToText(`<a href="https://x.example">a</a> <a href="https://x.example">b</a> <a href="javascript:x()">c</a>`)
+	if !strings.Contains(got, "a[1] b[1] c") || strings.Contains(got, "[2]") || strings.Contains(got, "javascript") {
+		t.Errorf("got %q", got)
+	}
+}

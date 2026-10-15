@@ -126,6 +126,9 @@ type ShowOut struct {
 	BodyFrom    string               `json:"body_from"` // "text/plain", "text/html" or "" if none
 	Attachments []mailmsg.Attachment `json:"attachments"`
 	Raw         string               `json:"raw,omitempty"`
+	// Source is the original body part (HTML or plain text), for frontends
+	// that render it themselves. It is not part of the JSON output.
+	Source string `json:"-"`
 }
 
 // MsgShow reads one message. It changes nothing: reading does not mark a
@@ -170,9 +173,9 @@ var MsgShow = Op[ShowIn, ShowOut]{
 		}
 		switch {
 		case content.Plain != "":
-			out.Body, out.BodyFrom = content.Plain, "text/plain"
+			out.Body, out.BodyFrom, out.Source = content.Plain, "text/plain", content.Plain
 		case content.HTML != "":
-			out.Body, out.BodyFrom = render.HTMLToText(content.HTML), "text/html"
+			out.Body, out.BodyFrom, out.Source = render.HTMLToText(content.HTML), "text/html", content.HTML
 		}
 		if in.Raw {
 			out.Raw = string(raw)

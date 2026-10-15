@@ -152,7 +152,11 @@ func printMessage(w io.Writer, out ops.ShowOut) error {
 			return err
 		}
 	}
-	return printf(w, "\n%s\n", strings.TrimRight(render.Sanitize(out.Body), "\n"))
+	body := out.Body
+	if out.BodyFrom == "text/plain" {
+		body = render.TextWithLinks(body, render.Styler{})
+	}
+	return printf(w, "\n%s\n", strings.TrimRight(render.Sanitize(body), "\n"))
 }
 
 func newMsgTagCmd(a *app) *cobra.Command {
