@@ -452,19 +452,41 @@ func addServerLocations(ctx context.Context, env *Env, ix *index.Index, msgs []M
 			for _, c := range copies[hashes[i]] {
 				loc := ServerLocation{Folder: c.FolderName}
 				if configured && a.DeletionEnabled() {
-					if p := a.Policy(c.FolderName); p.Action == config.ActionArchive {
-						t := c.InternalDate.Add(time.Duration(p.KeepDays) * 24 * time.Hour)
-						loc.LeavesAt = &t
-					}
+					loc.LeavesAt = policyLeavesAt(a.Policy(c.FolderName), c.InternalDate, slices.Contains(msgs[i].Tags, TagInbox))
 				}
-				if t, ok := leavesServerAt(msgs[i].Tags, env.Now()); ok && (loc.LeavesAt == nil || t.Before(*loc.LeavesAt)) {
-					loc.LeavesAt = &t
+				if t, ok := leavesServerAt(msgs[i].Tags, env.Now()); ok {
+					loc.LeavesAt = earliest(loc.LeavesAt, t)
 				}
 				msgs[i].Server = append(msgs[i].Server, loc)
 			}
 		}
 	}
 	return nil
+}
+
+// policyLeavesAt is when sync deletes a copy under its folder's policy:
+// once the message is handled (out of the inbox), after keep_days; in any
+// case after max_days, if set. Nil: it stays.
+func policyLeavesAt(p config.Policy, received time.Time, inInbox bool) *time.Time {
+	if p.Action != config.ActionArchive {
+		return nil
+	}
+	var at *time.Time
+	if !inInbox {
+		at = earliest(at, received.Add(days(p.KeepDays)))
+	}
+	if p.MaxDays > 0 {
+		at = earliest(at, received.Add(days(p.MaxDays)))
+	}
+	return at
+}
+
+// earliest returns the earlier of at (nil: none) and t.
+func earliest(at *time.Time, t time.Time) *time.Time {
+	if at == nil || t.Before(*at) {
+		return &t
+	}
+	return at
 }
 
 // CountIn is a query to count.

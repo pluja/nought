@@ -18,17 +18,24 @@ import (
 	"nought/internal/store"
 )
 
-// expungeDue deletes from the server the folder's messages that are old
-// enough under its policy, but only those whose local copy still verifies
-// and whose server UID still shows the same size and date, only with
-// deletion enabled, and only with UID EXPUNGE. Every deletion is journaled
-// (and fsynced) before it happens.
+// expungeDue deletes from the server the folder's messages that are due:
+// handled (out of the inbox) and kept at least keep_days, or older than
+// max_days. It deletes only those whose local copy still verifies and
+// whose server UID still shows the same message, only with deletion
+// enabled, and only with UID EXPUNGE. Every deletion is journaled (and
+// fsynced) before it happens.
 func expungeDue(ctx context.Context, env *Env, ix *index.Index, conn *imapsync.Conn, a *config.Account,
 	folder string, uidValidity uint32, policy config.Policy, dryRun bool, out *FolderSyncOut) error {
-	cutoff := env.Now().Add(-time.Duration(policy.KeepDays) * 24 * time.Hour)
-	due, err := ix.DueCopies(ctx, a.Name, folder, uidValidity, cutoff)
+	due, err := ix.HandledCopies(ctx, a.Name, folder, uidValidity, env.Now().Add(-days(policy.KeepDays)))
 	if err != nil {
 		return err
+	}
+	if policy.MaxDays > 0 {
+		expired, err := ix.DueCopies(ctx, a.Name, folder, uidValidity, env.Now().Add(-days(policy.MaxDays)))
+		if err != nil {
+			return err
+		}
+		due = unionByUID(due, expired)
 	}
 	// Messages the user deleted (or that expired) leave the server whatever
 	// the folder's keep_days or the account's automatic deletion setting.
@@ -43,12 +50,7 @@ func expungeDue(ctx context.Context, env *Env, ix *index.Index, conn *imapsync.C
 		}
 		due = nil
 	}
-	for _, r := range requested {
-		if !slices.ContainsFunc(due, func(c index.ServerCopy) bool { return c.UID == r.UID }) {
-			due = append(due, r)
-		}
-	}
-	slices.SortFunc(due, func(x, y index.ServerCopy) int { return cmp.Compare(x.UID, y.UID) })
+	due = unionByUID(due, requested)
 	// The journal is backed up: for mail the user deleted it records
 	// neither the content hash nor the Message-ID.
 	private := map[uint32]bool{}
@@ -194,4 +196,18 @@ func journalEntries(ctx context.Context, ix *index.Index, at time.Time, phase st
 		}
 	}
 	return entries
+}
+
+func days(n int) time.Duration { return time.Duration(n) * 24 * time.Hour }
+
+// unionByUID merges two lists of one folder's copies, in UID order.
+func unionByUID(a, b []index.ServerCopy) []index.ServerCopy {
+	out := slices.Clone(a)
+	for _, c := range b {
+		if !slices.ContainsFunc(out, func(x index.ServerCopy) bool { return x.UID == c.UID }) {
+			out = append(out, c)
+		}
+	}
+	slices.SortFunc(out, func(x, y index.ServerCopy) int { return cmp.Compare(x.UID, y.UID) })
+	return out
 }

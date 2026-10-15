@@ -44,7 +44,8 @@ type AccountSyncOut struct {
 type FolderSyncOut struct {
 	Folder   string   `json:"folder"`
 	Action   string   `json:"action"`          // "archive" or "ignore"
-	KeepDays int      `json:"keep_days"`       // days mail stays on the server
+	KeepDays int      `json:"keep_days"`       // minimum days on the server once handled
+	MaxDays  int      `json:"max_days"`        // deleted after this many days even if not handled; 0: never
 	New      int      `json:"new"`             // messages not yet archived
 	Fetched  int      `json:"fetched"`         // archived and verified in this run
 	Due      int      `json:"due"`             // verified copies old enough to delete
@@ -202,7 +203,7 @@ func syncAccount(ctx context.Context, env *Env, a config.Account, password strin
 	}
 	for _, f := range folders {
 		policy := a.Policy(f.Name)
-		fo := FolderSyncOut{Folder: f.Name, Action: policy.Action, KeepDays: policy.KeepDays}
+		fo := FolderSyncOut{Folder: f.Name, Action: policy.Action, KeepDays: policy.KeepDays, MaxDays: policy.MaxDays}
 		if policy.Action != config.ActionIgnore {
 			if err := syncFolder(ctx, env, conn, &a, f, policy, dryRun, &fo); err != nil {
 				fo.Error = err.Error()

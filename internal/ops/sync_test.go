@@ -57,6 +57,15 @@ func setFolderRules(t *testing.T, env *Env, rules []config.FolderRule) {
 	}
 }
 
+// archiveMail archives messages in nought, which makes their server copies
+// due for deletion.
+func archiveMail(t *testing.T, env *Env, query string) {
+	t.Helper()
+	if _, err := Call(t.Context(), env, Tag, MsgArchive, ArchiveIn{Query: query}); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func daysAgo(env *Env, d int) time.Time { return env.Now().Add(-time.Duration(d) * 24 * time.Hour) }
 
 func runSyncOK(t *testing.T, env *Env, in SyncIn) SyncOut {
@@ -111,9 +120,13 @@ func TestSyncArchivesWithoutDeletingByDefault(t *testing.T) {
 	srv.Append(t, "Drafts", mail("5@x", "draft in progress"), daysAgo(env, 30))
 
 	out := runSyncOK(t, env, SyncIn{})
-	inbox := folder(t, out, "INBOX")
-	if inbox.Fetched != 2 || inbox.Expunged != 0 || inbox.Due != 1 || len(inbox.Notes) != 1 {
-		t.Errorf("INBOX = %+v", inbox)
+	// INBOX mail is not handled yet; Sent mail is handled at once, but
+	// deletion is off.
+	if f := folder(t, out, "INBOX"); f.Fetched != 2 || f.Expunged != 0 || f.Due != 0 || len(f.Notes) != 0 {
+		t.Errorf("INBOX = %+v", f)
+	}
+	if f := folder(t, out, "Sent"); f.Due != 1 || f.Expunged != 0 || len(f.Notes) != 1 {
+		t.Errorf("Sent = %+v", f)
 	}
 	if f := folder(t, out, "Trash"); f.Action != "ignore" || f.Fetched != 0 {
 		t.Errorf("Trash = %+v", f)
@@ -157,12 +170,17 @@ func TestSyncDeletesOnlyDueVerifiedMessages(t *testing.T) {
 	other := srv.Append(t, "INBOX", mail("4@x", "other client"), daysAgo(env, 1))
 	srv.SetDeleted(t, "INBOX", other)
 
+	// Sent mail is handled at once; INBOX mail once it is archived.
 	out := runSyncOK(t, env, SyncIn{})
-	if f := folder(t, out, "INBOX"); f.Fetched != 3 || f.Expunged != 1 {
+	if f := folder(t, out, "INBOX"); f.Fetched != 3 || f.Expunged != 0 {
 		t.Errorf("INBOX = %+v", f)
 	}
 	if f := folder(t, out, "Sent"); f.Expunged != 1 {
 		t.Errorf("Sent = %+v", f)
+	}
+	archiveMail(t, env, "subject:old")
+	if f := folder(t, runSyncOK(t, env, SyncIn{}), "INBOX"); f.Expunged != 1 {
+		t.Errorf("after archiving, INBOX = %+v", f)
 	}
 	if got := srv.UIDs(t, "INBOX"); !slices.Equal(got, []uint32{fresh, other}) {
 		t.Errorf("INBOX on server = %v, want %v (old %d deleted)", got, []uint32{fresh, other}, old)
@@ -195,6 +213,7 @@ func TestSyncNeverDeletesWithoutVerifiedCopy(t *testing.T) {
 	env, srv := syncEnv(t, imaptest.Options{}, false)
 	uid := srv.Append(t, "INBOX", mail("1@x", "precious"), daysAgo(env, 30))
 	runSyncOK(t, env, SyncIn{})
+	archiveMail(t, env, "subject:precious")
 
 	// Damage the local copy, then enable deletion.
 	st, _ := env.Store("personal")
@@ -224,12 +243,12 @@ func TestSyncNeverDeletesWithoutVerifiedCopy(t *testing.T) {
 
 func TestSyncWithoutUIDPlusNeverDeletes(t *testing.T) {
 	env, srv := syncEnv(t, imaptest.Options{NoUIDPlus: true}, true)
-	srv.Append(t, "INBOX", mail("1@x", "old"), daysAgo(env, 30))
+	srv.Append(t, "Sent", mail("1@x", "sent"), daysAgo(env, 30)) // handled at once: due
 	out := runSyncOK(t, env, SyncIn{})
-	if f := folder(t, out, "INBOX"); f.Fetched != 1 || f.Expunged != 0 || len(f.Notes) != 1 || !strings.Contains(f.Notes[0], "UIDPLUS") {
-		t.Errorf("INBOX = %+v", f)
+	if f := folder(t, out, "Sent"); f.Fetched != 1 || f.Expunged != 0 || len(f.Notes) != 1 || !strings.Contains(f.Notes[0], "UIDPLUS") {
+		t.Errorf("Sent = %+v", f)
 	}
-	if len(srv.UIDs(t, "INBOX")) != 1 {
+	if len(srv.UIDs(t, "Sent")) != 1 {
 		t.Error("deleted without UIDPLUS")
 	}
 }
@@ -311,6 +330,8 @@ func TestSyncResumesAfterBrokenConnection(t *testing.T) {
 func TestSyncJournalFailureDeletesNothing(t *testing.T) {
 	env, srv := syncEnv(t, imaptest.Options{}, true)
 	srv.Append(t, "INBOX", mail("1@x", "old"), daysAgo(env, 30))
+	runSyncOK(t, env, SyncIn{})
+	archiveMail(t, env, "subject:old")
 	if err := os.MkdirAll(filepath.Join(env.Paths.Journal, "blocked"), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -413,6 +434,7 @@ func TestSyncRecoversFromReusedUID(t *testing.T) {
 		t.Fatal("deleted after a UID conflict")
 	}
 	// The next sync starts the folder over and handles it normally.
+	archiveMail(t, env, "subject:real")
 	if f := folder(t, runSyncOK(t, env, SyncIn{}), "INBOX"); f.Expunged != 1 {
 		t.Errorf("second sync INBOX = %+v", f)
 	}
@@ -570,12 +592,18 @@ func TestServerLocationsAndStatus(t *testing.T) {
 		t.Fatalf("status = %+v, %v", status, err)
 	}
 
-	// Deletion enabled: fresh shows when it leaves; old leaves and becomes local only.
+	// Deletion enabled: mail in the inbox stays; archived mail shows when it
+	// leaves, then leaves and becomes local only.
 	if _, err := Call(t.Context(), env, Delete, AccountSet, AccountSetIn{Name: "personal", Deletion: "enabled"}); err != nil {
 		t.Fatal(err)
 	}
-	if got := locations(); got["fresh"][0].LeavesAt == nil || !got["fresh"][0].LeavesAt.Equal(daysAgo(env, 1).Add(7*24*time.Hour).Truncate(time.Second)) {
-		t.Errorf("fresh leaves at = %+v", got["fresh"])
+	archiveMail(t, env, "subject:old")
+	got = locations()
+	if got["fresh"][0].LeavesAt != nil {
+		t.Errorf("unhandled fresh mail must stay: leaves at %v", got["fresh"][0].LeavesAt)
+	}
+	if at := got["old"][0].LeavesAt; at == nil || at.After(env.Now()) {
+		t.Errorf("archived old mail must leave at the next sync: %v", at)
 	}
 	runSyncOK(t, env, SyncIn{})
 	got = locations()
@@ -603,5 +631,48 @@ func TestSyncProgressCallback(t *testing.T) {
 	}})
 	if !slices.Contains(seen, "personal/INBOX") || !slices.Contains(seen, "personal/Trash") {
 		t.Errorf("progress = %v", seen)
+	}
+}
+
+func TestSyncDeletesHandledMail(t *testing.T) {
+	env, srv := syncEnv(t, imaptest.Options{}, true)
+	todo := srv.Append(t, "INBOX", mail("todo@x", "still to do"), daysAgo(env, 30))
+	srv.Append(t, "INBOX", mail("done@x", "dealt with"), daysAgo(env, 0))
+	runSyncOK(t, env, SyncIn{})
+	if n := len(srv.UIDs(t, "INBOX")); n != 2 {
+		t.Fatalf("mail left the server before it was handled: %d left", n)
+	}
+	archiveMail(t, env, "subject:dealt")
+	runSyncOK(t, env, SyncIn{})
+	if got := srv.UIDs(t, "INBOX"); !slices.Equal(got, []uint32{todo}) {
+		t.Errorf("server INBOX = %v, want only the unhandled %d", got, todo)
+	}
+}
+
+func TestKeepDaysIsAMinimumAndMaxDaysAFallback(t *testing.T) {
+	env, srv := syncEnv(t, imaptest.Options{}, true)
+	seven, sixty := 7, 60
+	setFolderRules(t, env, append(DefaultFolderRules(), config.FolderRule{Match: "INBOX", KeepDays: &seven, MaxDays: &sixty}))
+	recent := srv.Append(t, "INBOX", mail("new@x", "archived but recent"), daysAgo(env, 2))
+	srv.Append(t, "INBOX", mail("old@x", "never handled"), daysAgo(env, 61))
+	runSyncOK(t, env, SyncIn{})
+	archiveMail(t, env, "subject:recent")
+	out := runSyncOK(t, env, SyncIn{})
+	if got := srv.UIDs(t, "INBOX"); !slices.Equal(got, []uint32{recent}) {
+		t.Errorf("server INBOX = %v; want the recent one kept (keep_days 7), the 61-day one gone (max_days 60)", got)
+	}
+	if f := folder(t, out, "INBOX"); f.KeepDays != 7 || f.MaxDays != 60 {
+		t.Errorf("INBOX policy in the output = %+v", f)
+	}
+}
+
+func TestArchiveDeletesNothingWithDeletionOff(t *testing.T) {
+	env, srv := syncEnv(t, imaptest.Options{}, false)
+	srv.Append(t, "INBOX", mail("a@x", "archived"), daysAgo(env, 30))
+	runSyncOK(t, env, SyncIn{})
+	archiveMail(t, env, "subject:archived")
+	runSyncOK(t, env, SyncIn{})
+	if n := len(srv.UIDs(t, "INBOX")); n != 1 {
+		t.Errorf("deletion is off, but archived mail left the server")
 	}
 }

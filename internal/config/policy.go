@@ -15,8 +15,9 @@ const (
 	ActionIgnore  = "ignore"
 )
 
-// DefaultKeepDays applies when no folder rule matches or a rule omits keep_days.
-const DefaultKeepDays = 7
+// DefaultKeepDays applies when no folder rule matches or a rule omits
+// keep_days: handled mail leaves the server at the next sync.
+const DefaultKeepDays = 0
 
 // Policy is what sync does with one server folder.
 type Policy struct {
