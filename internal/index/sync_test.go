@@ -243,3 +243,15 @@ func TestDeletionBookkeeping(t *testing.T) {
 		t.Errorf("dumps:\n%s\n---\n%s", all.String(), transient.String())
 	}
 }
+
+func TestExpiryTagsMustBeDates(t *testing.T) {
+	for _, tag := range []string{"delete-after:", "delete-after:1d", "delete-after:2026-1-5", "delete-after:0",
+		"delete-after:2026-02-30", "delete-after:2026-10-15x"} {
+		if ValidateTag(tag) == nil {
+			t.Errorf("ValidateTag(%q) accepted a malformed date", tag)
+		}
+	}
+	if err := ValidateTag("delete-after:2026-10-15"); err != nil {
+		t.Error(err)
+	}
+}

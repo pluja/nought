@@ -14,6 +14,7 @@ import (
 
 	"nought/internal/config"
 	"nought/internal/imaptest"
+	"nought/internal/query"
 )
 
 func files(t *testing.T, dir string) int {
@@ -99,13 +100,13 @@ func TestDeleteNowAndTrashExpiry(t *testing.T) {
 	if _, err := Call(t.Context(), env, Delete, MsgDelete, DeleteIn{Query: idOf(t, env, "subject:\"sent three\"")}); err != nil {
 		t.Fatal(err)
 	}
-	if n, _ := purge(t.Context(), env); n != 0 {
+	if n, _ := purge(t.Context(), env); len(n) != 0 {
 		t.Fatal("purged before trash_days")
 	}
 	later := env.Now().AddDate(0, 0, config.DefaultTrashDays)
 	env.Now = func() time.Time { return later }
-	if n, err := purge(t.Context(), env); err != nil || n != 1 {
-		t.Errorf("purge after trash_days = %d, %v", n, err)
+	if n, err := purge(t.Context(), env); err != nil || len(n) != 1 {
+		t.Errorf("purge after trash_days = %d, %v", len(n), err)
 	}
 
 	empty, err := Call(t.Context(), env, Delete, MsgDelete, DeleteIn{Query: idOf(t, env, "subject:\"unread two\"")})
@@ -139,8 +140,8 @@ func TestDeleteRemovesServerCopyEvenWithDeletionOff(t *testing.T) {
 		t.Errorf("not purged after the server copy was removed: %v", got)
 	}
 	for _, e := range readJournal(t, env) {
-		if e.MessageID != "" {
-			t.Errorf("journal keeps the Message-ID of deleted mail: %+v", e)
+		if e.MessageID != "" || e.Hash != "" {
+			t.Errorf("journal identifies deleted mail: %+v", e)
 		}
 	}
 }
@@ -181,5 +182,103 @@ func TestPathsNeverBackUpTransient(t *testing.T) {
 	out, err := Call(t.Context(), env, Read, PathsShow, struct{}{})
 	if err != nil || len(out.Backup.Never) != 1 || out.Backup.Never[0] != env.Paths.TransientDir {
 		t.Errorf("paths = %+v, %v", out.Backup, err)
+	}
+}
+
+func TestDeletionTagsNeedDeletePermission(t *testing.T) {
+	env := newTestEnv(t)
+	for _, add := range [][]string{{TagDeleted}, {"delete-after:2000-01-01"}} {
+		_, err := Call(t.Context(), env, Tag, MsgTag, TagIn{Query: "", Add: add})
+		if !errors.Is(err, ErrPermission) {
+			t.Errorf("tag-level +%v: err = %v, want permission denied", add, err)
+		}
+	}
+	if _, err := Call(t.Context(), env, Tag, MsgTag, TagIn{Query: "", Remove: []string{TagDeleted}, DryRun: true}); errors.Is(err, ErrPermission) {
+		t.Errorf("removing the trash tag must stay at tag level: %v", err)
+	}
+}
+
+func TestSearchHidesTrashUnlessAsked(t *testing.T) {
+	for s, hidden := range map[string]bool{
+		"":                         true,
+		"from:deleted@x.org":       true,
+		`"deleted items"`:          true,
+		"tag:deleted":              false,
+		"-tag:deleted":             false,
+		"tag:inbox OR tag:deleted": false,
+	} {
+		q, err := parseWithoutTrash(s)
+		if err != nil {
+			t.Fatal(err)
+		}
+		plain, _ := query.Parse(s)
+		if got := len(q.Groups) > len(plain.Groups); got != hidden {
+			t.Errorf("%q: trash filter added = %v, want %v", s, got, hidden)
+		}
+	}
+	if _, err := parseWithoutTrash("x OR"); err == nil {
+		t.Error("a dangling OR must stay an error")
+	}
+}
+
+// TestReindexPutsFilesBack: a move interrupted after the tags were saved
+// leaves a trashed message in the backed-up archive; reindex fixes it.
+func TestReindexPutsFilesBack(t *testing.T) {
+	env := newTestEnv(t)
+	importSample(t, env)
+	if _, err := Call(t.Context(), env, Delete, MsgDelete, DeleteIn{Query: idOf(t, env, "subject:\"read one\"")}); err != nil {
+		t.Fatal(err)
+	}
+	transient, err := env.Transient("personal")
+	if err != nil {
+		t.Fatal(err)
+	}
+	archive, err := env.Store("personal")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var hash string
+	for e := range transient.All() {
+		hash = e.Hash
+	}
+	if err := transient.MoveTo(archive, hash); err != nil { // the "crash"
+		t.Fatal(err)
+	}
+	if _, err := Call(t.Context(), env, Delete, IndexRebuild, struct{}{}); err != nil {
+		t.Fatal(err)
+	}
+	if files(t, env.Paths.TransientArchive("personal")) != 1 {
+		t.Error("reindex left trashed mail in the backed-up archive")
+	}
+	if got := search(t, env, "tag:deleted"); len(got) != 1 {
+		t.Errorf("trash after reindex = %v", got)
+	}
+}
+
+func TestDeleteNowCountsOnlyItsOwnMessages(t *testing.T) {
+	env := newTestEnv(t)
+	importSample(t, env)
+	// Another message is due too: it goes, but is not counted.
+	if _, err := Call(t.Context(), env, Delete, MsgTag, TagIn{Query: idOf(t, env, "subject:\"read one\""),
+		Add: []string{"delete-after:2000-01-01"}}); err != nil {
+		t.Fatal(err)
+	}
+	q := idOf(t, env, "subject:\"sent three\"")
+
+	release, err := acquireLock(env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Call(t.Context(), env, Delete, MsgDelete, DeleteIn{Query: q, Now: true}); !errors.Is(err, ErrBusy) {
+		t.Errorf("delete now during a sync = %v, want busy", err)
+	}
+	release()
+
+	out, err := Call(t.Context(), env, Delete, MsgDelete, DeleteIn{Query: q, Now: true})
+	if err != nil || out.Matched != 1 || out.Purged != 1 || out.Pending != 0 {
+		t.Fatalf("delete now = %+v, %v", out, err)
+	}
+	if got := search(t, env, `subject:"read one" OR subject:"sent three"`); len(got) != 0 {
+		t.Errorf("left: %v", got)
 	}
 }

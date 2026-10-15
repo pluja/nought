@@ -104,15 +104,25 @@ func newTagReq(msg ops.MessageOut, add, remove []string, what string) tagReq {
 
 func (m Model) runTag(req tagReq) tea.Cmd {
 	return func() tea.Msg {
-		out, err := ops.Call(m.ctx, m.env, permTag, ops.MsgTag,
+		out, err := ops.Call(m.ctx, m.env, tagPerm(req.add), ops.MsgTag,
 			ops.TagIn{Query: messageQuery(req.msg), Add: req.add, Remove: req.remove})
 		return tagDoneMsg{req: req, out: out, err: err}
 	}
 }
 
+// tagPerm is the level a tag change needs: moving mail to the trash (or
+// undoing a restore) is the user's explicit deletion, so it uses the
+// highest; everything else stays at the tag level.
+func tagPerm(add []string) ops.Permission {
+	if slices.ContainsFunc(add, ops.IsDeletionTag) {
+		return permDelete
+	}
+	return permTag
+}
+
 func (m Model) revert(u undoEntry) tea.Cmd {
 	return func() tea.Msg {
-		_, err := ops.Call(m.ctx, m.env, permTag, ops.MsgTag, ops.TagIn{Query: u.query, Add: u.add, Remove: u.remove})
+		_, err := ops.Call(m.ctx, m.env, tagPerm(u.add), ops.MsgTag, ops.TagIn{Query: u.query, Add: u.add, Remove: u.remove})
 		return undoDoneMsg{entry: u, err: err}
 	}
 }
@@ -258,5 +268,6 @@ func (m Model) trashReq(msg ops.MessageOut) (tagReq, error) {
 	if err != nil {
 		return tagReq{}, err
 	}
-	return newTagReq(msg, add, append(remove, expiry...), "moved to the trash"), nil
+	// An earlier expiry (from a rule) still applies, as with nou msg delete.
+	return newTagReq(msg, add, remove, "moved to the trash"), nil
 }

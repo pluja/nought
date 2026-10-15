@@ -476,3 +476,21 @@ func TestMoveAndRemove(t *testing.T) {
 		t.Errorf("move missing = %v", err)
 	}
 }
+
+func TestMoveKeepsADamagedCopy(t *testing.T) {
+	dir := t.TempDir()
+	a, b := open(t, dir), open(t, t.TempDir())
+	e, _, err := a.Put([]byte(msg), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "cur", fileName(e.Hash, "")), []byte("tampered"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.MoveTo(b, e.Hash); !errors.Is(err, ErrCorrupt) {
+		t.Errorf("move damaged = %v, want ErrCorrupt", err)
+	}
+	if !a.Has(e.Hash) || b.Has(e.Hash) {
+		t.Error("a damaged copy must stay where it is")
+	}
+}

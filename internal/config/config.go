@@ -217,8 +217,13 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("rule %d: needs tags or expire_days", i+1)
 		}
 		for _, t := range r.Tags {
-			if t == "" || t != strings.ToLower(t) || strings.ContainsFunc(t, unicode.IsSpace) || hasControl(t) {
-				return fmt.Errorf("rule %d: tag %q must be lowercase without spaces", i+1, t)
+			if t == "" || t != strings.ToLower(t) || strings.ContainsFunc(t, unicode.IsSpace) || hasControl(t) ||
+				strings.HasPrefix(t, "+") || strings.HasPrefix(t, "-") {
+				return fmt.Errorf("rule %d: tag %q must be lowercase, without spaces or a leading + or -", i+1, t)
+			}
+			// Deletion goes through expire_days, which writes a valid date.
+			if t == "deleted" || strings.HasPrefix(t, "delete-after:") {
+				return fmt.Errorf("rule %d: tag %q is reserved; use expire_days", i+1, t)
 			}
 		}
 	}

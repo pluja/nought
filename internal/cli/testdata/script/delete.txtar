@@ -5,6 +5,10 @@ exec nou search
 ! stdout lunch
 exec nou search tag:deleted
 stdout lunch
+exec nou tags dump
+! stdout deleted
+exec nou tags dump --trash
+stdout deleted
 exec nou msg restore tag:deleted
 stdout '^restored 1$'
 exec nou msg delete --now subject:code

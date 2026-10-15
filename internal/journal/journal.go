@@ -32,7 +32,10 @@ type Entry struct {
 	UIDValidity uint32    `json:"uidvalidity"`
 	UID         uint32    `json:"uid"`
 	MessageID   string    `json:"message_id,omitempty"`
-	Hash        string    `json:"hash"` // content hash; names the archived file
+	// Hash is the content hash that names the archived file. It and the
+	// Message-ID are left out for mail the user deleted, which leaves no
+	// trace beyond its folder and UID.
+	Hash string `json:"hash,omitempty"`
 }
 
 // Append writes entries as JSON lines and fsyncs before returning.

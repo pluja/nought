@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 	"unicode"
 )
 
@@ -32,6 +33,13 @@ func ValidateTag(tag string) error {
 	}
 	if strings.HasPrefix(tag, "+") || strings.HasPrefix(tag, "-") {
 		return fmt.Errorf("tag %q must not start with '+' or '-'", tag)
+	}
+	// A malformed date would sort before every real one and make the
+	// message due for deletion at once.
+	if d, ok := strings.CutPrefix(tag, DeleteAfterPrefix); ok {
+		if _, err := time.Parse(time.DateOnly, d); err != nil || len(d) != len(time.DateOnly) {
+			return fmt.Errorf("tag %q must be %sYYYY-MM-DD", tag, DeleteAfterPrefix)
+		}
 	}
 	return nil
 }

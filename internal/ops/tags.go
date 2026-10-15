@@ -15,7 +15,6 @@ import (
 	"nought/internal/atomicfile"
 	"nought/internal/config"
 	"nought/internal/index"
-	"nought/internal/lock"
 	"nought/internal/query"
 	"nought/internal/store"
 )
@@ -37,6 +36,9 @@ var TagsList = Op[struct{}, []index.TagCount]{
 // TagsDumpIn says where to write a dump. An empty Path returns the dump.
 type TagsDumpIn struct {
 	Path string `json:"path,omitempty"`
+	// Trash includes deleted and expiring mail, which is left out by
+	// default so a dump made for a backup never names it.
+	Trash bool `json:"trash,omitempty"`
 }
 
 // TagsDumpOut is the dump, or where it was written.
@@ -55,12 +57,13 @@ var TagsDump = Op[TagsDumpIn, TagsDumpOut]{
 		if err != nil {
 			return TagsDumpOut{}, err
 		}
+		keep := func(tags []string) bool { return in.Trash || !isTransient(tags) }
 		if in.Path == "" {
 			var b bytes.Buffer
-			err := ix.Dump(ctx, &b, nil)
+			err := ix.Dump(ctx, &b, keep)
 			return TagsDumpOut{Dump: b.String()}, err
 		}
-		err = atomicfile.Write(in.Path, 0o600, func(w io.Writer) error { return ix.Dump(ctx, w, nil) })
+		err = atomicfile.Write(in.Path, 0o600, func(w io.Writer) error { return ix.Dump(ctx, w, keep) })
 		return TagsDumpOut{Path: in.Path}, err
 	},
 }
@@ -118,14 +121,11 @@ var IndexRebuild = Op[struct{}, ReindexOut]{
 
 func runReindex(ctx context.Context, env *Env, _ struct{}) (ReindexOut, error) {
 	var out ReindexOut
-	l, err := lock.Acquire(env.Paths.LockFile)
-	if errors.Is(err, lock.ErrLocked) {
-		return out, fmt.Errorf("a sync or another reindex is running: %w", ErrBusy)
-	}
+	release, err := acquireLock(env)
 	if err != nil {
 		return out, err
 	}
-	defer func() { _ = l.Release() }()
+	defer release()
 	if err := refreshDumpBeforeReindex(ctx, env); err != nil {
 		return out, err
 	}
@@ -208,6 +208,11 @@ func runReindex(ctx context.Context, env *Env, _ struct{}) (ReindexOut, error) {
 	}
 
 	if err := syncFlagsFromTags(ctx, env); err != nil {
+		return out, err
+	}
+	// The dumps are the truth for tags: put every file where its tags say
+	// (an interrupted move can leave mail in the wrong store).
+	if err := placeAll(ctx, env); err != nil {
 		return out, err
 	}
 	if err := writeTagsDump(ctx, env); err != nil {

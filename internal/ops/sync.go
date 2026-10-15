@@ -66,20 +66,30 @@ var SyncRun = Op[SyncIn, SyncOut]{
 	Run:     runSync,
 }
 
+// acquireLock makes sync, reindex and permanent deletion mutually
+// exclusive: each of them assumes the server copies it sees are current.
+func acquireLock(env *Env) (release func(), err error) {
+	l, err := lock.Acquire(env.Paths.LockFile)
+	if errors.Is(err, lock.ErrLocked) {
+		return nil, fmt.Errorf("a sync, reindex or deletion is running: %w", ErrBusy)
+	}
+	if err != nil {
+		return nil, err
+	}
+	return func() { _ = l.Release() }, nil
+}
+
 func runSync(ctx context.Context, env *Env, in SyncIn) (SyncOut, error) {
 	out := SyncOut{DryRun: in.DryRun, Accounts: []AccountSyncOut{}}
 	accounts, err := selectAccounts(env, in.Accounts)
 	if err != nil {
 		return out, err
 	}
-	l, err := lock.Acquire(env.Paths.LockFile)
-	if errors.Is(err, lock.ErrLocked) {
-		return out, fmt.Errorf("another sync or reindex is running: %w", ErrBusy)
-	}
+	release, err := acquireLock(env)
 	if err != nil {
 		return out, err
 	}
-	defer func() { _ = l.Release() }()
+	defer release()
 	if _, err := env.Index(ctx); err != nil {
 		return out, err
 	}

@@ -261,7 +261,7 @@ func (ix *Index) DeletionRequested(ctx context.Context, account, folder string, 
 		WHERE c.account = ? AND c.folder = ? AND c.uidvalidity = ? AND c.expunged_at IS NULL
 		  AND EXISTS (SELECT 1 FROM messages m JOIN accounts a ON a.id = m.account_id JOIN tags t ON t.message_id = m.id
 		              WHERE a.name = c.account AND m.hash = c.hash
-		                AND (t.tag = 'deleted' OR (t.tag LIKE 'delete-after:%' AND substr(t.tag, 14) <= ?)))
+		                AND (t.tag = 'deleted' OR `+dueTag+`))
 		ORDER BY c.uid`, account, folder, uidValidity, today)
 	if err != nil {
 		return nil, fmt.Errorf("deletion requests: %w", err)

@@ -246,7 +246,7 @@ func userTags(tags []string) []string {
 
 // hiddenTag: the trash and expiry tags are shown as a sentence in the
 // reader instead.
-func hiddenTag(t string) bool { return t == ops.TagDeleted || ops.IsExpiryTag(t) }
+func hiddenTag(t string) bool { return ops.IsDeletionTag(t) }
 
 // expiryLine says when a deleted or expiring message is deleted for good.
 func expiryLine(tags []string, now time.Time) string {

@@ -48,14 +48,21 @@ type Op[In, Out any] struct {
 	Name    string // dotted name, e.g. "msg.tag"; also the future MCP tool name
 	Summary string
 	Perm    Permission
+	// PermFor, if set, may raise the level for a given input (tagging is
+	// a tag-level action, unless the tags schedule a deletion).
+	PermFor func(in In) Permission
 	Run     func(ctx context.Context, env *Env, in In) (Out, error)
 }
 
 // Call runs op on behalf of a caller holding the given permission.
 func Call[In, Out any](ctx context.Context, env *Env, caller Permission, op Op[In, Out], in In) (Out, error) {
-	if caller < op.Perm {
+	need := op.Perm
+	if op.PermFor != nil {
+		need = max(need, op.PermFor(in))
+	}
+	if caller < need {
 		var zero Out
-		return zero, fmt.Errorf("%s requires %s permission, caller has %s: %w", op.Name, op.Perm, caller, ErrPermission)
+		return zero, fmt.Errorf("%s requires %s permission, caller has %s: %w", op.Name, need, caller, ErrPermission)
 	}
 	return op.Run(ctx, env, in)
 }

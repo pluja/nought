@@ -99,25 +99,7 @@ func newTagsCmd(a *app) *cobra.Command {
 				})
 			},
 		},
-		&cobra.Command{
-			Use:   "dump [file]",
-			Short: ops.TagsDump.Summary,
-			Long:  ops.TagsDump.Summary + ". Without a file, the dump is printed.",
-			Args:  rangeArgs(0, 1),
-			RunE: func(cmd *cobra.Command, args []string) error {
-				var in ops.TagsDumpIn
-				if len(args) == 1 {
-					in.Path = args[0]
-				}
-				out, err := ops.Call(cmd.Context(), a.env, callerPerm, ops.TagsDump, in)
-				return a.result(cmd, out, err, func(w io.Writer) error {
-					if out.Path != "" {
-						return printf(w, "wrote %s\n", out.Path)
-					}
-					return printf(w, "%s", out.Dump)
-				})
-			},
-		},
+		newTagsDumpCmd(a),
 		&cobra.Command{
 			Use:   "restore <file>",
 			Short: ops.TagsRestore.Summary,
@@ -135,4 +117,29 @@ func newTagsCmd(a *app) *cobra.Command {
 
 func printRestore(w io.Writer, r index.RestoreResult) error {
 	return printf(w, "restored tags for %d messages (%d not found, %d tags skipped)\n", r.Applied, r.Missing, r.SkippedTags)
+}
+
+func newTagsDumpCmd(a *app) *cobra.Command {
+	var in ops.TagsDumpIn
+	cmd := &cobra.Command{
+		Use:   "dump [file]",
+		Short: ops.TagsDump.Summary,
+		Long: ops.TagsDump.Summary + ". Without a file, the dump is printed. Deleted and expiring\n" +
+			"mail is left out unless --trash is given.",
+		Args: rangeArgs(0, 1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 1 {
+				in.Path = args[0]
+			}
+			out, err := ops.Call(cmd.Context(), a.env, callerPerm, ops.TagsDump, in)
+			return a.result(cmd, out, err, func(w io.Writer) error {
+				if out.Path != "" {
+					return printf(w, "wrote %s\n", out.Path)
+				}
+				return printf(w, "%s", out.Dump)
+			})
+		},
+	}
+	cmd.Flags().BoolVar(&in.Trash, "trash", false, "include deleted and expiring mail")
+	return cmd
 }

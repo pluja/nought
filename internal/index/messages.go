@@ -265,8 +265,13 @@ func (ix *Index) DeleteMessage(ctx context.Context, m Message) error {
 // deletion: "delete-after:2026-11-14".
 const DeleteAfterPrefix = "delete-after:"
 
+// dueTag is the SQL condition for a delete-after tag (alias t) whose date
+// has come. GLOB is case-sensitive and pins the date format, as a second
+// line of defense behind ValidateTag; substr starts after the prefix.
+const dueTag = `(t.tag GLOB 'delete-after:[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]' AND substr(t.tag, 14) <= ?)`
+
 // PurgeDue lists messages whose delete-after date is today or earlier.
 func (ix *Index) PurgeDue(ctx context.Context, today string) ([]Message, error) {
-	return ix.selectMessages(ctx, `m.id IN (SELECT message_id FROM tags
-		WHERE tag LIKE 'delete-after:%' AND substr(tag, 14) <= ?)`, []any{today}, "m.id", MaxLimit)
+	return ix.selectMessages(ctx, `m.id IN (SELECT t.message_id FROM tags t
+		WHERE `+dueTag+`)`, []any{today}, "m.id", MaxLimit)
 }

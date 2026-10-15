@@ -22,9 +22,9 @@ import (
 	"nought/internal/render"
 )
 
-// Permissions: the TUI acts for the local user. Everyday actions (the
-// trash included: it can be undone) use the tag level; only sync and
-// deleting for good, both after confirmation, use the highest.
+// Permissions: the TUI acts for the local user. Everyday actions use the
+// tag level; sync, the trash and deleting for good (all of which delete
+// mail, some later) use the highest.
 const (
 	permTag    = ops.Tag
 	permDelete = ops.Delete

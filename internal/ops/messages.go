@@ -82,7 +82,7 @@ var MsgSearch = Op[SearchIn, SearchOut]{
 	Summary: "Search messages",
 	Perm:    Read,
 	Run: func(ctx context.Context, env *Env, in SearchIn) (SearchOut, error) {
-		q, err := query.Parse(withoutTrash(in.Query))
+		q, err := parseWithoutTrash(in.Query)
 		if err != nil {
 			return SearchOut{}, usageError("%v", err)
 		}
@@ -224,7 +224,15 @@ var MsgTag = Op[TagIn, TagOut]{
 	Name:    "msg.tag",
 	Summary: "Add or remove tags on messages matching a query",
 	Perm:    Tag,
-	Run:     runTag,
+	// Adding "deleted" or a delete-after date deletes mail for good later,
+	// here and on the server; taking them away is always allowed.
+	PermFor: func(in TagIn) Permission {
+		if slices.ContainsFunc(in.Add, IsDeletionTag) {
+			return Delete
+		}
+		return Tag
+	},
+	Run: runTag,
 }
 
 // MsgArchive is Inbox Zero's main gesture: it removes the inbox tag.
@@ -265,8 +273,9 @@ func runTag(ctx context.Context, env *Env, in TagIn) (out TagOut, err error) {
 
 	// Whatever happens, tags already changed must reach the dump, and the
 	// caller must learn that some messages were changed.
+	dumped := false
 	defer func() {
-		if in.DryRun || out.Changed == 0 {
+		if in.DryRun || out.Changed == 0 || dumped {
 			return
 		}
 		if dumpErr := writeTagsDump(ctx, env); dumpErr != nil {
@@ -278,6 +287,7 @@ func runTag(ctx context.Context, env *Env, in TagIn) (out TagOut, err error) {
 	}()
 
 	var flagErrs []error
+	var moves []index.Message // into or out of the transient store
 	err = ix.Each(ctx, q, func(page []index.Message) error {
 		var ids []int64
 		var changed []index.Message
@@ -288,6 +298,9 @@ func runTag(ctx context.Context, env *Env, in TagIn) (out TagOut, err error) {
 				continue
 			}
 			ids = append(ids, m.ID)
+			if isTransient(next) != isTransient(m.Tags) {
+				moves = append(moves, index.Message{ID: m.ID, Account: m.Account, Hash: m.Hash, Tags: next})
+			}
 			m.Tags = next
 			changed = append(changed, m)
 		}
@@ -302,9 +315,6 @@ func runTag(ctx context.Context, env *Env, in TagIn) (out TagOut, err error) {
 			return err
 		}
 		out.Changed += len(ids)
-		if err := placeFiles(env, changed); err != nil {
-			flagErrs = append(flagErrs, err)
-		}
 		if err := applyFlags(env, changed); err != nil {
 			flagErrs = append(flagErrs, err)
 		}
@@ -312,6 +322,17 @@ func runTag(ctx context.Context, env *Env, in TagIn) (out TagOut, err error) {
 	})
 	if err != nil {
 		return out, err
+	}
+	// Files move only once the dumps record the new tags, so an
+	// interrupted move is undone by reindex, not the other way round.
+	if len(moves) > 0 {
+		dumped = true
+		if err := writeTagsDump(ctx, env); err != nil {
+			return out, fmt.Errorf("%d messages were changed before the failure: %w: %w", out.Changed, err, ErrPartial)
+		}
+		if err := placeFiles(env, moves); err != nil {
+			flagErrs = append(flagErrs, err)
+		}
 	}
 	if err := errors.Join(flagErrs...); err != nil {
 		return out, fmt.Errorf("tags changed, but some file flags could not be updated: %w: %w", err, ErrPartial)
@@ -421,7 +442,7 @@ var MsgCount = Op[CountIn, CountOut]{
 	Summary: "Count messages matching a query",
 	Perm:    Read,
 	Run: func(ctx context.Context, env *Env, in CountIn) (CountOut, error) {
-		q, err := query.Parse(withoutTrash(in.Query))
+		q, err := parseWithoutTrash(in.Query)
 		if err != nil {
 			return CountOut{}, usageError("%v", err)
 		}
@@ -434,11 +455,20 @@ var MsgCount = Op[CountIn, CountOut]{
 	},
 }
 
-// withoutTrash hides deleted mail from searches unless the query asks
-// about it.
-func withoutTrash(q string) string {
-	if strings.Contains(q, TagDeleted) {
-		return q
+// parseWithoutTrash parses a search, hiding deleted mail unless the query
+// has a tag:deleted term.
+func parseWithoutTrash(s string) (query.Query, error) {
+	q, err := query.Parse(s)
+	if err != nil {
+		return q, err
 	}
-	return strings.TrimSpace(q + " -tag:" + TagDeleted)
+	for _, g := range q.Groups {
+		for _, t := range g {
+			if t.Field == query.Tag && t.Value == TagDeleted {
+				return q, nil
+			}
+		}
+	}
+	q.Groups = append(q.Groups, []query.Term{{Field: query.Tag, Value: TagDeleted, Not: true}})
+	return q, nil
 }

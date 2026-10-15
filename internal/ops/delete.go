@@ -28,10 +28,11 @@ func deleteAfterTag(t time.Time) string {
 // isTransient reports whether a message belongs in the transient store:
 // it was deleted, or it expires.
 func isTransient(tags []string) bool {
-	return slices.ContainsFunc(tags, func(t string) bool {
-		return t == TagDeleted || IsExpiryTag(t)
-	})
+	return slices.ContainsFunc(tags, IsDeletionTag)
 }
+
+// IsDeletionTag reports whether adding a tag schedules a deletion.
+func IsDeletionTag(t string) bool { return t == TagDeleted || IsExpiryTag(t) }
 
 // IsExpiryTag reports whether a tag is a delete-after date.
 func IsExpiryTag(t string) bool { return strings.HasPrefix(t, index.DeleteAfterPrefix) }
@@ -106,6 +107,17 @@ func placeFiles(env *Env, msgs []index.Message) error {
 	return errors.Join(errs...)
 }
 
+// placeAll puts every message's file in the store its tags call for.
+func placeAll(ctx context.Context, env *Env) error {
+	ix, err := env.Index(ctx)
+	if err != nil {
+		return err
+	}
+	return ix.Each(ctx, query.Query{}, func(page []index.Message) error {
+		return placeFiles(env, page)
+	})
+}
+
 // applyRules runs the configured rules on a newly archived message: it
 // adds their tags and, for expiring rules, a delete-after date.
 func applyRules(ctx context.Context, env *Env, ix *index.Index, m *index.Message) error {
@@ -145,16 +157,19 @@ func applyRules(ctx context.Context, env *Env, ix *index.Index, m *index.Message
 // purge deletes for good the messages whose delete-after date has come,
 // unless a copy is still on a server: that copy is removed by the next
 // sync first (it needs the local file to verify it is the same message).
-func purge(ctx context.Context, env *Env) (int, error) {
+//
+// It returns the messages purged, by messageKey. Callers hold the sync
+// lock, so no sync is between archiving a message and recording its copy.
+func purge(ctx context.Context, env *Env) (map[string]bool, error) {
 	ix, err := env.Index(ctx)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 	due, err := ix.PurgeDue(ctx, env.Now().UTC().Format(dateLayout))
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
-	purged := 0
+	purged := map[string]bool{}
 	var errs []error
 	for _, m := range due {
 		on, err := ix.OnServer(ctx, m.Account, []string{m.Hash})
@@ -176,12 +191,40 @@ func purge(ctx context.Context, env *Env) (int, error) {
 			errs = append(errs, err)
 			continue
 		}
-		purged++
+		purged[messageKey(m)] = true
 	}
-	if purged > 0 {
+	if len(purged) > 0 {
 		errs = append(errs, writeTagsDump(ctx, env))
 	}
 	return purged, errors.Join(errs...)
+}
+
+func messageKey(m index.Message) string { return m.Account + "/" + m.Hash }
+
+// purgeOf purges what is due and counts which of the given messages went
+// and which still wait for their server copies to go first.
+func purgeOf(ctx context.Context, env *Env, keys []string) (purged, pending int, err error) {
+	gone, err := purge(ctx, env)
+	for _, k := range keys {
+		if gone[k] {
+			purged++
+		} else {
+			pending++
+		}
+	}
+	return purged, pending, err
+}
+
+// matchingKeys lists the messages a query matches.
+func matchingKeys(ctx context.Context, ix *index.Index, q query.Query) ([]string, error) {
+	var keys []string
+	err := ix.Each(ctx, q, func(page []index.Message) error {
+		for _, m := range page {
+			keys = append(keys, messageKey(m))
+		}
+		return nil
+	})
+	return keys, err
 }
 
 // DeleteIn selects messages to delete.
@@ -213,14 +256,33 @@ var MsgDelete = Op[DeleteIn, DeleteOut]{
 		if err != nil {
 			return DeleteOut{}, err
 		}
-		tag, err := runTag(ctx, env, TagIn{Query: in.Query, Account: in.Account, DryRun: in.DryRun,
-			Add: add, Remove: remove})
-		out := DeleteOut{Matched: tag.Matched, DryRun: in.DryRun}
-		if err != nil || in.DryRun || !in.Now {
+		if !in.Now || in.DryRun {
+			tag, err := runTag(ctx, env, TagIn{Query: in.Query, Account: in.Account, DryRun: in.DryRun, Add: add, Remove: remove})
+			return DeleteOut{Matched: tag.Matched, DryRun: in.DryRun}, err
+		}
+		release, err := acquireLock(env)
+		if err != nil {
+			return DeleteOut{}, err
+		}
+		defer release()
+		ix, err := env.Index(ctx)
+		if err != nil {
+			return DeleteOut{}, err
+		}
+		q, err := queryOrID(ctx, env, in.Query, in.Account)
+		if err != nil {
+			return DeleteOut{}, err
+		}
+		keys, err := matchingKeys(ctx, ix, q)
+		if err != nil {
+			return DeleteOut{}, err
+		}
+		tag, err := runTag(ctx, env, TagIn{Query: in.Query, Account: in.Account, Add: add, Remove: remove})
+		out := DeleteOut{Matched: tag.Matched}
+		if err != nil {
 			return out, err
 		}
-		out.Purged, err = purge(ctx, env)
-		out.Pending = max(out.Matched-out.Purged, 0)
+		out.Purged, out.Pending, err = purgeOf(ctx, env, keys)
 		return out, err
 	},
 }
@@ -253,7 +315,7 @@ var MsgRestore = Op[RestoreIn, TagOut]{
 				out.Matched++
 				var remove []string
 				for _, t := range m.Tags {
-					if t == TagDeleted || strings.HasPrefix(t, index.DeleteAfterPrefix) {
+					if IsDeletionTag(t) {
 						remove = append(remove, t)
 					}
 				}
@@ -269,16 +331,15 @@ var MsgRestore = Op[RestoreIn, TagOut]{
 			}
 			return nil
 		})
+		if out.Changed > 0 {
+			// The dump first: if a move is interrupted, reindex puts the
+			// file back where the dumped tags say.
+			err = errors.Join(err, writeTagsDump(ctx, env))
+		}
 		if err != nil {
 			return out, err
 		}
-		if err := placeFiles(env, changed); err != nil {
-			return out, err
-		}
-		if out.Changed > 0 {
-			return out, writeTagsDump(ctx, env)
-		}
-		return out, nil
+		return out, placeFiles(env, changed)
 	},
 }
 
@@ -294,19 +355,24 @@ var TrashEmpty = Op[struct{}, TrashEmptyOut]{
 	Summary: "Delete everything in the trash for good",
 	Perm:    Delete,
 	Run: func(ctx context.Context, env *Env, _ struct{}) (TrashEmptyOut, error) {
+		release, err := acquireLock(env)
+		if err != nil {
+			return TrashEmptyOut{}, err
+		}
+		defer release()
 		ix, err := env.Index(ctx)
 		if err != nil {
 			return TrashEmptyOut{}, err
 		}
 		q, _ := query.Parse("tag:" + TagDeleted)
 		today := deleteAfterTag(env.Now())
-		total := 0
+		var keys []string
 		err = ix.Each(ctx, q, func(page []index.Message) error {
 			for _, m := range page {
-				total++
+				keys = append(keys, messageKey(m))
 				var old []string
 				for _, t := range m.Tags {
-					if strings.HasPrefix(t, index.DeleteAfterPrefix) && t != today {
+					if IsExpiryTag(t) && t != today {
 						old = append(old, t)
 					}
 				}
@@ -316,10 +382,14 @@ var TrashEmpty = Op[struct{}, TrashEmptyOut]{
 			}
 			return nil
 		})
+		if len(keys) > 0 {
+			err = errors.Join(err, writeTagsDump(ctx, env))
+		}
 		if err != nil {
 			return TrashEmptyOut{}, err
 		}
-		purged, err := purge(ctx, env)
-		return TrashEmptyOut{Purged: purged, Pending: max(total-purged, 0)}, err
+		var out TrashEmptyOut
+		out.Purged, out.Pending, err = purgeOf(ctx, env, keys)
+		return out, err
 	},
 }

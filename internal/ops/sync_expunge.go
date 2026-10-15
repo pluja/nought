@@ -49,8 +49,8 @@ func expungeDue(ctx context.Context, env *Env, ix *index.Index, conn *imapsync.C
 		}
 	}
 	slices.SortFunc(due, func(x, y index.ServerCopy) int { return cmp.Compare(x.UID, y.UID) })
-	// The journal is backed up: for mail the user deleted it records only
-	// the content hash, not the Message-ID.
+	// The journal is backed up: for mail the user deleted it records
+	// neither the content hash nor the Message-ID.
 	private := map[uint32]bool{}
 	for _, r := range requested {
 		private[r.UID] = true
@@ -186,9 +186,10 @@ func journalEntries(ctx context.Context, ix *index.Index, at time.Time, phase st
 	for i, c := range copies {
 		entries[i] = journal.Entry{
 			Time: at.UTC(), Phase: phase, Account: c.Account, Folder: c.Folder,
-			UIDValidity: c.UIDValidity, UID: c.UID, Hash: c.Hash,
+			UIDValidity: c.UIDValidity, UID: c.UID,
 		}
 		if !private[c.UID] {
+			entries[i].Hash = c.Hash
 			entries[i].MessageID = ix.MessageIDOf(ctx, c.Account, c.Hash)
 		}
 	}

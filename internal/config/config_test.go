@@ -240,6 +240,9 @@ func TestRulesAndTrash(t *testing.T) {
 		"\n[[rule]]\nquery = \"from:x\"\n",
 		"\n[[rule]]\nquery = \"\"\nexpire_days = 1\n",
 		"\n[[rule]]\nquery = \"from:x\"\ntags = [\"Bad Tag\"]\n",
+		"\n[[rule]]\nquery = \"from:x\"\ntags = [\"deleted\"]\n",
+		"\n[[rule]]\nquery = \"from:x\"\ntags = [\"delete-after:2000-01-01\"]\n",
+		"\n[[rule]]\nquery = \"from:x\"\ntags = [\"-inbox\"]\n",
 		"\n[[rule]]\nquery = \"from:x\"\nexpire_days = -1\n",
 	} {
 		if _, err := Load(writeConfig(t, validTOML+bad)); err == nil {
