@@ -278,7 +278,7 @@ func TestServerTrashUntouchedWithDeletionOff(t *testing.T) {
 }
 
 func TestServerTrashFolder(t *testing.T) {
-	a := &config.Account{Folders: DefaultFolderRules()}
+	a := &config.Account{Folders: append(DefaultFolderRules(), config.FolderRule{Match: "Papierkorb", Action: config.ActionIgnore})}
 	for _, c := range []struct {
 		folders []imapsync.Folder
 		want    string
@@ -286,6 +286,8 @@ func TestServerTrashFolder(t *testing.T) {
 		{[]imapsync.Folder{{Name: "INBOX"}, {Name: "Papierkorb", Raw: "P", Trash: true}, {Name: "Trash"}}, "Papierkorb"},
 		{[]imapsync.Folder{{Name: "INBOX"}, {Name: "INBOX/Deleted Items"}}, "INBOX/Deleted Items"},
 		{[]imapsync.Folder{{Name: "INBOX"}, {Name: "Archive"}}, ""},
+		// A trash the rules archive is handled like any folder.
+		{[]imapsync.Folder{{Name: "INBOX"}, {Name: "Bin", Trash: true}}, ""},
 	} {
 		f, ok := serverTrash(a, c.folders)
 		if f.Name != c.want || ok != (c.want != "") {
@@ -334,5 +336,18 @@ func TestDeletedMessageFoundInAKeptFolder(t *testing.T) {
 	runSyncOK(t, env, SyncIn{})
 	if got := search(t, env, "tag:deleted OR tag:inbox"); len(got) != 0 {
 		t.Errorf("found in Archive, it must be archived (not deleted, not in the inbox): %v", got)
+	}
+}
+
+// The trash cleanup keeps its own place: it never makes the folder's own
+// sync skip mail, should the trash be archived later.
+func TestTrashCleanupKeepsItsOwnPlace(t *testing.T) {
+	env, srv := syncEnv(t, imaptest.Options{}, true)
+	srv.Append(t, "Trash", mail("u@x", "unknown in the trash"), daysAgo(env, 0))
+	runSyncOK(t, env, SyncIn{})
+	setFolderRules(t, env, nil) // no rules: the trash is archived like any folder
+	runSyncOK(t, env, SyncIn{})
+	if got := search(t, env, `subject:"unknown in the trash"`); len(got) != 1 {
+		t.Errorf("trash mail skipped after the trash became archived: %v", got)
 	}
 }
