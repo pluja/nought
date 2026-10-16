@@ -1,0 +1,3 @@
+# Check out text files with LF everywhere: golden files and test fixtures
+# are compared byte for byte, also on Windows.
+* text=auto eol=lf

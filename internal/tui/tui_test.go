@@ -71,6 +71,10 @@ func newTestModel(t *testing.T, w, h int) Model {
 	}
 	m := newModel(t.Context(), env)
 	m.previewWait = 0
+	// No cursor blink: its timer would never let drive finish.
+	styles := m.input.Styles()
+	styles.Cursor.Blink = false
+	m.input.SetStyles(styles)
 	return drive(t, m, tea.WindowSizeMsg{Width: w, Height: h}, initMsg{})
 }
 
@@ -107,6 +111,11 @@ func drive(t *testing.T, m Model, msgs ...tea.Msg) Model {
 	return m
 }
 
+// commandTimeout drops commands that wait for a long time (timers such as
+// the sync schedule). Real work (index, store) must finish within it even
+// on slow CI runners with -race and coverage.
+const commandTimeout = 5 * time.Second
+
 func run(cmd tea.Cmd) []tea.Msg {
 	if cmd == nil {
 		return nil
@@ -126,7 +135,7 @@ func run(cmd tea.Cmd) []tea.Msg {
 			return nil
 		}
 		return []tea.Msg{msg}
-	case <-time.After(50 * time.Millisecond):
+	case <-time.After(commandTimeout):
 		return nil
 	}
 }

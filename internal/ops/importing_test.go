@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -34,10 +35,10 @@ func mail(id, subject string) string {
 func thunderbirdExport(t *testing.T) string {
 	t.Helper()
 	root := filepath.Join(t.TempDir(), "export")
-	writeFile(t, filepath.Join(root, "Inbox", "cur", "1:2,S"), mail("1@x", "read one"))
-	writeFile(t, filepath.Join(root, "Inbox", "cur", "2:2,"), mail("2@x", "unread two"))
-	writeFile(t, filepath.Join(root, "Sent Items", "cur", "3:2,S"), mail("3@x", "sent three"))
-	writeFile(t, filepath.Join(root, "Inbox", "cur", "4:2,"), "X-Mozilla-Status: 0008\r\n"+mail("4@x", "deleted"))
+	writeFile(t, filepath.Join(root, "Inbox", "cur", maildirName("1", "S")), mail("1@x", "read one"))
+	writeFile(t, filepath.Join(root, "Inbox", "cur", maildirName("2", "")), mail("2@x", "unread two"))
+	writeFile(t, filepath.Join(root, "Sent Items", "cur", maildirName("3", "S")), mail("3@x", "sent three"))
+	writeFile(t, filepath.Join(root, "Inbox", "cur", maildirName("4", "")), "X-Mozilla-Status: 0008\r\n"+mail("4@x", "deleted"))
 	return root
 }
 
@@ -169,7 +170,7 @@ func TestImportErrors(t *testing.T) {
 func TestImportPartialFailure(t *testing.T) {
 	env := newTestEnv(t)
 	root := thunderbirdExport(t)
-	bad := filepath.Join(root, "Inbox", "cur", "5:2,")
+	bad := filepath.Join(root, "Inbox", "cur", maildirName("5", ""))
 	writeFile(t, bad, mail("5@x", "unreadable"))
 	if err := os.Chmod(bad, 0o000); err != nil {
 		t.Fatal(err)
@@ -349,4 +350,15 @@ func TestTagFlags(t *testing.T) {
 			t.Errorf("tagFlags(%q, %v) = %q, want %q", tt.current, tt.tags, got, tt.want)
 		}
 	}
+}
+
+// maildirName is a Maildir file name ("unique:2,flags"), with ";" on
+// Windows, where ":" is not allowed (NTFS would quietly write the message
+// to a hidden stream of the file "unique").
+func maildirName(unique, flags string) string {
+	sep := ":"
+	if runtime.GOOS == "windows" {
+		sep = ";"
+	}
+	return unique + sep + "2," + flags
 }

@@ -5,6 +5,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -15,6 +16,12 @@ func env(vars map[string]string) func(string) string {
 }
 
 func TestResolvePaths(t *testing.T) {
+	// XDG dirs and NOUGHT_HOME must be absolute on the machine running nou:
+	// on Windows that needs a drive.
+	root := ""
+	if runtime.GOOS == "windows" {
+		root = "C:"
+	}
 	tests := []struct {
 		name       string
 		goos       string
@@ -33,9 +40,9 @@ func TestResolvePaths(t *testing.T) {
 		{
 			name:       "linux xdg",
 			goos:       "linux",
-			vars:       map[string]string{"HOME": "/home/u", "XDG_CONFIG_HOME": "/c", "XDG_DATA_HOME": "/d"},
-			wantConfig: "/c/nought/config.toml",
-			wantData:   "/d/nought",
+			vars:       map[string]string{"HOME": "/home/u", "XDG_CONFIG_HOME": root + "/c", "XDG_DATA_HOME": root + "/d"},
+			wantConfig: root + "/c/nought/config.toml",
+			wantData:   root + "/d/nought",
 		},
 		{
 			name:       "linux ignores relative xdg",
@@ -61,9 +68,9 @@ func TestResolvePaths(t *testing.T) {
 		{
 			name:       "nought home overrides",
 			goos:       "linux",
-			vars:       map[string]string{"HOME": "/home/u", "NOUGHT_HOME": "/n"},
-			wantConfig: "/n/config/config.toml",
-			wantData:   "/n/data",
+			vars:       map[string]string{"HOME": "/home/u", "NOUGHT_HOME": root + "/n"},
+			wantConfig: root + "/n/config/config.toml",
+			wantData:   root + "/n/data",
 		},
 		{name: "relative nought home", goos: "linux", vars: map[string]string{"NOUGHT_HOME": "n"}, wantErr: true},
 		{name: "no home", goos: "linux", vars: map[string]string{}, wantErr: true},

@@ -46,14 +46,14 @@ func collect(t *testing.T, items func(func(Item, error) bool)) ([]got, []error) 
 
 func TestMaildirTree(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "export")
-	write(t, filepath.Join(root, "cur", "1:2,S"), "Subject: inbox read\n\nx")
+	write(t, filepath.Join(root, "cur", maildirName("1", "S")), "Subject: inbox read\n\nx")
 	write(t, filepath.Join(root, "new", "2"), "Subject: inbox new\n\nx")
 	write(t, filepath.Join(root, "tmp", "3"), "Subject: in tmp\n\nx")
 	write(t, filepath.Join(root, "Work", "Projects", "cur", "4;2,FR"), "Subject: nested\n\nx")
 	write(t, filepath.Join(root, "Saved", "a.eml"), "Subject: eml file\n\nx")
 	write(t, filepath.Join(root, "Saved", "notes.txt"), "not mail")
 	write(t, filepath.Join(root, ".hidden", "a.eml"), "Subject: hidden\n\nx")
-	write(t, filepath.Join(root, ".INBOX.Sent", "cur", "8:2,S"), "Subject: maildir++\n\nx")
+	write(t, filepath.Join(root, ".INBOX.Sent", "cur", maildirName("8", "S")), "Subject: maildir++\n\nx")
 	write(t, filepath.Join(root, "Saved", "tmp", "b.eml"), "Subject: eml in tmp\n\nx")
 	write(t, filepath.Join(root, "Spoof", "cur", "9"), "Subject: spoof\nX-Mozilla-Status: 0008\n\nx")
 	write(t, filepath.Join(root, "Trash", "cur", "6"), "X-Mozilla-Status: 0009\nSubject: deleted\n\nx")
@@ -301,4 +301,15 @@ func FuzzMbox(f *testing.F) {
 			t.Fatalf("output larger than input: %d > %d", total, len(s))
 		}
 	})
+}
+
+// maildirName is a Maildir file name ("unique:2,flags"), with ";" on
+// Windows, where ":" is not allowed (NTFS would quietly write the message
+// to a hidden stream of the file "unique").
+func maildirName(unique, flags string) string {
+	sep := ":"
+	if runtime.GOOS == "windows" {
+		sep = ";"
+	}
+	return unique + sep + "2," + flags
 }

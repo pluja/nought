@@ -250,7 +250,7 @@ func TestSyncNeverDeletesWithoutVerifiedCopy(t *testing.T) {
 	// Damage the local copy, then enable deletion.
 	st, _ := env.Store("personal")
 	for e := range st.All() {
-		path := filepath.Join(env.Paths.AccountArchive("personal"), "cur", e.Hash+":2,")
+		path := filepath.Join(env.Paths.AccountArchive("personal"), "cur", maildirName(e.Hash, ""))
 		if err := os.WriteFile(path, []byte("bit rot"), 0o600); err != nil {
 			t.Fatal(err)
 		}
