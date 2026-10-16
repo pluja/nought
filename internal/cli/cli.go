@@ -47,6 +47,8 @@ type app struct {
 	json    bool
 	verbose bool
 	env     *ops.Env
+	// editor replaces the user's editor (tests only).
+	editor func(ctx context.Context, path string) error
 }
 
 // The CLI acts for the local user, who holds every permission.

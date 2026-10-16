@@ -1,0 +1,87 @@
+# Sending needs an SMTP server; account set adds one.
+stdin password.txt
+exec nou account add test --email me@example.org --imap-host 127.0.0.1 --imap-port $IMAP_PORT --password-stdin
+exec nou compose --to alice@example.org --subject Early --body-file body.txt
+capture EARLY '^draft ([0-9a-f]{32})'
+code 2 nou draft send $EARLY
+stderr 'no SMTP server'
+exec nou account set test --smtp-host 127.0.0.1 --smtp-port $SMTP_PORT --smtp-tls implicit
+exec nou draft discard $EARLY
+
+# Scripts send at once, without an editor. Sent mail is archived, read.
+stdin body.txt
+exec nou compose --to alice@example.org --subject Hello --body-file - --send
+stdout '^sent: Hello$'
+smtpcount 1
+exec nou search tag:folder:sent
+stdout 'Hello'
+exec nou search tag:inbox
+! stdout 'Hello'
+exec nou draft list
+! stdout .
+
+# Without --send it is a draft, sent later.
+exec nou compose --to bob@example.org --cc carol@example.org --subject Later --body-file body.txt
+stdout '^draft [0-9a-f]{32} '
+capture LATER '^draft ([0-9a-f]{32})'
+exec nou draft list
+stdout 'Later'
+exec nou draft show $LATER
+stdout '^Cc: carol@example.org$'
+stdout '^Hi Alice$'
+exec nou draft send $LATER
+stdout '^sent: Later$'
+smtpcount 2
+
+# Replies and forwards from scripts. A reply to your own message goes to
+# its recipients; the original is marked replied.
+exec nou search subject:Hello
+capture HELLO '^(\S+)'
+stdin reply.txt
+exec nou msg reply $HELLO --body-file - --send
+stdout '^sent: Re: Hello$'
+exec nou search is:replied
+stdout 'Hello'
+exec nou msg forward $HELLO --to dave@example.org --send
+stdout '^sent: Fwd: Hello$'
+smtpcount 4
+
+# A blocking check refuses to send; the draft is kept.
+code 2 nou compose --subject nobody --body-file body.txt --send
+stderr 'no recipients'
+stderr 'draft [0-9a-f]{32} kept'
+
+# A temporary failure waits in the outbox (exit 3) for the next send.
+smtpfail 451
+code 3 nou compose --to erin@example.org --subject Retry --body-file body.txt --send
+stderr 'will be retried'
+exec nou outbox list
+stdout 'waiting +Retry'
+smtpfail 0
+exec nou outbox send
+stdout '^sent 1, failed 0, waiting 0$'
+smtpcount 5
+
+# A refusal holds the message: cancel brings it back to its draft.
+smtpfail 550
+code 1 nou compose --to frank@example.org --subject Refused --body-file body.txt --send
+stderr 'refused'
+exec nou outbox list
+stdout 'failed +Refused'
+capture OUT '^([0-9a-f]{32})'
+exec nou outbox cancel $OUT
+stdout '^draft [0-9a-f]{32} '
+exec nou outbox list
+! stdout .
+smtpfail 0
+
+# JSON for scripts and agents.
+exec nou compose --to alice@example.org --subject JSON --body-file body.txt --send --json
+stdout '"state":"sent"'
+
+-- password.txt --
+test-password
+-- body.txt --
+Hi Alice
+-- reply.txt --
+Thanks!

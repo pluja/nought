@@ -107,3 +107,25 @@ func TestAddressSuggest(t *testing.T) {
 		t.Errorf("suggest = %+v, %v", got, err)
 	}
 }
+
+// Scripts and agents write the whole message in one call.
+func TestDraftsFromScripts(t *testing.T) {
+	env := draftEnv(t)
+	n, err := Call(t.Context(), env, Draft, DraftNew, DraftNewIn{To: []string{"a@x.org"}, Cc: []string{"c@x.org"}, Bcc: []string{"b@x.org"}, Subject: "s"})
+	if err != nil || !slices.Equal(n.Draft.Cc, []string{"c@x.org"}) || !slices.Equal(n.Draft.Bcc, []string{"b@x.org"}) {
+		t.Errorf("new = %+v, %v", n.Draft, err)
+	}
+	id := idOf(t, env, `subject:"read one"`)
+	r, err := Call(t.Context(), env, Draft, DraftReply, DraftReplyIn{ID: id, Body: "Sounds good.\n"})
+	if err != nil || !strings.HasPrefix(r.Draft.Body, "Sounds good.\n\n") || !strings.Contains(r.Draft.Body, "> hello read one") {
+		t.Errorf("reply body = %q, %v", r.Draft.Body, err)
+	}
+	f, err := Call(t.Context(), env, Draft, DraftForward, DraftForwardIn{ID: id, To: []string{"bob@x.org"}, Body: "FYI"})
+	if err != nil || !slices.Equal(f.Draft.To, []string{"bob@x.org"}) || !strings.HasPrefix(f.Draft.Body, "FYI\n\n") ||
+		!strings.Contains(f.Draft.Body, "hello read one") {
+		t.Errorf("forward = %+v, %v", f.Draft, err)
+	}
+	if got, err := Call(t.Context(), env, Read, DraftShow, DraftIDIn{ID: f.ID}); err != nil || !slices.Equal(got.Draft.To, f.Draft.To) {
+		t.Errorf("forward recipients not saved: %+v, %v", got.Draft, err)
+	}
+}

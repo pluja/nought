@@ -166,3 +166,15 @@ func TestAccountChangesKeepTheRestOfTheConfig(t *testing.T) {
 		}
 	}
 }
+
+func TestAccountSetSMTP(t *testing.T) {
+	env := newTestEnv(t)
+	addAccount(t, env, AccountIn{Name: "a", Email: "a@x.org", IMAPHost: "imap.x.org", Password: "p"})
+	out, err := Call(t.Context(), env, Delete, AccountSet, AccountSetIn{Name: "a", SMTPHost: "smtp.x.org", SMTPTLS: config.TLSStartTLS})
+	if err != nil || out.SMTP == nil || *out.SMTP != (config.Server{Host: "smtp.x.org", Port: 587, TLS: config.TLSStartTLS}) {
+		t.Fatalf("set smtp = %+v, %v", out.SMTP, err)
+	}
+	if _, err := Call(t.Context(), env, Delete, AccountSet, AccountSetIn{Name: "a", SMTPHost: "smtp.x.org", SMTPTLS: "none"}); !errors.Is(err, ErrUsage) {
+		t.Errorf("plaintext smtp = %v", err)
+	}
+}

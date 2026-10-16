@@ -186,6 +186,9 @@ func newAccountSetCmd(a *app) *cobra.Command {
 	cmd.Flags().StringVar(&in.Deletion, "deletion", "", "enabled or disabled: delete archived mail from the server per folder policy")
 	cmd.Flags().StringVar(&in.Label, "label", "", "short label")
 	cmd.Flags().StringVar(&in.Color, "color", "", "color like #44aa99")
+	cmd.Flags().StringVar(&in.SMTPHost, "smtp-host", "", "SMTP server, for sending")
+	cmd.Flags().IntVar(&in.SMTPPort, "smtp-port", 0, "SMTP port (default 465, or 587 with starttls)")
+	cmd.Flags().StringVar(&in.SMTPTLS, "smtp-tls", "", "implicit (default) or starttls")
 	return cmd
 }
 

@@ -213,6 +213,9 @@ type AccountSetIn struct {
 	Deletion string `json:"deletion,omitempty"` // "enabled" or "disabled"
 	Label    string `json:"label,omitempty"`
 	Color    string `json:"color,omitempty"`
+	SMTPHost string `json:"smtp_host,omitempty"` // with SMTPPort and SMTPTLS: the server for sending
+	SMTPPort int    `json:"smtp_port,omitempty"`
+	SMTPTLS  string `json:"smtp_tls,omitempty"`
 }
 
 // AccountSet changes account settings, including turning server deletion
@@ -229,7 +232,7 @@ var AccountSet = Op[AccountSetIn, AccountOut]{
 		if _, err := account(env, in.Name); err != nil {
 			return AccountOut{}, err
 		}
-		if in.Deletion == "" && in.Label == "" && in.Color == "" {
+		if in.Deletion == "" && in.Label == "" && in.Color == "" && in.SMTPHost == "" {
 			return AccountOut{}, usageError("nothing to change")
 		}
 		next := withAccounts(cfg, slices.Clone(cfg.Accounts))
@@ -242,6 +245,9 @@ var AccountSet = Op[AccountSetIn, AccountOut]{
 		}
 		if in.Color != "" {
 			a.Color = in.Color
+		}
+		if in.SMTPHost != "" {
+			a.SMTP = server(in.SMTPHost, in.SMTPPort, in.SMTPTLS, 465, 587)
 		}
 		if err := next.Validate(); err != nil {
 			return AccountOut{}, usageError("%v", err)

@@ -61,6 +61,8 @@ type DraftOut struct {
 type DraftNewIn struct {
 	Account string   `json:"account,omitempty"`
 	To      []string `json:"to,omitempty"`
+	Cc      []string `json:"cc,omitempty"`
+	Bcc     []string `json:"bcc,omitempty"`
 	Subject string   `json:"subject,omitempty"`
 	Body    string   `json:"body,omitempty"`
 	Attach  []string `json:"attach,omitempty"`
@@ -71,12 +73,15 @@ type DraftReplyIn struct {
 	ID      string `json:"id"`
 	Account string `json:"account,omitempty"`
 	All     bool   `json:"all,omitempty"`
+	Body    string `json:"body,omitempty"` // written above the quote (scripts)
 }
 
 // DraftForwardIn forwards an archived message.
 type DraftForwardIn struct {
-	ID      string `json:"id"`
-	Account string `json:"account,omitempty"`
+	ID      string   `json:"id"`
+	Account string   `json:"account,omitempty"`
+	To      []string `json:"to,omitempty"`
+	Body    string   `json:"body,omitempty"` // written above the forwarded message (scripts)
 }
 
 // DraftIDIn names a draft (or an outbox entry).
@@ -93,7 +98,7 @@ var DraftNew = Op[DraftNewIn, DraftOut]{
 			return DraftOut{}, err
 		}
 		d := compose.New(me(a), in.To)
-		d.Subject, d.Attach = in.Subject, in.Attach
+		d.Cc, d.Bcc, d.Subject, d.Attach = in.Cc, in.Bcc, in.Subject, in.Attach
 		if in.Body != "" {
 			d.Body = compose.Signed(in.Body, me(a))
 		}
@@ -117,7 +122,9 @@ var DraftReply = Op[DraftReplyIn, DraftOut]{
 		if in.All {
 			kind = KindReplyAll
 		}
-		return createDraft(ctx, env, DraftInfo{Account: a.Name, Kind: kind, SourceHash: m.Hash}, compose.Reply(o, me(a), in.All))
+		d := compose.Reply(o, me(a), in.All)
+		d.Body = above(in.Body, d.Body)
+		return createDraft(ctx, env, DraftInfo{Account: a.Name, Kind: kind, SourceHash: m.Hash}, d)
 	},
 }
 
@@ -133,8 +140,19 @@ var DraftForward = Op[DraftForwardIn, DraftOut]{
 		if err != nil {
 			return DraftOut{}, err
 		}
-		return createDraft(ctx, env, DraftInfo{Account: a.Name, Kind: KindForward, SourceHash: m.Hash}, compose.Forward(o, me(a)))
+		d := compose.Forward(o, me(a))
+		d.To, d.Body = in.To, above(in.Body, d.Body)
+		return createDraft(ctx, env, DraftInfo{Account: a.Name, Kind: KindForward, SourceHash: m.Hash}, d)
 	},
+}
+
+// above puts text written in advance (by a script) where the cursor would
+// start: above the quote or the forwarded message.
+func above(text, body string) string {
+	if text == "" {
+		return body
+	}
+	return strings.TrimRight(text, "\n") + "\n\n" + strings.TrimLeft(body, "\n")
 }
 
 // DraftUpdate reads a draft's editor file again, after editing.

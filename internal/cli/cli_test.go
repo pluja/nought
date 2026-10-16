@@ -14,6 +14,8 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -24,6 +26,7 @@ import (
 	"github.com/pluja/nought/internal/imaptest"
 	"github.com/pluja/nought/internal/ops"
 	"github.com/pluja/nought/internal/secret"
+	"github.com/pluja/nought/internal/smtptest"
 )
 
 var update = flag.Bool("update", false, "update testscript golden output")
@@ -44,8 +47,10 @@ func TestMain(m *testing.M) {
 }
 
 func TestScripts(t *testing.T) {
-	// One IMAP test server for all scripts; only sync scripts use it.
+	// One IMAP and one SMTP test server for all scripts; only the sync and
+	// compose scripts use them.
 	srv := imaptest.Start(t, imaptest.Options{})
+	smtpSrv := smtptest.Start(t, smtptest.Options{})
 	testscript.Run(t, testscript.Params{
 		Dir:           filepath.Join("testdata", "script"),
 		UpdateScripts: *update,
@@ -54,6 +59,9 @@ func TestScripts(t *testing.T) {
 			"imapappend": func(ts *testscript.TestScript, neg bool, args []string) { cmdIMAPAppend(t, srv, ts, neg, args) },
 			"imapcount":  func(ts *testscript.TestScript, neg bool, args []string) { cmdIMAPCount(t, srv, ts, neg, args) },
 			"expandenv":  cmdExpandEnv,
+			"capture":    cmdCapture,
+			"smtpcount":  func(ts *testscript.TestScript, neg bool, args []string) { cmdSMTPCount(smtpSrv, ts, neg, args) },
+			"smtpfail":   func(ts *testscript.TestScript, neg bool, args []string) { cmdSMTPFail(smtpSrv, ts, neg, args) },
 		},
 		Setup: func(e *testscript.Env) error {
 			e.Setenv("NOUGHT_HOME", filepath.Join(e.WorkDir, "home"))
@@ -61,9 +69,51 @@ func TestScripts(t *testing.T) {
 			ca := filepath.Join(e.WorkDir, "test-ca.pem")
 			e.Setenv("NOU_TEST_CA", ca)
 			e.Setenv("IMAP_PORT", strconv.Itoa(srv.Port))
-			return os.WriteFile(ca, srv.CAPEM, 0o600)
+			e.Setenv("SMTP_PORT", strconv.Itoa(smtpSrv.Port))
+			return os.WriteFile(ca, append(slices.Clone(srv.CAPEM), smtpSrv.CAPEM...), 0o600)
 		},
 	})
+}
+
+// cmdCapture sets a variable from the last command's output, the first
+// group of a regexp matched line by line:
+//
+//	capture ID '^draft ([0-9a-f]{32})'
+func cmdCapture(ts *testscript.TestScript, neg bool, args []string) {
+	if neg || len(args) != 2 {
+		ts.Fatalf("usage: capture <name> <regexp>")
+	}
+	m := regexp.MustCompile("(?m)" + args[1]).FindStringSubmatch(ts.ReadFile("stdout"))
+	if len(m) < 2 {
+		ts.Fatalf("no match for %s in stdout", args[1])
+	}
+	ts.Setenv(args[0], m[1])
+}
+
+// cmdSMTPCount checks how many messages the SMTP server received:
+//
+//	smtpcount 2
+func cmdSMTPCount(srv *smtptest.Server, ts *testscript.TestScript, neg bool, args []string) {
+	if neg || len(args) != 1 {
+		ts.Fatalf("usage: smtpcount <n>")
+	}
+	if got := strconv.Itoa(len(srv.Messages())); got != args[0] {
+		ts.Fatalf("the SMTP server received %s messages, want %s", got, args[0])
+	}
+}
+
+// cmdSMTPFail makes the SMTP server answer DATA with a code (0: accept):
+//
+//	smtpfail 451
+func cmdSMTPFail(srv *smtptest.Server, ts *testscript.TestScript, neg bool, args []string) {
+	if neg || len(args) != 1 {
+		ts.Fatalf("usage: smtpfail <code>")
+	}
+	code, err := strconv.Atoi(args[0])
+	if err != nil {
+		ts.Fatalf("bad code %q", args[0])
+	}
+	srv.SetFailData(code)
 }
 
 // cmdExpandEnv replaces $VARS in a script file with their values:

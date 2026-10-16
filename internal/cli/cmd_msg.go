@@ -74,11 +74,12 @@ func pad(s string, n int) string {
 func newMsgCmd(a *app) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "msg",
-		Short: "Show, tag and archive messages",
+		Short: "Show, tag, archive, reply to and forward messages",
 		Args:  noArgs,
 		RunE:  func(cmd *cobra.Command, _ []string) error { return cmd.Help() },
 	}
-	cmd.AddCommand(newMsgShowCmd(a), newMsgTagCmd(a), newMsgArchiveCmd(a), newMsgDeleteCmd(a), newMsgRestoreCmd(a))
+	cmd.AddCommand(newMsgShowCmd(a), newMsgTagCmd(a), newMsgArchiveCmd(a), newMsgDeleteCmd(a), newMsgRestoreCmd(a),
+		newMsgReplyCmd(a), newMsgForwardCmd(a))
 	return cmd
 }
 
