@@ -1,5 +1,5 @@
 # Developer tasks. `make check` is what CI runs.
-.PHONY: build test cover lint vuln fmt check
+.PHONY: build test cover lint vuln fmt check dist
 
 GO ?= go
 COVER_MIN ?= 80
@@ -27,6 +27,10 @@ fmt:
 	golangci-lint fmt
 
 check: lint cover vuln build
+
+# Release archives for every system, into dist/: make dist VERSION=v0.1.0
+dist:
+	tools/dist.sh $(VERSION)
 
 # --- Local test environment (never touches your real nought data) ---------
 # A Dovecot server on 127.0.0.1:10993 (TLS) and :10143 (STARTTLS), and a

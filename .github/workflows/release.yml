@@ -1,0 +1,50 @@
+name: release
+
+# A version tag (git tag v0.1.0 && git push --tags) builds nou for every
+# system, attests the archives (GitHub artifact attestations: build
+# provenance signed with Sigstore, no keys to keep) and publishes them as a
+# GitHub release. A release only comes from a tree that passes CI. v0.x and
+# tags like v1.0.0-rc1 are marked as pre-releases.
+#
+# Verify a download: gh attestation verify <file> --repo pluja/nought
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+
+  release:
+    needs: ci
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # create the release
+      id-token: write # sign the attestation (Sigstore, keyless)
+      attestations: write # store the attestation
+    steps:
+      # Pinned to commits: this job can write to the repository.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false # a release is built from scratch, never from a cache
+      - name: Build
+        run: tools/dist.sh "$GITHUB_REF_NAME"
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: dist/*
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          prerelease=""
+          case "$GITHUB_REF_NAME" in v0.* | *-*) prerelease="--prerelease" ;; esac
+          gh release create "$GITHUB_REF_NAME" dist/* --verify-tag --generate-notes \
+            --title "nou $GITHUB_REF_NAME" $prerelease

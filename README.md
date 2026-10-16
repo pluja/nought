@@ -55,10 +55,27 @@ TUI, and `make demo` records the demo against the local test environment.
   dumped in notmuch's format. neomutt, notmuch, grep, restic and rclone all work on it.
 - **Simple and auditable.** Go, a single static binary, few dependencies.
 
-## Build
+## Install
+
+Download the archive for your system from the
+[releases](https://github.com/pluja/nought/releases) (Linux, macOS, Windows and FreeBSD, on
+amd64 and arm64), unpack it, and put `nou` on your `PATH`. It is a single file with no
+dependencies.
+
+Check that the download is the one GitHub built from this repository, and that it is intact:
 
 ```sh
-go build -trimpath -o nou ./cmd/nou      # Go 1.26+, no cgo needed
+gh attestation verify nou_v0.1.0_linux_amd64.tar.gz --repo pluja/nought
+sha256sum --check --ignore-missing SHA256SUMS
+```
+
+Builds are reproducible: `make dist VERSION=v0.1.0` on the tagged commit gives the same files.
+
+Or build it yourself:
+
+```sh
+go install github.com/pluja/nought/cmd/nou@latest   # Go 1.26+, no cgo needed
+go build -trimpath -o nou ./cmd/nou                 # from a clone
 ```
 
 ## Quick start
@@ -301,6 +318,7 @@ make check     # lint (vet, staticcheck, golangci-lint), tests with coverage flo
 make test      # go test -race ./...
 make screenshots  # redraw docs/images from a made-up mailbox
 make demo         # record docs/images/demo.gif (needs make testenv-up and vhs)
+make dist VERSION=v0.1.0  # the release archives, into dist/ (a v* tag publishes them)
 ```
 
 ## License
