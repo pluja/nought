@@ -365,8 +365,9 @@ func runTag(ctx context.Context, env *Env, in TagIn) (out TagOut, err error) {
 		return out, err
 	}
 	// Files move only once the dumps record the new tags, so an
-	// interrupted move is undone by reindex, not the other way round.
-	if len(moves) > 0 {
+	// interrupted move is undone by reindex, not the other way round. A dry
+	// run moves nothing.
+	if len(moves) > 0 && !in.DryRun {
 		dumped = true
 		if err := writeTagsDump(ctx, env); err != nil {
 			return out, fmt.Errorf("%d messages were changed before the failure: %w: %w", out.Changed, err, ErrPartial)

@@ -62,6 +62,7 @@ type Conn struct {
 	c        *imapclient.Client
 	raw      *deadlineConn
 	stop     func() bool
+	done     <-chan struct{} // the dial context's: once closed, no command is sent
 	selected string
 }
 
@@ -112,7 +113,7 @@ func Dial(ctx context.Context, srv config.Server, base *tls.Config, user, passwo
 		_ = tcp.Close()
 		return nil, fmt.Errorf("unsupported TLS mode %q", srv.TLS)
 	}
-	conn := &Conn{c: c, raw: raw}
+	conn := &Conn{c: c, raw: raw, done: ctx.Done()}
 	// go-imap has no context support: closing the connection unblocks any
 	// pending command when ctx is cancelled.
 	conn.stop = context.AfterFunc(ctx, func() { _ = c.Close() })
@@ -129,6 +130,18 @@ func (c *Conn) Close() error {
 	_ = c.c.Logout().Wait()
 	c.stop()
 	return c.c.Close()
+}
+
+// live refuses to start a command once the context is cancelled. Closing
+// the connection (on cancel) runs in another goroutine, so without this a
+// command could still go out in between: an expunge after Ctrl-C.
+func (c *Conn) live() error {
+	select {
+	case <-c.done:
+		return context.Canceled
+	default:
+		return nil
+	}
 }
 
 // Capabilities lists what the server supports, for diagnostics.
@@ -157,6 +170,9 @@ type Folder struct {
 
 // Folders lists selectable folders.
 func (c *Conn) Folders() ([]Folder, error) {
+	if err := c.live(); err != nil {
+		return nil, err
+	}
 	var opts *imap.ListOptions
 	if c.c.Caps().Has(imap.CapSpecialUse) {
 		opts = &imap.ListOptions{ReturnSpecialUse: true}
@@ -195,6 +211,9 @@ func (c *Conn) Folders() ([]Folder, error) {
 // missing from the folder list: a server answering NO to STATUS has no
 // such folder.
 func (c *Conn) Exists(raw string) (bool, error) {
+	if err := c.live(); err != nil {
+		return false, err
+	}
 	_, err := c.c.Status(raw, &imap.StatusOptions{NumMessages: true}).Wait()
 	if imapErr, ok := errors.AsType[*imap.Error](err); ok && imapErr.Type == imap.StatusResponseTypeNo {
 		return false, nil
@@ -205,6 +224,9 @@ func (c *Conn) Exists(raw string) (bool, error) {
 // Append stores msg in a folder (by its raw name) with the given flags
 // ("Seen", "Flagged", "Answered") and internal date.
 func (c *Conn) Append(raw string, flags []string, date time.Time, msg []byte) error {
+	if err := c.live(); err != nil {
+		return err
+	}
 	fl := make([]imap.Flag, 0, len(flags))
 	for _, f := range flags {
 		fl = append(fl, imap.Flag(`\`+f))
@@ -232,6 +254,9 @@ type Mailbox struct {
 // Select opens a folder: read-write (needed for expunge), or read-only
 // (EXAMINE), which changes nothing on the server.
 func (c *Conn) Select(raw string, readOnly bool) (Mailbox, error) {
+	if err := c.live(); err != nil {
+		return Mailbox{}, err
+	}
 	c.selected = ""
 	data, err := c.c.Select(raw, &imap.SelectOptions{ReadOnly: readOnly}).Wait()
 	if err != nil {
@@ -254,6 +279,9 @@ type MessageInfo struct {
 
 // UIDsAfter returns the UIDs above after, in order.
 func (c *Conn) UIDsAfter(after uint32) ([]uint32, error) {
+	if err := c.live(); err != nil {
+		return nil, err
+	}
 	if c.selected == "" {
 		return nil, errors.New("no folder selected")
 	}
@@ -282,6 +310,9 @@ var ErrIncompleteList = errors.New("the server's message list does not match the
 // checked against the folder's message count, so a truncated answer is
 // never taken for the folder's contents.
 func (c *Conn) AllUIDs() ([]uint32, error) {
+	if err := c.live(); err != nil {
+		return nil, err
+	}
 	uids, err := c.UIDsAfter(0)
 	if err != nil {
 		return nil, err
@@ -295,6 +326,9 @@ func (c *Conn) AllUIDs() ([]uint32, error) {
 // Lookup returns the current metadata of the given UIDs, fetched in
 // batches; UIDs no longer on the server are absent from the result.
 func (c *Conn) Lookup(uids []uint32) (map[uint32]MessageInfo, error) {
+	if err := c.live(); err != nil {
+		return nil, err
+	}
 	if c.selected == "" {
 		return nil, errors.New("no folder selected")
 	}
@@ -326,6 +360,9 @@ func (c *Conn) Lookup(uids []uint32) (map[uint32]MessageInfo, error) {
 
 // Infos returns the metadata of uids in UID order, skipping vanished ones.
 func (c *Conn) Infos(uids []uint32) ([]MessageInfo, error) {
+	if err := c.live(); err != nil {
+		return nil, err
+	}
 	found, err := c.Lookup(uids)
 	if err != nil {
 		return nil, err
@@ -356,6 +393,9 @@ func uidSet(uids []uint32) imap.UIDSet {
 // announced is not trusted) and ErrTooLarge is returned; the connection
 // stays usable.
 func (c *Conn) Fetch(uid uint32, limit int64) ([]byte, error) {
+	if err := c.live(); err != nil {
+		return nil, err
+	}
 	if c.selected == "" {
 		return nil, errors.New("no folder selected")
 	}
@@ -412,6 +452,9 @@ func (c *Conn) Fetch(uid uint32, limit int64) ([]byte, error) {
 // from the messages that did not carry it before, so no other client
 // deletes them later. Callers pass at most MaxBatch UIDs.
 func (c *Conn) Expunge(uids []uint32) error {
+	if err := c.live(); err != nil {
+		return err
+	}
 	if len(uids) == 0 {
 		return nil
 	}
@@ -484,6 +527,9 @@ const maxHeader = 1 << 20
 // \Seen) of each UID. UIDs no longer on the server, or with headers larger
 // than the limit, are absent from the result.
 func (c *Conn) Headers(uids []uint32) (map[uint32][]byte, error) {
+	if err := c.live(); err != nil {
+		return nil, err
+	}
 	if c.selected == "" {
 		return nil, errors.New("no folder selected")
 	}

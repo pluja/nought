@@ -206,8 +206,13 @@ func TestContextCancelClosesConnection(t *testing.T) {
 		t.Fatal(err)
 	}
 	cancel()
-	if _, err := c.Folders(); err == nil {
-		t.Error("connection still usable after cancel")
+	// No command is sent after a cancel (Ctrl-C), not even one that would
+	// win the race with the connection closing: an expunge least of all.
+	if _, err := c.Folders(); !errors.Is(err, context.Canceled) {
+		t.Errorf("Folders after cancel = %v", err)
+	}
+	if err := c.Expunge([]uint32{1}); !errors.Is(err, context.Canceled) {
+		t.Errorf("Expunge after cancel = %v", err)
 	}
 	_ = c.Close()
 }

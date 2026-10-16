@@ -5,6 +5,7 @@ package ops
 import (
 	"errors"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -281,4 +282,45 @@ func TestDeleteNowCountsOnlyItsOwnMessages(t *testing.T) {
 	if got := search(t, env, `subject:"read one" OR subject:"sent three"`); len(got) != 0 {
 		t.Errorf("left: %v", got)
 	}
+}
+
+// Review: a dry run changes nothing on disk either. A dry-run delete moved
+// the files into the transient store (never backed up) while the index
+// still showed them as inbox mail.
+func TestDryRunDeleteMovesNothing(t *testing.T) {
+	env := newTestEnv(t)
+	importSample(t, env)
+	files := func() []string {
+		var out []string
+		for _, dir := range []string{env.Paths.ArchiveDir, env.Paths.TransientDir} {
+			_ = filepath.WalkDir(dir, func(p string, d os.DirEntry, err error) error {
+				if err == nil && !d.IsDir() {
+					out = append(out, strings.TrimPrefix(p, env.Paths.DataDir))
+				}
+				return nil
+			})
+		}
+		slices.Sort(out)
+		return out
+	}
+	before, dump := files(), readFile(t, env.Paths.TagsDump)
+	out, err := Call(t.Context(), env, Delete, MsgDelete, DeleteIn{Query: "subject:read", DryRun: true})
+	if err != nil || out.Matched == 0 {
+		t.Fatalf("dry run = %+v, %v", out, err)
+	}
+	if after := files(); !slices.Equal(after, before) {
+		t.Errorf("files moved by a dry run:\n%v\nwant:\n%v", after, before)
+	}
+	if got := readFile(t, env.Paths.TagsDump); got != dump {
+		t.Error("the tag dump changed in a dry run")
+	}
+}
+
+func readFile(t *testing.T, path string) string {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
 }
