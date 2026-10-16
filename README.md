@@ -7,6 +7,11 @@ It archives your mail locally, in plain files you own, and keeps the server down
 Everything it does is a command with `--json` output and stable exit codes, so shell scripts, cron
 jobs and AI agents can use it as easily as you can. There is also a keyboard-driven TUI.
 
+The idea comes from マリウス's
+[Inbox Zero for Privacy, not Productivity](https://xn--gckvb8fzb.com/inbox-zero-for-privacy-not-productivity):
+once you have dealt with a message, it leaves the server for storage you control, so a breach of
+your mail provider exposes as little as possible.
+
 ![nought in a terminal: reading, replying with undo send, archiving](docs/images/demo.gif)
 
 > **Status:** early development. Import, archive, search, tags, sync with verified server deletion,
