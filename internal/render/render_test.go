@@ -389,7 +389,7 @@ func TestPlainQuotes(t *testing.T) {
 	in := "Thanks!\n\nOn Fri, Bob wrote:\n> Sure.\n>\n> > Lunch?\n>> Pizza http://x.example/a\n"
 	mark := func(tag string) func(string) string { return func(s string) string { return "<" + tag + ">" + s } }
 	got, _ := TextWithLinks(in, Styler{Link: mark("a"), Dim: mark("d"), Quote: quoteMark})
-	want := "Thanks!\n\n<q1>On Fri, Bob wrote:\n<q1>│ <d>Sure.\n<q1>│\n<q1>│ <q2>│ <d>Lunch?\n<q1>│ <q2>│ <d>Pizza <a>http://x.example/a"
+	want := "Thanks!\n\n<q1>On <q1>Fri, <q1>Bob <q1>wrote:\n<q1>│ <d>Sure.\n<q1>│\n<q1>│ <q2>│ <d>Lunch?\n<q1>│ <q2>│ <d>Pizza <a>http://x.example/a"
 	if got != want {
 		t.Errorf("got:\n%s\nwant:\n%s", got, want)
 	}
@@ -404,7 +404,7 @@ func TestAttributionIntroducesItsQuote(t *testing.T) {
 	st := Styler{Quote: quoteMark}
 	tests := []struct{ in, want string }{
 		{`<div>Oct 16 by a:<br></div><blockquote><div>nice</div><div>On Fri, me wrote:</div><blockquote><div>Good</div></blockquote></blockquote>`,
-			"<q1>Oct 16 by a:\n<q1>│ nice\n<q1>│ <q2>On Fri, me wrote:\n<q1>│ <q2>│ Good"},
+			"<q1>Oct <q1>16 <q1>by <q1>a:\n<q1>│ nice\n<q1>│ <q2>On <q2>Fri, <q2>me <q2>wrote:\n<q1>│ <q2>│ Good"},
 		// A linked attribution keeps its own styling, but still attaches.
 		{`<div><a href="mailto:a@x.org">Ann</a> a écrit :</div><blockquote>salut</blockquote>`,
 			"Ann[1] a écrit :\n<q1>│ salut"},
@@ -420,7 +420,17 @@ func TestAttributionIntroducesItsQuote(t *testing.T) {
 		t.Errorf("unstyled:\n%s", got)
 	}
 	plain, _ := TextWithLinks("> Bob wrote:\n> > hi\n", st)
-	if plain != "<q1>│ <q2>Bob wrote:\n<q1>│ <q2>│ hi" {
+	if plain != "<q1>│ <q2>Bob <q2>wrote:\n<q1>│ <q2>│ hi" {
 		t.Errorf("plain:\n%s", plain)
+	}
+}
+
+// Styles go word by word, so a line wrapped anywhere keeps its style on
+// every part.
+func TestQuotedTextStyledByWord(t *testing.T) {
+	mark := func(tag string) func(string) string { return func(s string) string { return "<" + tag + ">" + s } }
+	got, _ := TextWithLinks("> two  words", Styler{Dim: mark("d"), Quote: quoteMark})
+	if got != "<q1>│ <d>two  <d>words" {
+		t.Errorf("got %q", got)
 	}
 }

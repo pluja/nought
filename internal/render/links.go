@@ -72,13 +72,13 @@ func TextWithLinks(s string, st Styler) (string, []Link) {
 			depth, rest := quoteDepth(line)
 			if depth > 0 {
 				b.WriteString(quoteBars(st, depth, rest == ""))
-				line, text = rest, func(s string) string { return apply(st.Dim, s) }
+				line, text = rest, func(s string) string { return byWord(st.Dim, s) }
 			}
 			// An attribution ("On Fri, Bob wrote:") right above a deeper
 			// quote is shown in that quote's style.
 			if i+1 < len(lines) && strings.HasSuffix(strings.TrimSpace(line), ":") && !anyURL.MatchString(line) {
 				if next, _ := quoteDepth(lines[i+1]); next > depth {
-					b.WriteString(st.Quote(depth+1, line))
+					b.WriteString(byWord(func(s string) string { return st.Quote(depth+1, s) }, line))
 					continue
 				}
 			}

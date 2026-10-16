@@ -423,9 +423,38 @@ func (m Model) readerContent(body string) string {
 		b.WriteString(wrap.Render(where.Render(glyph+" "+line)) + "\n")
 	}
 	b.WriteString(m.st.dim.Render(strings.Repeat("─", w)) + "\n")
-	b.WriteString(wrap.Render(body))
+	b.WriteString(wrapBody(body, w))
 	b.WriteString(m.linksFooter(w))
 	return b.String()
+}
+
+// wrapBody wraps the body to w cells. A quoted line keeps its bars on every
+// line it wraps onto, so the nesting stays visible.
+func wrapBody(body string, w int) string {
+	lines := strings.Split(body, "\n")
+	for i, line := range lines {
+		k := barsWidth(ansi.Strip(line))
+		if k == 0 || k >= w {
+			lines[i] = ansi.Wrap(line, w, "")
+			continue
+		}
+		prefix, rest := ansi.Cut(line, 0, k), ansi.Cut(line, k, ansi.StringWidth(line))
+		wrapped := strings.Split(ansi.Wrap(rest, w-k, ""), "\n")
+		for j := range wrapped {
+			wrapped[j] = prefix + wrapped[j]
+		}
+		lines[i] = strings.Join(wrapped, "\n")
+	}
+	return strings.Join(lines, "\n")
+}
+
+// barsWidth is the width of a line's leading quote bars ("│ │ ").
+func barsWidth(plain string) int {
+	n := 0
+	for strings.HasPrefix(plain[n:], "│ ") {
+		n += len("│ ")
+	}
+	return ansi.StringWidth(plain[:n])
 }
 
 // locationLines says briefly where a message lives (details are in ?).

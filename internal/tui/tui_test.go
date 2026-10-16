@@ -1108,3 +1108,15 @@ func TestQuoteLevelsHaveTheirOwnColors(t *testing.T) {
 		}
 	}
 }
+
+// A quoted line that wraps keeps its bars on every line, so the nesting
+// stays visible in a narrow pane.
+func TestWrappedQuotesKeepTheirBars(t *testing.T) {
+	m := newTestModel(t, 120, 30)
+	bar := m.st.quote[0].Render("│ ")
+	got := wrapBody("plain words that wrap\n"+bar+m.st.quote[1].Render("│ ")+"one two three four", 12)
+	want := "plain words\nthat wrap\n│ │ one two\n│ │ three\n│ │ four"
+	if ansi.Strip(got) != want || !strings.HasPrefix(strings.Split(got, "\n")[3], bar) {
+		t.Errorf("got:\n%s\nwant:\n%s", ansi.Strip(got), want)
+	}
+}

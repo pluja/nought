@@ -63,6 +63,21 @@ func apply(f func(string) string, s string) string {
 	return f(s)
 }
 
+// byWord styles each space-separated word on its own, so a line wrapped
+// anywhere keeps its style on every part.
+func byWord(f func(string) string, s string) string {
+	if f == nil {
+		return s
+	}
+	words := strings.Split(s, " ")
+	for i, w := range words {
+		if w != "" {
+			words[i] = f(w)
+		}
+	}
+	return strings.Join(words, " ")
+}
+
 // quoteBars is the prefix of a line quoted depth times: a bar per level,
 // each in its level's style. A blank line gets no trailing space.
 func quoteBars(st Styler, depth int, blank bool) string {
@@ -517,7 +532,8 @@ func (w *textWriter) attribution() bool {
 	}
 	if w.st.Quote != nil && !w.linked {
 		w.b.Truncate(w.lineAt)
-		w.b.WriteString(w.st.Quote(w.quote+1, plain))
+		level := w.quote + 1
+		w.b.WriteString(byWord(func(s string) string { return w.st.Quote(level, s) }, plain))
 		if ended {
 			w.b.WriteByte('\n')
 		}
