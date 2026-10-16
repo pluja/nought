@@ -45,7 +45,7 @@ jobs:
           go tool staticcheck ./...
       - uses: golangci/golangci-lint-action@v9
         with:
-          version: v2.14
+          version: v2.15.0 # GOLANGCI_LINT_VERSION in the Makefile
       - name: Coverage floor
         run: make cover
       - name: Vulnerabilities

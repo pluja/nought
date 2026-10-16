@@ -1,17 +1,111 @@
 version: "2"
 
+# The standard linters, plus checks for the bugs that matter most here
+# (errors, security, contexts, tests), and the project's own rules from
+# CLAUDE.md as code: which package may use which dependency, the layers,
+# no global logger, injected clocks, no panics, explained //nolint.
+
 linters:
-  default: standard
+  default: standard # errcheck, govet, ineffassign, staticcheck, unused
   enable:
-    - errorlint
-    - gosec
-    - misspell
-    - revive
+    # Bugs
     - bodyclose
+    - durationcheck
+    - errorlint
+    - makezero
+    - nilerr
+    - noctx
+    # Security
+    - gosec
+    # The project's rules
+    - depguard
+    - forbidigo
+    - nolintlint
+    - sloglint
+    # Tests
+    - thelper
+    - usetesting
+    # Simple, modern Go
     - copyloopvar
+    - errname
     - gocritic
+    - intrange
+    - misspell
+    - predeclared
+    - revive
     - unconvert
+    - unparam
+    - usestdlibvars
+    # Size: a function this long is doing too much (CLAUDE.md: ~60 lines)
+    - funlen
+    - gocognit
+
   settings:
+    govet:
+      enable-all: true
+      disable:
+        - fieldalignment # memory layout over readability: not worth it here
+        - shadow # "err :=" in nested scopes is idiomatic
+    gosec:
+      excludes:
+        # G304 (file path from variable) is the whole point of a mail archive;
+        # path safety is enforced with os.Root and validated account names.
+        - G304
+    depguard:
+      rules:
+        imap:
+          files: ["$all", "!$test", "!**/internal/imapsync/**", "!**/internal/imaptest/**", "!**/testenv/seed/**"]
+          deny:
+            - pkg: github.com/emersion/go-imap
+              desc: only internal/imapsync talks IMAP (and the test servers)
+        mime:
+          files: ["$all", "!**/internal/mailmsg/**"]
+          deny:
+            - pkg: github.com/emersion/go-message
+              desc: only internal/mailmsg parses MIME
+        sqlite:
+          files: ["$all", "!**/internal/index/**"]
+          deny:
+            - pkg: modernc.org/sqlite
+              desc: only internal/index uses SQLite
+        smtp:
+          files: ["$all", "!**/internal/smtpsend/**", "!**/internal/smtptest/**", "!**/testenv/smtpsink/**"]
+          deny:
+            - pkg: github.com/emersion/go-smtp
+              desc: only internal/smtpsend talks SMTP (and the test servers)
+        tui:
+          files: ["$all", "!**/internal/tui/**"]
+          deny:
+            - pkg: charm.land
+              desc: only internal/tui uses Bubble Tea and Lip Gloss
+        layers:
+          # Dependencies point down: subsystems never use ops or a frontend.
+          files: ["$all", "!**/internal/cli/**", "!**/internal/tui/**", "!**/internal/integration/**", "!**/cmd/**"]
+          deny:
+            - pkg: github.com/pluja/nought/internal/ops
+              desc: subsystems do not depend on ops; ops wires them together
+            - pkg: github.com/pluja/nought/internal/cli
+              desc: nothing depends on a frontend
+            - pkg: github.com/pluja/nought/internal/tui
+              desc: nothing depends on a frontend
+    forbidigo:
+      forbid:
+        - pattern: ^panic$
+          msg: return an error (no panic outside main and truly impossible states)
+        - pattern: ^os\.Exit$
+          msg: only cmd/nou exits; return an error
+        - pattern: ^log\.
+          msg: use the *slog.Logger passed in Env
+        - pattern: ^fmt\.Print
+          msg: write to the io.Writer you were given
+        - pattern: ^time\.Now$
+          msg: inject the clock (Env.Now); a network deadline may use //nolint:forbidigo with its reason
+    sloglint:
+      no-global: all # the *slog.Logger in Env, never slog.Default
+      static-msg: true # what happened, never interpolated content (privacy)
+    nolintlint:
+      require-explanation: true
+      require-specific: true
     revive:
       rules:
         - name: exported
@@ -23,15 +117,37 @@ linters:
         - name: indent-error-flow
         - name: unused-parameter
           disabled: true
-    gosec:
-      excludes:
-        # G304 (file path from variable) is the whole point of a mail archive;
-        # path safety is enforced with os.Root and validated account names.
-        - G304
+    thelper:
+      tb:
+        name: false # test servers take a testing.TB named t
+    funlen:
+      lines: 80
+      statements: 50
+    gocognit:
+      min-complexity: 30
+
   exclusions:
     rules:
       - path: _test\.go
-        linters: [gosec]
+        linters: [gosec, funlen, gocognit, forbidigo, unparam]
+      # Test servers and developer tools (not part of nou).
+      - path: (internal/(imaptest|smtptest)|testenv|tools)/
+        linters: [forbidigo, gosec, noctx, unparam]
+      - path: cmd/nou/
+        text: os\.Exit
+        linters: [forbidigo]
+      # Known debt: functions that predate these limits, to be split in the
+      # whole-codebase quality pass. New code is held to the limits; take a
+      # function off this list once it is split.
+      - linters: [gocognit]
+        text: "of func `(printSync|\\(\\*app\\)\\.runWizard|Check|\\(\\*Config\\)\\.Validate|\\(\\*Conn\\)\\.Headers|Maildir|Mbox|runImport|runTag|fetchInfos|runReindex|TextWithLinks|\\(Model\\)\\.update)` is high"
+      - linters: [funlen]
+        text: "Function '(key|update|runWizard|runImport|runReindex)' has too many"
+
+issues:
+  # Show every finding: the defaults hide repeats.
+  max-issues-per-linter: 0
+  max-same-issues: 0
 
 formatters:
   enable:

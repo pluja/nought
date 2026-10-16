@@ -6,7 +6,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -49,7 +48,7 @@ func newTestModel(t *testing.T, w, h int) Model {
 	if err != nil {
 		t.Fatal(err)
 	}
-	env := ops.NewEnv(paths, slog.New(slog.NewTextHandler(io.Discard, nil)), func() time.Time { return testNow },
+	env := ops.NewEnv(paths, slog.New(slog.DiscardHandler), func() time.Time { return testNow },
 		ops.BuildInfo{}, secret.Memory{})
 	t.Cleanup(func() { _ = env.Close() })
 
@@ -353,13 +352,15 @@ func TestParseTagInput(t *testing.T) {
 
 func TestGoldenScreens(t *testing.T) {
 	cases := map[string]func(*testing.T) Model{
-		"list-120x30": func(t *testing.T) Model { return newTestModel(t, 120, 30) },
+		"list-120x30": func(t *testing.T) Model { t.Helper(); return newTestModel(t, 120, 30) },
 		"reader-120x30": func(t *testing.T) Model {
+			t.Helper()
 			return drive(t, newTestModel(t, 120, 30), key("j"), key("enter"))
 		},
-		"list-80x24": func(t *testing.T) Model { return newTestModel(t, 80, 24) },
-		"help-80x24": func(t *testing.T) Model { return drive(t, newTestModel(t, 80, 24), key("?")) },
+		"list-80x24": func(t *testing.T) Model { t.Helper(); return newTestModel(t, 80, 24) },
+		"help-80x24": func(t *testing.T) Model { t.Helper(); return drive(t, newTestModel(t, 80, 24), key("?")) },
 		"review-120x30": func(t *testing.T) Model {
+			t.Helper()
 			m, _ := newSendModel(t)
 			m.editFile = fakeEditor(func(s string) string {
 				return strings.Replace(s, "\n\n", "\n\nSounds good, see you there.\n\nAttached is the menu.", 1)

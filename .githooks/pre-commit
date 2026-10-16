@@ -1,0 +1,15 @@
+#!/bin/sh
+# Runs make check (lint and format, tests with the coverage floor,
+# govulncheck, the build) on exactly what is being committed, the index,
+# not the working tree: every commit passes what CI checks.
+# Install with: make hooks
+set -eu
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+git checkout-index --all --prefix="$tmp/"
+echo "pre-commit: make check on the staged tree…"
+if ! (cd "$tmp" && make check) >"$tmp/check.log" 2>&1; then
+	grep -E -- '--- FAIL|^FAIL|\.go:[0-9]+:[0-9]+|^make: |coverage below|Vulnerability #' "$tmp/check.log" | head -40 || tail -40 "$tmp/check.log"
+	echo "pre-commit: make check failed; nothing was committed"
+	exit 1
+fi

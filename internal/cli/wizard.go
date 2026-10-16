@@ -107,7 +107,7 @@ func (p *prompter) secret(question string) (string, error) {
 		line, err := p.readLine()
 		return strings.TrimRight(line, "\r\n"), err
 	}
-	fd := int(f.Fd()) //nolint:gosec // G115: file descriptors fit in int
+	fd := int(f.Fd())
 	state, err := term.GetState(fd)
 	if err != nil {
 		return "", err

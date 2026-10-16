@@ -243,7 +243,7 @@ func Run(ctx context.Context, env *ops.Env, opts Options) error {
 	sender.p = p
 	_, err := p.Run()
 	if err != nil && ctx.Err() != nil {
-		return nil // interrupted: a normal way to leave
+		return nil //nolint:nilerr // interrupted (Ctrl-C): a normal way to leave
 	}
 	return err
 }

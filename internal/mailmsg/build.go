@@ -191,7 +191,7 @@ func transferEncoding(text string) string {
 			return "quoted-printable"
 		}
 	}
-	for i := 0; i < len(text); i++ {
+	for i := range len(text) {
 		if text[i] >= utf8.RuneSelf {
 			return "quoted-printable"
 		}

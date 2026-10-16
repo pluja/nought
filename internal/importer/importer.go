@@ -238,7 +238,7 @@ func mozillaStatus(raw []byte, flags string) (string, bool) {
 // isFolderInternalData recognizes the pseudo-message some mail programs
 // (Pine, older Thunderbird) keep at the start of an mbox file.
 func isFolderInternalData(raw []byte) bool {
-	subject, _ := headerValue(raw, "Subject")
+	subject := headerValue(raw, "Subject")
 	return strings.Contains(subject, "FOLDER INTERNAL DATA")
 }
 
@@ -258,7 +258,7 @@ func firstHeader(raw []byte, name string) (string, bool) {
 }
 
 // headerValue finds a top-level header field without parsing the message.
-func headerValue(raw []byte, name string) (string, bool) {
+func headerValue(raw []byte, name string) string {
 	prefix := []byte(strings.ToLower(name) + ":")
 	for len(raw) > 0 {
 		line := raw
@@ -269,13 +269,13 @@ func headerValue(raw []byte, name string) (string, bool) {
 		}
 		line = bytes.TrimRight(line, "\r")
 		if len(line) == 0 {
-			return "", false // end of header
+			return "" // end of header
 		}
 		if len(line) > len(prefix) && bytes.Equal(bytes.ToLower(line[:len(prefix)]), prefix) {
-			return string(line[len(prefix):]), true
+			return string(line[len(prefix):])
 		}
 	}
-	return "", false
+	return ""
 }
 
 // Mbox reads messages from an mbox file. A "From " line opens a new message

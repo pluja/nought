@@ -143,7 +143,6 @@ func (ix *Index) Count(ctx context.Context, q query.Query) (int, error) {
 		return 0, err
 	}
 	var n int
-	//nolint:gosec // G202: where is built by compile from fixed fragments; values are bound.
 	err = ix.db.QueryRowContext(ctx, "SELECT count(*) FROM messages m JOIN accounts a ON a.id = m.account_id WHERE "+where, args...).Scan(&n)
 	return n, err
 }

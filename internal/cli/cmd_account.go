@@ -103,13 +103,13 @@ func (a *app) readPassword(cmd *cobra.Command, account string, fromStdin bool) (
 		return strings.TrimRight(line, "\r\n"), nil
 	}
 	f, ok := a.opts.Stdin.(*os.File)
-	if !ok || !term.IsTerminal(int(f.Fd())) { //nolint:gosec // G115: file descriptors fit in int
+	if !ok || !term.IsTerminal(int(f.Fd())) {
 		return "", fmt.Errorf("stdin is not a terminal: use --password-stdin or --password-command: %w", ops.ErrUsage)
 	}
 	if err := printf(cmd.ErrOrStderr(), "Password for %s: ", account); err != nil {
 		return "", err
 	}
-	pw, err := term.ReadPassword(int(f.Fd())) //nolint:gosec // G115: file descriptors fit in int
+	pw, err := term.ReadPassword(int(f.Fd()))
 	_ = printf(cmd.ErrOrStderr(), "\n")
 	if err != nil {
 		return "", fmt.Errorf("read password: %w", err)

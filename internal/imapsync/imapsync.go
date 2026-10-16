@@ -355,7 +355,7 @@ func uidSet(uids []uint32) imap.UIDSet {
 // bytes in memory. A larger body is read and discarded (the size the server
 // announced is not trusted) and ErrTooLarge is returned; the connection
 // stays usable.
-func (c *Conn) Fetch(uid uint32, max int64) ([]byte, error) {
+func (c *Conn) Fetch(uid uint32, limit int64) ([]byte, error) {
 	if c.selected == "" {
 		return nil, errors.New("no folder selected")
 	}
@@ -373,11 +373,11 @@ func (c *Conn) Fetch(uid uint32, max int64) ([]byte, error) {
 			case imapclient.FetchItemDataUID:
 				msgUID = uint32(item.UID)
 			case imapclient.FetchItemDataBodySection:
-				b, err := io.ReadAll(io.LimitReader(item.Literal, max+1))
+				b, err := io.ReadAll(io.LimitReader(item.Literal, limit+1))
 				if err != nil {
 					return nil, fmt.Errorf("fetch uid %d: %w", uid, err)
 				}
-				if int64(len(b)) > max {
+				if int64(len(b)) > limit {
 					// Drain the rest so the protocol stays in step; the
 					// deadlines bound how long a hostile server can stream.
 					if _, err := io.Copy(io.Discard, item.Literal); err != nil {
@@ -454,14 +454,14 @@ type deadlineConn struct {
 }
 
 func (d *deadlineConn) Read(p []byte) (int, error) {
-	if err := d.SetReadDeadline(time.Now().Add(d.current())); err != nil {
+	if err := d.SetReadDeadline(time.Now().Add(d.current())); err != nil { //nolint:forbidigo // a network deadline is wall-clock time
 		return 0, err
 	}
 	return d.Conn.Read(p)
 }
 
 func (d *deadlineConn) Write(p []byte) (int, error) {
-	if err := d.SetWriteDeadline(time.Now().Add(d.current())); err != nil {
+	if err := d.SetWriteDeadline(time.Now().Add(d.current())); err != nil { //nolint:forbidigo // a network deadline is wall-clock time
 		return 0, err
 	}
 	return d.Conn.Write(p)

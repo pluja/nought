@@ -76,7 +76,7 @@ func Open(dir string) (*Maildir, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open maildir: %w", err)
 	}
-	m := &Maildir{root: root, now: time.Now}
+	m := &Maildir{root: root, now: time.Now} //nolint:forbidigo // the default clock; tests set their own
 	if err := m.scan(); err != nil {
 		return nil, errors.Join(err, root.Close())
 	}

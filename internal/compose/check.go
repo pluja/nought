@@ -120,11 +120,11 @@ func ownText(body string) string {
 }
 
 // within reports whether a and b are at most max edits apart (Levenshtein).
-func within(a, b string, max int) bool {
+func within(a, b string, limit int) bool {
 	if a == b {
 		return true
 	}
-	if d := len(a) - len(b); d > max || -d > max {
+	if d := len(a) - len(b); d > limit || -d > limit {
 		return false
 	}
 	prev := make([]int, len(b)+1)
@@ -143,12 +143,12 @@ func within(a, b string, max int) bool {
 			cur[j] = min(prev[j]+1, cur[j-1]+1, prev[j-1]+cost)
 			best = min(best, cur[j])
 		}
-		if best > max {
+		if best > limit {
 			return false
 		}
 		prev, cur = cur, prev
 	}
-	return prev[len(b)] <= max
+	return prev[len(b)] <= limit
 }
 
 // domain is the part of an address after the @.

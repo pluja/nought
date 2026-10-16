@@ -6,7 +6,6 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"flag"
-	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -33,17 +32,20 @@ func TestScreenshots(t *testing.T) {
 		t.Skip("run with -screenshots DIR (make screenshots)")
 	}
 	shots := map[string]func(t *testing.T, m Model) Model{
-		"inbox": func(t *testing.T, m Model) Model { return m },
+		"inbox": func(t *testing.T, m Model) Model { t.Helper(); return m },
 		"newsletter": func(t *testing.T, m Model) Model {
+			t.Helper()
 			return drive(t, m, key("j"), key("j"))
 		},
 		"review": func(t *testing.T, m Model) Model {
+			t.Helper()
 			m.editFile = fakeEditor(func(s string) string {
 				return strings.Replace(s, "\n\n", "\n\nWonderful! I attached the tram tickets.\n\nSam", 1)
 			})
 			return drive(t, m, key("r"))
 		},
 		"sending": func(t *testing.T, m Model) Model {
+			t.Helper()
 			m.editFile = fakeEditor(func(s string) string {
 				return strings.Replace(s, "\n\n", "\n\nWonderful, see you on Friday!\n\nSam", 1)
 			})
@@ -52,7 +54,7 @@ func TestScreenshots(t *testing.T) {
 			m.now = func() time.Time { return testNow.Add(3 * time.Second) }
 			return m
 		},
-		"help": func(t *testing.T, m Model) Model { return drive(t, m, key("?")) },
+		"help": func(t *testing.T, m Model) Model { t.Helper(); return drive(t, m, key("?")) },
 	}
 	for name, shoot := range shots {
 		t.Run(name, func(t *testing.T) {
@@ -78,7 +80,7 @@ func demoModel(t *testing.T, w, h int) Model {
 	if err != nil {
 		t.Fatal(err)
 	}
-	env := ops.NewEnv(paths, slog.New(slog.NewTextHandler(io.Discard, nil)), func() time.Time { return testNow },
+	env := ops.NewEnv(paths, slog.New(slog.DiscardHandler), func() time.Time { return testNow },
 		ops.BuildInfo{}, secret.Memory{})
 	t.Cleanup(func() { _ = env.Close() })
 	imapSrv, smtpSrv := imaptest.Start(t, imaptest.Options{}), smtptest.Start(t, smtptest.Options{})

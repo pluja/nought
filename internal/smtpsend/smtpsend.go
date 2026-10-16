@@ -51,8 +51,8 @@ func Send(ctx context.Context, srv config.Server, base *tls.Config, user, passwo
 	stop := context.AfterFunc(ctx, func() { _ = c.Close() })
 	defer stop()
 
-	if max, ok := c.MaxMessageSize(); ok && max > 0 && len(raw) > max {
-		return fmt.Errorf("the message is too large for the server (%d KB, the limit is %d KB): %w", len(raw)>>10, max>>10, ErrPermanent)
+	if limit, ok := c.MaxMessageSize(); ok && limit > 0 && len(raw) > limit {
+		return fmt.Errorf("the message is too large for the server (%d KB, the limit is %d KB): %w", len(raw)>>10, limit>>10, ErrPermanent)
 	}
 	if err := c.Auth(sasl.NewPlainClient("", user, password)); err != nil {
 		return classify("login", err)
@@ -95,7 +95,7 @@ func dial(ctx context.Context, srv config.Server, base *tls.Config, timeout time
 	if err != nil {
 		return nil, fmt.Errorf("connect to %s: %w: %w", addr, err, ErrTemporary)
 	}
-	if err := conn.SetDeadline(time.Now().Add(timeout)); err != nil {
+	if err := conn.SetDeadline(time.Now().Add(timeout)); err != nil { //nolint:forbidigo // a network deadline is wall-clock time
 		_ = conn.Close()
 		return nil, err
 	}

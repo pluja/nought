@@ -249,5 +249,5 @@ func printTagOut(w io.Writer, out ops.TagOut) error {
 // isTerminal reports whether v (a reader or writer) is an interactive terminal.
 func isTerminal(v any) bool {
 	f, ok := v.(*os.File)
-	return ok && term.IsTerminal(int(f.Fd())) //nolint:gosec // G115: file descriptors fit in int
+	return ok && term.IsTerminal(int(f.Fd()))
 }

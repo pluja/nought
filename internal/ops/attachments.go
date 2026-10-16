@@ -86,7 +86,7 @@ var MsgSave = Op[SaveIn, []SavedFile]{
 // writeNew writes a file that did not exist: name, else "name (1).ext", ...
 func writeNew(root *os.Root, name string, data []byte) (string, error) {
 	ext := filepath.Ext(name)
-	for n := 0; n < 1000; n++ {
+	for n := range 1000 {
 		try := name
 		if n > 0 {
 			try = fmt.Sprintf("%s (%d)%s", strings.TrimSuffix(name, ext), n, ext)

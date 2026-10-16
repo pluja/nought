@@ -56,7 +56,7 @@ func main() {
 }
 
 func testTLS(caFile string) (*tls.Config, error) {
-	pem, err := os.ReadFile(caFile) //nolint:gosec // G703: the developer's own test CA path
+	pem, err := os.ReadFile(caFile)
 	if err != nil {
 		return nil, fmt.Errorf("NOU_DEV_CA: %w", err)
 	}

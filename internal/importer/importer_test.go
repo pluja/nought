@@ -37,7 +37,7 @@ func collect(t *testing.T, items func(func(Item, error) bool)) ([]got, []error) 
 		if item.Deleted {
 			continue
 		}
-		subj, _ := headerValue(item.Raw, "Subject")
+		subj := headerValue(item.Raw, "Subject")
 		out = append(out, got{item.Folder, item.Flags, strings.TrimSpace(subj)})
 	}
 	slices.SortFunc(out, func(a, b got) int { return strings.Compare(a.subject, b.subject) })
@@ -106,7 +106,10 @@ func TestMaildirEarlyStop(t *testing.T) {
 		write(t, filepath.Join(root, n), "Subject: x\n\n")
 	}
 	n := 0
-	for range Maildir(root) {
+	for _, err := range Maildir(root) {
+		if err != nil {
+			t.Fatal(err)
+		}
 		n++
 		break
 	}
@@ -232,10 +235,10 @@ func TestMaildirSymlinkedRoot(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("symlinks need privileges on Windows")
 	}
-	real := t.TempDir()
-	write(t, filepath.Join(real, "a.eml"), "Subject: via link\n\nx")
+	target := t.TempDir()
+	write(t, filepath.Join(target, "a.eml"), "Subject: via link\n\nx")
 	link := filepath.Join(t.TempDir(), "link")
-	if err := os.Symlink(real, link); err != nil {
+	if err := os.Symlink(target, link); err != nil {
 		t.Fatal(err)
 	}
 	items, errs := collect(t, Maildir(link))

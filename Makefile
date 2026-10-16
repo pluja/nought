@@ -1,8 +1,10 @@
 # Developer tasks. `make check` is what CI runs.
-.PHONY: build test cover lint vuln fmt check dist
+.PHONY: build test cover lint lint-version vuln fmt check dist hooks
 
 GO ?= go
 COVER_MIN ?= 80
+# golangci-lint, the same version as CI (.github/workflows/ci.yml).
+GOLANGCI_LINT_VERSION := 2.15.0
 
 build:
 	CGO_ENABLED=0 $(GO) build -trimpath -o nou ./cmd/nou
@@ -15,10 +17,17 @@ cover:
 	@$(GO) tool cover -func=cover.out | tail -1
 	@$(GO) tool cover -func=cover.out | awk '/^total:/ { sub("%","",$$3); if ($$3+0 < $(COVER_MIN)) { print "coverage below $(COVER_MIN)%"; exit 1 } }'
 
-lint:
+lint: lint-version
 	$(GO) vet ./...
 	$(GO) tool staticcheck ./...
 	golangci-lint run
+
+# A different golangci-lint finds different things: use CI's.
+lint-version:
+	@golangci-lint version 2>/dev/null | grep -q "version $(GOLANGCI_LINT_VERSION) " || { \
+		echo "golangci-lint $(GOLANGCI_LINT_VERSION) is needed (CI uses it):"; \
+		echo "  go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v$(GOLANGCI_LINT_VERSION)"; \
+		exit 1; }
 
 vuln:
 	$(GO) tool govulncheck ./...
@@ -27,6 +36,10 @@ fmt:
 	golangci-lint fmt
 
 check: lint cover vuln build
+
+# Runs make check before every commit (.githooks/pre-commit).
+hooks:
+	git config core.hooksPath .githooks
 
 # Release archives for every system, into dist/: make dist VERSION=v0.1.0
 dist:

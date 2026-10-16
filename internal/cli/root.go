@@ -71,9 +71,9 @@ func exactArgs(n int) cobra.PositionalArgs {
 }
 
 // rangeArgs is cobra.RangeArgs with errors classified as usage errors.
-func rangeArgs(min, max int) cobra.PositionalArgs {
+func rangeArgs(lo, hi int) cobra.PositionalArgs {
 	return func(cmd *cobra.Command, args []string) error {
-		if err := cobra.RangeArgs(min, max)(cmd, args); err != nil {
+		if err := cobra.RangeArgs(lo, hi)(cmd, args); err != nil {
 			return fmt.Errorf("%w: %w", err, ops.ErrUsage)
 		}
 		return nil

@@ -6,7 +6,6 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
-	"io"
 	"log/slog"
 	"os"
 	"runtime"
@@ -37,7 +36,7 @@ func composeApp(t *testing.T, stdin string, versions ...string) (*app, *smtptest
 	if err != nil {
 		t.Fatal(err)
 	}
-	env := ops.NewEnv(paths, slog.New(slog.NewTextHandler(io.Discard, nil)), time.Now, ops.BuildInfo{}, secret.Memory{})
+	env := ops.NewEnv(paths, slog.New(slog.DiscardHandler), time.Now, ops.BuildInfo{}, secret.Memory{})
 	pool := x509.NewCertPool()
 	pool.AppendCertsFromPEM(srv.CAPEM)
 	env.TLS = &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}

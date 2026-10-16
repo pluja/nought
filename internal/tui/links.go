@@ -25,7 +25,7 @@ func openInBrowser(link string) error {
 		return errors.New("only http, https and mailto links can be opened")
 	}
 	args := browserCommand(runtime.GOOS, link)
-	cmd := exec.Command(args[0], args[1:]...) //nolint:gosec // G204: a validated http(s)/mailto URL, one argument, no shell
+	cmd := exec.Command(args[0], args[1:]...) //nolint:gosec,noctx // G204: a validated http(s)/mailto URL, one argument, no shell; the opener may outlive the TUI
 	if err := cmd.Start(); err != nil {
 		return err
 	}

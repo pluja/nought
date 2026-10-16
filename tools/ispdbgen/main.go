@@ -32,7 +32,7 @@ func main() {
 	slices.Sort(files)
 	var providers []autoconfig.Provider
 	for _, file := range files {
-		f, err := os.Open(file) //nolint:gosec // G304: the checkout the developer passed in
+		f, err := os.Open(file)
 		if err != nil {
 			fail(err)
 		}

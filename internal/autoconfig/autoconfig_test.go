@@ -18,6 +18,7 @@ import (
 
 // offline is a Network that fails the test if anything is contacted.
 func offline(t *testing.T) Network {
+	t.Helper()
 	return Network{
 		LookupSRV: func(context.Context, string, string, string) (string, []*net.SRV, error) {
 			t.Fatal("DNS used offline")

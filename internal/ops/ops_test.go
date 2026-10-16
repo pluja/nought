@@ -6,7 +6,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -32,7 +31,7 @@ func newTestEnv(t *testing.T) *Env {
 		t.Fatal(err)
 	}
 	now := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
-	env := NewEnv(paths, slog.New(slog.NewTextHandler(io.Discard, nil)), func() time.Time { return now },
+	env := NewEnv(paths, slog.New(slog.DiscardHandler), func() time.Time { return now },
 		BuildInfo{Version: "test", GoVersion: "go1.26"}, secret.Memory{})
 	t.Cleanup(func() {
 		if err := env.Close(); err != nil {

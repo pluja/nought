@@ -154,6 +154,7 @@ func testTLS(caFile string) *tls.Config {
 //
 //	imapappend INBOX 30 mail.eml     (received 30 days ago)
 func cmdIMAPAppend(t *testing.T, srv *imaptest.Server, ts *testscript.TestScript, neg bool, args []string) {
+	t.Helper()
 	if neg || len(args) != 3 {
 		ts.Fatalf("usage: imapappend <mailbox> <days-ago> <file>")
 	}
@@ -168,6 +169,7 @@ func cmdIMAPAppend(t *testing.T, srv *imaptest.Server, ts *testscript.TestScript
 //
 //	imapcount INBOX 2
 func cmdIMAPCount(t *testing.T, srv *imaptest.Server, ts *testscript.TestScript, neg bool, args []string) {
+	t.Helper()
 	if neg || len(args) != 2 {
 		ts.Fatalf("usage: imapcount <mailbox> <n>")
 	}

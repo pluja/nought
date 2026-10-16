@@ -80,7 +80,7 @@ func execEditor(command []string) func(string) tea.Cmd {
 		command = []string{"vi"}
 	}
 	return func(path string) tea.Cmd {
-		c := exec.Command(command[0], append(slices.Clone(command[1:]), path)...) //nolint:gosec // G204: the user's own editor
+		c := exec.Command(command[0], append(slices.Clone(command[1:]), path)...) //nolint:gosec,noctx // G204: the user's own editor; never tied to a context, whose end would kill it with unsaved text
 		return tea.ExecProcess(c, func(err error) tea.Msg { return editorDoneMsg{err: err} })
 	}
 }

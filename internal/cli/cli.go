@@ -113,7 +113,7 @@ func (a *app) setup(cmd *cobra.Command, _ []string) error {
 	if secrets == nil {
 		secrets = secret.Keyring()
 	}
-	a.env = ops.NewEnv(paths, log, time.Now, buildInfo(a.opts.Version), secrets)
+	a.env = ops.NewEnv(paths, log, time.Now, buildInfo(a.opts.Version), secrets) //nolint:forbidigo // the real clock is wired in here, once
 	a.env.TLS = a.opts.TLS
 	a.env.Network = autoconfig.DefaultNetwork()
 	return nil

@@ -6,7 +6,6 @@ import (
 	"bufio"
 	"context"
 	"errors"
-	"io"
 	"log/slog"
 	"net"
 	"strings"
@@ -33,7 +32,7 @@ func TestWizardDiscoverOnline(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	env := ops.NewEnv(paths, slog.New(slog.NewTextHandler(io.Discard, nil)), time.Now, ops.BuildInfo{}, secret.Memory{})
+	env := ops.NewEnv(paths, slog.New(slog.DiscardHandler), time.Now, ops.BuildInfo{}, secret.Memory{})
 	env.Network = autoconfig.Network{
 		LookupSRV: func(_ context.Context, service, _, name string) (string, []*net.SRV, error) {
 			if service == "imaps" {

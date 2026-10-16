@@ -329,7 +329,7 @@ func setTags(ctx context.Context, tx *sql.Tx, account string, key dumpKey, tags 
 // notmuch's hex encoding does; notmuch restore decodes it.
 func encodeTag(tag string) string {
 	var b strings.Builder
-	for i := 0; i < len(tag); i++ {
+	for i := range len(tag) {
 		c := tag[i]
 		if c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || strings.IndexByte("-_.+@=:,/", c) >= 0 {
 			b.WriteByte(c)

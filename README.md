@@ -326,6 +326,7 @@ nou sync && restic backup ~/.local/share/nought ~/.config/nought \
 ## Development
 
 ```sh
+make hooks     # once: run make check before every commit
 make check     # lint (vet, staticcheck, golangci-lint), tests with coverage floor, govulncheck, build
 make test      # go test -race ./...
 make screenshots  # redraw docs/images from a made-up mailbox
