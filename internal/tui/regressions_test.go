@@ -208,3 +208,28 @@ func slicesContains(s []string, v string) bool {
 	}
 	return false
 }
+
+// Review: a quick second r opened two drafts and two editors; the To input
+// was prefilled with text straight from the mail (bidi controls kept).
+func TestOneDraftAtATimeAndCleanTo(t *testing.T) {
+	m, _ := newSendModel(t)
+	opened := 0
+	m.editFile = func(string) tea.Cmd {
+		opened++
+		return func() tea.Msg { return editorDoneMsg{err: errors.New("closed")} }
+	}
+	m = drive(t, m, key("r"), key("r"))
+	if opened != 1 {
+		t.Errorf("%d editors for one draft", opened)
+	}
+
+	m, _ = newSendModel(t)
+	m.editFile = fakeEditor(func(s string) string {
+		return strings.Replace(s, "To: ", "To: Ev\u202eil <e@x.org>, ", 1)
+	})
+	m = drive(t, m, key("c"))
+	m = drive(t, m, key("t"))
+	if strings.ContainsRune(m.input.Value(), '\u202e') {
+		t.Errorf("To input kept a bidi control: %q", m.input.Value())
+	}
+}

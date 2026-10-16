@@ -202,6 +202,7 @@ type Model struct {
 	// Writing mail.
 	composing      *ops.DraftOut // the review screen shows while set
 	editing        string        // the draft open in the editor
+	startingDraft  bool          // a draft is being created (r, R, f, c)
 	discarding     string        // the draft the discard question is about
 	editFile       func(path string) tea.Cmd
 	sendingID      string // the outbox entry in its undo window

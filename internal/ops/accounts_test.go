@@ -5,8 +5,10 @@ package ops
 import (
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"os"
 	"regexp"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -241,5 +243,45 @@ func TestJSONSchemaIsConsistent(t *testing.T) {
 		if regexp.MustCompile(`"[A-Z][A-Za-z]*":`).MatchString(s) || strings.Contains(s, ":null") {
 			t.Errorf("not snake_case or has null:\n%s", s)
 		}
+	}
+}
+
+// Review: small CLI edges.
+func TestSmallEdges(t *testing.T) {
+	env := newTestEnv(t)
+	// No account yet: say so, not "several accounts".
+	if _, err := Call(t.Context(), env, Draft, DraftNew, DraftNewIn{}); err == nil || !strings.Contains(err.Error(), "no account") {
+		t.Errorf("no account: %v", err)
+	}
+	addAccount(t, env, AccountIn{Name: "a", Email: "a@x.org", IMAPHost: "imap.x.org", Password: "p", SMTPHost: "smtp.x.org"})
+	// --smtp-port alone changes the port of the existing server.
+	out, err := Call(t.Context(), env, Delete, AccountSet, AccountSetIn{Name: "a", SMTPPort: 2525})
+	if err != nil || out.SMTP == nil || *out.SMTP != (config.Server{Host: "smtp.x.org", Port: 2525, TLS: config.TLSImplicit}) {
+		t.Errorf("smtp port alone: %+v, %v", out.SMTP, err)
+	}
+	// A negative limit is a mistake, not "the default".
+	if _, err := Call(t.Context(), env, Read, MsgSearch, SearchIn{Query: "tag:inbox", Limit: -5}); !errors.Is(err, ErrUsage) {
+		t.Errorf("negative limit: %v", err)
+	}
+}
+
+// Review: config.toml holds password_command, which nou runs: a file others
+// can write is a way to run code as you, so nou warns about it.
+func TestWarnsAboutAWritableConfig(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("no Unix modes")
+	}
+	env := newTestEnv(t)
+	addAccount(t, env, AccountIn{Name: "a", Email: "a@x.org", IMAPHost: "imap.x.org", Password: "p"})
+	if err := os.Chmod(env.Paths.ConfigFile, 0o666); err != nil {
+		t.Fatal(err)
+	}
+	var log strings.Builder
+	fresh := NewEnv(env.Paths, slog.New(slog.NewTextHandler(&log, nil)), env.Now, BuildInfo{}, env.Secrets)
+	if _, err := fresh.Config(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(log.String(), "others can change") {
+		t.Errorf("no warning: %q", log.String())
 	}
 }

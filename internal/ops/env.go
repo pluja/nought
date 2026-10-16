@@ -7,6 +7,8 @@ import (
 	"crypto/tls"
 	"errors"
 	"log/slog"
+	"os"
+	"runtime"
 	"sync"
 	"time"
 
@@ -71,6 +73,11 @@ func (e *Env) Config() (*config.Config, error) {
 		c, err := config.Load(e.Paths.ConfigFile)
 		if err != nil {
 			return nil, err
+		}
+		// It may hold password_command, which nou runs: if others can
+		// change the file, they can run code as you.
+		if info, err := os.Stat(e.Paths.ConfigFile); err == nil && runtime.GOOS != "windows" && info.Mode().Perm()&0o022 != 0 {
+			e.Log.Warn("others can change the config file, and it may run a password command: chmod 600 it", "path", e.Paths.ConfigFile)
 		}
 		e.config = c
 	}

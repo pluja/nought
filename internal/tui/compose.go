@@ -90,9 +90,10 @@ func execEditor(command []string) func(string) tea.Cmd {
 // (new), then opens it in the editor.
 func (m Model) startDraft(key string) (Model, tea.Cmd) {
 	sel, ok := m.selected()
-	if key != "c" && !ok {
-		return m, nil
+	if key != "c" && !ok || m.startingDraft {
+		return m, nil // one draft at a time: a quick second r is ignored
 	}
+	m.startingDraft = true
 	ctx, env := m.ctx, m.env
 	return m, func() tea.Msg {
 		var out ops.DraftOut
@@ -110,6 +111,9 @@ func (m Model) startDraft(key string) (Model, tea.Cmd) {
 }
 
 func (m Model) draftReady(msg draftMsg) (Model, tea.Cmd) {
+	if msg.edit {
+		m.startingDraft = false
+	}
 	if msg.err != nil {
 		m.notice, m.noticeErr = msg.err.Error(), true
 		return m, nil
@@ -162,7 +166,7 @@ func (m Model) reviewKey(key string) (Model, tea.Cmd) {
 		return m, m.editFile(d.Path)
 	case "t":
 		m.suggestions = nil
-		return m.startInput(inputTo, strings.Join(d.Draft.To, ", "))
+		return m.startInput(inputTo, render.SanitizeLine(strings.Join(d.Draft.To, ", ")))
 	case "a":
 		return m.startInput(inputAttach, "")
 	case "d", "esc":

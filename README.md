@@ -258,7 +258,7 @@ trash_days = 30   # how long the trash keeps mail (0: until the next sync)
 
 [[rule]]
 query = "from:no-reply@bank.example subject:code"
-expire_days = 1   # deleted for good, here and on the server, a day after it arrives
+expire_days = 1   # deleted for good, here and on the server, from the next day (UTC days)
 
 [[rule]]
 query = "from:newsletter@example.org"

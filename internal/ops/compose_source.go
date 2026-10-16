@@ -23,7 +23,11 @@ func sendingAccount(env *Env, name string) (*config.Account, error) {
 	if err != nil {
 		return nil, err
 	}
-	if len(cfg.Accounts) != 1 {
+	switch len(cfg.Accounts) {
+	case 0:
+		return nil, usageError("no account to send from: add one with nou account add")
+	case 1:
+	default:
 		return nil, usageError("several accounts: say which one sends")
 	}
 	return &cfg.Accounts[0], nil

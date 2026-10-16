@@ -94,10 +94,10 @@ var MsgSearch = Op[SearchIn, SearchOut]{
 			return SearchOut{}, usageError("%v", err)
 		}
 		limit := in.Limit
-		if limit <= 0 {
+		if limit == 0 {
 			limit = DefaultLimit
 		}
-		if limit > index.MaxLimit || in.Offset < 0 {
+		if limit < 0 || limit > index.MaxLimit || in.Offset < 0 {
 			return SearchOut{}, usageError("limit must be at most %d and offset not negative", index.MaxLimit)
 		}
 		ix, err := env.Index(ctx)

@@ -3,6 +3,7 @@
 package ops
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -233,7 +234,8 @@ var AccountSet = Op[AccountSetIn, AccountOut]{
 		if _, err := account(env, in.Name); err != nil {
 			return AccountOut{}, err
 		}
-		if in.Deletion == "" && in.Label == "" && in.Color == "" && in.SMTPHost == "" && in.SaveSent == "" {
+		smtp := in.SMTPHost != "" || in.SMTPPort != 0 || in.SMTPTLS != ""
+		if in.Deletion == "" && in.Label == "" && in.Color == "" && !smtp && in.SaveSent == "" {
 			return AccountOut{}, usageError("nothing to change")
 		}
 		next := withAccounts(cfg, slices.Clone(cfg.Accounts))
@@ -247,8 +249,17 @@ var AccountSet = Op[AccountSetIn, AccountOut]{
 		if in.Color != "" {
 			a.Color = in.Color
 		}
-		if in.SMTPHost != "" {
-			a.SMTP = server(in.SMTPHost, in.SMTPPort, in.SMTPTLS, 465, 587)
+		if smtp {
+			// Each flag changes its own part of the server: --smtp-port
+			// alone keeps the host. A new TLS mode brings its usual port.
+			host, port, tls := cmp.Or(in.SMTPHost, a.SMTP.Host), in.SMTPPort, cmp.Or(in.SMTPTLS, a.SMTP.TLS)
+			if host == "" {
+				return AccountOut{}, usageError("the account has no SMTP server yet: give --smtp-host too")
+			}
+			if port == 0 && in.SMTPTLS == "" {
+				port = a.SMTP.Port
+			}
+			a.SMTP = server(host, port, tls, 465, 587)
 		}
 		if in.SaveSent != "" {
 			a.SaveSent = in.SaveSent
