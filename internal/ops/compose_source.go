@@ -60,7 +60,9 @@ func source(ctx context.Context, env *Env, account, id string) (index.Message, [
 	o := compose.Original{From: h.From, ReplyTo: h.ReplyTo, To: h.To, Cc: h.Cc, Subject: h.Subject,
 		MessageID: h.MessageID, References: h.References, Body: render.Sanitize(body)}
 	if !h.Date.IsZero() {
-		o.Date = h.Date.Local().Format("Mon, 02 Jan 2006 15:04")
+		// UTC, like the Date of outgoing mail: in local time, the quote
+		// would tell the original sender the replier's time zone.
+		o.Date = h.Date.UTC().Format("Mon, 02 Jan 2006 15:04 MST")
 	}
 	return m, raw, o, nil
 }

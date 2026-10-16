@@ -273,3 +273,18 @@ func TestReplyAndForwardWithCcAndFiles(t *testing.T) {
 		t.Errorf("control character in Cc: %v", err)
 	}
 }
+
+// Review: the quote's attribution and a forward's header give the time in
+// UTC: in local time they told the original sender the replier's offset
+// from UTC (outgoing Date headers are UTC for the same reason).
+func TestQuotedDatesAreUTC(t *testing.T) {
+	t.Setenv("TZ", "Asia/Kolkata") // +05:30
+	env := draftEnv(t)
+	r, err := Call(t.Context(), env, Draft, DraftReply, DraftReplyIn{ID: idOf(t, env, `subject:"read one"`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(r.Draft.Body, "09:30 UTC") {
+		t.Errorf("attribution not in UTC:\n%s", r.Draft.Body)
+	}
+}
