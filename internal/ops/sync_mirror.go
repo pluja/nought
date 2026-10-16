@@ -10,6 +10,7 @@ import (
 
 	"github.com/pluja/nought/internal/imapsync"
 	"github.com/pluja/nought/internal/index"
+	"github.com/pluja/nought/internal/mailmsg"
 	"github.com/pluja/nought/internal/query"
 )
 
@@ -108,8 +109,8 @@ func holdMassRemoval(gone []index.ServerCopy, live int, accept bool) string {
 // recorded without being applied: an incomplete run changes nothing, and
 // the next one finds the same removals again.
 func applyVanished(ctx context.Context, env *Env, ix *index.Index, account string,
-	vanished []index.ServerCopy, dryRun bool, out *AccountSyncOut) error {
-	if err := classifyVanished(ctx, env, ix, account, vanished, dryRun, out); err != nil || dryRun {
+	vanished, seen []index.ServerCopy, dryRun bool, out *AccountSyncOut) error {
+	if err := classifyVanished(ctx, env, ix, account, vanished, seen, dryRun, out); err != nil || dryRun {
 		return err
 	}
 	return ix.MarkVanished(ctx, vanished, env.Now())
@@ -120,7 +121,7 @@ func applyVanished(ctx context.Context, env *Env, ix *index.Index, account strin
 // deleted there (to the trash, for at least minTrashDays) if none remains.
 // Messages already handled here are left alone.
 func classifyVanished(ctx context.Context, env *Env, ix *index.Index, account string,
-	vanished []index.ServerCopy, dryRun bool, out *AccountSyncOut) error {
+	vanished, seen []index.ServerCopy, dryRun bool, out *AccountSyncOut) error {
 	var hashes []string
 	for _, c := range vanished {
 		if isInbox(c.FolderName) {
@@ -138,8 +139,14 @@ func classifyVanished(ctx context.Context, env *Env, ix *index.Index, account st
 	}
 	var archived, deleted []string
 	for _, h := range hashes {
-		// The vanished copies are not recorded yet: leave them out.
+		// The vanished copies are not recorded yet: leave them out. Copies
+		// seen but not fetched (a dry run) count as on the server.
 		copies := slices.DeleteFunc(on[h], func(c index.ServerCopy) bool { return isVanished(c, vanished) })
+		for _, c := range seen {
+			if c.Hash == h {
+				copies = append(copies, c)
+			}
+		}
 		switch {
 		case slices.ContainsFunc(copies, func(c index.ServerCopy) bool { return isInbox(c.FolderName) }):
 			// still in the server's INBOX (e.g. a duplicate delivery)
@@ -211,4 +218,42 @@ func isVanished(c index.ServerCopy, vanished []index.ServerCopy) bool {
 	return slices.ContainsFunc(vanished, func(v index.ServerCopy) bool {
 		return v.Folder == c.Folder && v.UIDValidity == c.UIDValidity && v.UID == c.UID
 	})
+}
+
+// knownMessages returns the messages among a selected folder's uids that
+// are archived here: same Message-ID, same header block, a matching size,
+// and a local copy that still verifies. No message body is downloaded.
+func knownMessages(ctx context.Context, env *Env, ix *index.Index, conn *imapsync.Conn, account string,
+	f imapsync.Folder, uidValidity uint32, uids []uint32) ([]index.ServerCopy, error) {
+	infos, err := conn.Lookup(uids)
+	if err != nil {
+		return nil, err
+	}
+	headers, err := conn.Headers(uids)
+	if err != nil {
+		return nil, err
+	}
+	var known []index.ServerCopy
+	for _, uid := range uids {
+		info, ok := infos[uid]
+		h, _ := mailmsg.Parse(headers[uid]) // the header block alone
+		if !ok || h.MessageID == "" {
+			continue
+		}
+		candidates, err := ix.Search(ctx, query.Query{Groups: [][]query.Term{
+			{{Field: query.ID, Value: h.MessageID}}, {{Field: query.Account, Value: account}},
+		}}, index.MaxLimit, 0)
+		if err != nil {
+			return nil, err
+		}
+		for _, m := range candidates {
+			raw, err := verifiedLocal(env, account, m.Hash)
+			if err == nil && sameHeader(headers[uid], raw) && sizeMatches(raw, info.Size) {
+				known = append(known, index.ServerCopy{Account: account, Folder: f.Raw, FolderName: f.Name,
+					UIDValidity: uidValidity, UID: uid, Hash: m.Hash, Size: info.Size})
+				break
+			}
+		}
+	}
+	return known, nil
 }

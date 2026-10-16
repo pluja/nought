@@ -348,3 +348,19 @@ func TestBothDuplicateCopiesDeletedOnThePhone(t *testing.T) {
 		t.Errorf("deleted elsewhere = %d, want 1", out.Accounts[0].DeletedElsewhere)
 	}
 }
+
+// A dry run sees where a phone moved mail, without downloading it.
+func TestMirrorDryRunReportsPhoneArchives(t *testing.T) {
+	env, srv := syncEnv(t, imaptest.Options{}, true)
+	srv.CreateMailbox(t, "Archive")
+	uid := srv.Append(t, "INBOX", mail("p@x", "archived on the phone"), daysAgo(env, 0))
+	runSyncOK(t, env, SyncIn{})
+	srv.Move(t, "INBOX", uid, "Archive")
+	dry := runSyncOK(t, env, SyncIn{DryRun: true})
+	if a := dry.Accounts[0]; a.ArchivedElsewhere != 1 || a.DeletedElsewhere != 0 || len(search(t, env, "tag:inbox")) != 1 {
+		t.Fatalf("dry run = %+v", a)
+	}
+	if a := runSyncOK(t, env, SyncIn{}).Accounts[0]; a.ArchivedElsewhere != 1 {
+		t.Errorf("real run = %+v", a)
+	}
+}

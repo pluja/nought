@@ -16,6 +16,7 @@ import (
 // folderScan is what the first phase learned about one folder.
 type folderScan struct {
 	gone    []index.ServerCopy // known copies no longer on the server
+	seen    []index.ServerCopy // dry run only: known mail among the new UIDs (not fetched)
 	trusted bool               // the folder's state held (no UIDVALIDITY change, reused UID or held removal)
 	held    bool               // a mass removal waits for confirmation
 	refetch bool               // the folder is fetched again from the start next time
@@ -155,7 +156,10 @@ func fetchFolder(ctx context.Context, env *Env, ix *index.Index, conn *imapsync.
 		"server_uidvalidity", mb.UIDValidity, "server_messages", mb.Messages,
 		"new_uids", len(uids), "first_new_uid", firstOr(uids, 0), "last_new_uid", lastOr(uids, 0))
 	if in.DryRun {
-		return scan, mb.UIDValidity, nil
+		// Nothing is fetched, but a message another client moved here is
+		// recognised by its header, so the preview tells moves from deletes.
+		scan.seen, err = knownMessages(ctx, env, ix, conn, a.Name, f, mb.UIDValidity, uids)
+		return scan, mb.UIDValidity, err
 	}
 	// New UIDs after a completed sync are moves and deliveries; a fetch
 	// from the start (new folder, reset) only finds known mail again.
@@ -175,16 +179,16 @@ func fetchFolder(ctx context.Context, env *Env, ix *index.Index, conn *imapsync.
 // run finds the same changes again.
 func applyOrDefer(ctx context.Context, env *Env, ix *index.Index, account string, scans []folderScan,
 	dryRun bool, out *AccountSyncOut) error {
-	var gone []index.ServerCopy
+	var gone, seen []index.ServerCopy
 	trusted := true
 	for _, s := range scans {
-		gone = append(gone, s.gone...)
+		gone, seen = append(gone, s.gone...), append(seen, s.seen...)
 		trusted = trusted && s.trusted
 		out.RemovalsHeld = out.RemovalsHeld || s.held
 	}
 	switch {
 	case trusted:
-		return applyVanished(ctx, env, ix, account, gone, dryRun, out)
+		return applyVanished(ctx, env, ix, account, gone, seen, dryRun, out)
 	case out.RemovalsHeld:
 		return nil // the held removal's note says what to do
 	case len(gone) > 0:

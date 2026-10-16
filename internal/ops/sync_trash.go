@@ -11,8 +11,6 @@ import (
 	"github.com/pluja/nought/internal/config"
 	"github.com/pluja/nought/internal/imapsync"
 	"github.com/pluja/nought/internal/index"
-	"github.com/pluja/nought/internal/mailmsg"
-	"github.com/pluja/nought/internal/query"
 )
 
 // serverTrash finds the server's trash folder: the one marked \Trash, or
@@ -71,7 +69,7 @@ func cleanServerTrash(ctx context.Context, env *Env, ix *index.Index, conn *imap
 		return err
 	}
 	for chunk := range slices.Chunk(uids, imapsync.MaxBatch) {
-		known, err := knownInTrash(ctx, env, ix, conn, a.Name, trash, mb.UIDValidity, chunk)
+		known, err := knownMessages(ctx, env, ix, conn, a.Name, trash, mb.UIDValidity, chunk)
 		if err != nil {
 			return err
 		}
@@ -87,42 +85,4 @@ func cleanServerTrash(ctx context.Context, env *Env, ix *index.Index, conn *imap
 		}
 	}
 	return nil
-}
-
-// knownInTrash returns the trash's messages (among uids) that are archived
-// here: same Message-ID, same header block, a matching size, and a local
-// copy that still verifies. No message body is downloaded.
-func knownInTrash(ctx context.Context, env *Env, ix *index.Index, conn *imapsync.Conn, account string,
-	trash imapsync.Folder, uidValidity uint32, uids []uint32) ([]index.ServerCopy, error) {
-	infos, err := conn.Lookup(uids)
-	if err != nil {
-		return nil, err
-	}
-	headers, err := conn.Headers(uids)
-	if err != nil {
-		return nil, err
-	}
-	var known []index.ServerCopy
-	for _, uid := range uids {
-		info, ok := infos[uid]
-		h, _ := mailmsg.Parse(headers[uid]) // the header block alone
-		if !ok || h.MessageID == "" {
-			continue
-		}
-		candidates, err := ix.Search(ctx, query.Query{Groups: [][]query.Term{
-			{{Field: query.ID, Value: h.MessageID}}, {{Field: query.Account, Value: account}},
-		}}, index.MaxLimit, 0)
-		if err != nil {
-			return nil, err
-		}
-		for _, m := range candidates {
-			raw, err := verifiedLocal(env, account, m.Hash)
-			if err == nil && sameHeader(headers[uid], raw) && sizeMatches(raw, info.Size) {
-				known = append(known, index.ServerCopy{Account: account, Folder: trash.Raw, FolderName: trash.Name,
-					UIDValidity: uidValidity, UID: uid, Hash: m.Hash, Size: info.Size})
-				break
-			}
-		}
-	}
-	return known, nil
 }
