@@ -519,3 +519,42 @@ func TestImportDoesNotApplyRules(t *testing.T) {
 		}
 	}
 }
+
+// Review: once tags changed, the dump (their only lasting copy) is written
+// even when the operation was cancelled (Ctrl-C).
+func TestDumpIsWrittenAfterCancel(t *testing.T) {
+	env := newTestEnv(t)
+	importSample(t, env)
+	ix, err := env.Index(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids := []int64{}
+	for _, m := range searchMessages(t, ix, "subject:one") {
+		ids = append(ids, m.ID)
+	}
+	if err := ix.ModifyTags(t.Context(), ids, []string{"late"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	if err := writeTagsDump(ctx, env); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(readFile(t, env.Paths.TagsDump), "+late") {
+		t.Error("the dump missed the change")
+	}
+}
+
+func searchMessages(t *testing.T, ix *index.Index, q string) []index.Message {
+	t.Helper()
+	parsed, err := query.Parse(q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	msgs, err := ix.Search(t.Context(), parsed, 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return msgs
+}

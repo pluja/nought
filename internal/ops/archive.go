@@ -176,6 +176,9 @@ func folderTag(folder string) string {
 // only copy of the user's tags. Deleted and expiring mail goes to its own
 // dump in the transient folder, which is kept out of backups.
 func writeTagsDump(ctx context.Context, env *Env) error {
+	// Tags already changed must reach the dump, their lasting copy, even
+	// when the operation that changed them is being cancelled (Ctrl-C).
+	ctx = context.WithoutCancel(ctx)
 	env.dumpMu.Lock()
 	defer env.dumpMu.Unlock()
 	ix, err := env.Index(ctx)

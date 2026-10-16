@@ -95,7 +95,7 @@ func buildIndex(ctx context.Context, env *Env, path string) (out ReindexOut, err
 	}
 	ix, err := index.Open(ctx, path)
 	if err != nil {
-		return out, err
+		return out, errors.Join(err, removeDB(path))
 	}
 	defer func() {
 		err = errors.Join(err, ix.Close())
