@@ -177,4 +177,13 @@ func TestAccountSetSMTP(t *testing.T) {
 	if _, err := Call(t.Context(), env, Delete, AccountSet, AccountSetIn{Name: "a", SMTPHost: "smtp.x.org", SMTPTLS: "none"}); !errors.Is(err, ErrUsage) {
 		t.Errorf("plaintext smtp = %v", err)
 	}
+	if _, err := Call(t.Context(), env, Delete, AccountSet, AccountSetIn{Name: "a", SaveSent: config.SaveSentServer}); err != nil {
+		t.Fatal(err)
+	}
+	if a, err := account(env, "a"); err != nil || a.SaveSent != config.SaveSentServer {
+		t.Errorf("save_sent not set: %+v, %v", a, err)
+	}
+	if _, err := Call(t.Context(), env, Delete, AccountSet, AccountSetIn{Name: "a", SaveSent: "cloud"}); !errors.Is(err, ErrUsage) {
+		t.Errorf("bad save_sent = %v", err)
+	}
 }

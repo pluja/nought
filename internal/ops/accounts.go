@@ -216,6 +216,7 @@ type AccountSetIn struct {
 	SMTPHost string `json:"smtp_host,omitempty"` // with SMTPPort and SMTPTLS: the server for sending
 	SMTPPort int    `json:"smtp_port,omitempty"`
 	SMTPTLS  string `json:"smtp_tls,omitempty"`
+	SaveSent string `json:"save_sent,omitempty"` // "local" or "server"
 }
 
 // AccountSet changes account settings, including turning server deletion
@@ -232,7 +233,7 @@ var AccountSet = Op[AccountSetIn, AccountOut]{
 		if _, err := account(env, in.Name); err != nil {
 			return AccountOut{}, err
 		}
-		if in.Deletion == "" && in.Label == "" && in.Color == "" && in.SMTPHost == "" {
+		if in.Deletion == "" && in.Label == "" && in.Color == "" && in.SMTPHost == "" && in.SaveSent == "" {
 			return AccountOut{}, usageError("nothing to change")
 		}
 		next := withAccounts(cfg, slices.Clone(cfg.Accounts))
@@ -248,6 +249,9 @@ var AccountSet = Op[AccountSetIn, AccountOut]{
 		}
 		if in.SMTPHost != "" {
 			a.SMTP = server(in.SMTPHost, in.SMTPPort, in.SMTPTLS, 465, 587)
+		}
+		if in.SaveSent != "" {
+			a.SaveSent = in.SaveSent
 		}
 		if err := next.Validate(); err != nil {
 			return AccountOut{}, usageError("%v", err)

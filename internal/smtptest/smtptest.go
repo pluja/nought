@@ -6,6 +6,7 @@ package smtptest
 
 import (
 	"bytes"
+	"cmp"
 	"crypto/tls"
 	"encoding/pem"
 	"io"
@@ -35,6 +36,9 @@ type Options struct {
 	RejectRcpt string // this recipient is refused with 550
 	FailData   int    // DATA fails with this SMTP code (4xx or 5xx)
 	MaxSize    int64  // advertised SIZE limit
+	// User and Password are the accepted credentials (default: the
+	// package's User and Password).
+	User, Password string
 }
 
 // Received is one message the server accepted.
@@ -128,7 +132,7 @@ func (ss *session) AuthMechanisms() []string { return []string{sasl.Plain} }
 
 func (ss *session) Auth(string) (sasl.Server, error) {
 	return sasl.NewPlainServer(func(_, user, pass string) error {
-		if user != User || pass != Password {
+		if user != cmp.Or(ss.s.opts.User, User) || pass != cmp.Or(ss.s.opts.Password, Password) {
 			return smtp.ErrAuthFailed // 535, as real servers answer
 		}
 		ss.auth = user

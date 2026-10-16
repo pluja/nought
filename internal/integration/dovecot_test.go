@@ -26,6 +26,7 @@ import (
 	"github.com/pluja/nought/internal/ops"
 	"github.com/pluja/nought/internal/query"
 	"github.com/pluja/nought/internal/secret"
+	"github.com/pluja/nought/internal/smtptest"
 )
 
 const password = "nought-test-password"
@@ -313,5 +314,42 @@ func TestPhoneAndNoughtAgreeOnDovecot(t *testing.T) {
 	}
 	if got := f.subjects(""); len(got) != 4 {
 		t.Errorf("archive lost mail: %v", got)
+	}
+}
+
+// A sent message is copied to Dovecot's Sent folder; the next sync knows it
+// is the copy already archived, so it is not archived twice.
+func TestSentCopyOnDovecot(t *testing.T) {
+	f := setup(t, config.TLSImplicit, 10993)
+	srv := smtptest.Start(t, smtptest.Options{User: f.user, Password: password})
+	f.env.TLS.RootCAs.AppendCertsFromPEM(srv.CAPEM)
+	if _, err := ops.Call(t.Context(), f.env, ops.Delete, ops.AccountSet, ops.AccountSetIn{Name: "it",
+		SMTPHost: srv.Host, SMTPPort: srv.Port, SaveSent: config.SaveSentServer}); err != nil {
+		t.Fatal(err)
+	}
+	d, err := ops.Call(t.Context(), f.env, ops.Draft, ops.DraftNew, ops.DraftNewIn{To: []string{"bob@example.org"},
+		Subject: "Sent from nought", Body: "Hello Bob\n"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ops.Call(t.Context(), f.env, ops.Send, ops.MsgSend, ops.SendIn{DraftID: d.ID, Now: true}); err != nil {
+		t.Fatal(err)
+	}
+	flushed, err := ops.Call(t.Context(), f.env, ops.Send, ops.OutboxFlush, ops.FlushIn{})
+	if err != nil || flushed.Sent != 1 || len(flushed.Notes) > 0 {
+		t.Fatalf("flush = %+v, %v", flushed, err)
+	}
+	if n := f.count("Sent"); n != 1 || len(srv.Messages()) != 1 {
+		t.Fatalf("Sent holds %d, SMTP got %d", n, len(srv.Messages()))
+	}
+	out := f.sync(false)
+	var sent ops.FolderSyncOut
+	for _, folder := range out.Accounts[0].Folders {
+		if folder.Folder == "Sent" {
+			sent = folder
+		}
+	}
+	if got := f.subjects("subject:nought"); sent.Fetched != 1 || !slices.Equal(got, []string{"Sent from nought"}) {
+		t.Errorf("Sent %+v, archived %q", sent, got)
 	}
 }

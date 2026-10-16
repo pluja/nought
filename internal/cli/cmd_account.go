@@ -189,6 +189,7 @@ func newAccountSetCmd(a *app) *cobra.Command {
 	cmd.Flags().StringVar(&in.SMTPHost, "smtp-host", "", "SMTP server, for sending")
 	cmd.Flags().IntVar(&in.SMTPPort, "smtp-port", 0, "SMTP port (default 465, or 587 with starttls)")
 	cmd.Flags().StringVar(&in.SMTPTLS, "smtp-tls", "", "implicit (default) or starttls")
+	cmd.Flags().StringVar(&in.SaveSent, "save-sent", "", "where sent mail is kept: local, or also server (its Sent folder)")
 	return cmd
 }
 
