@@ -106,3 +106,22 @@ func TestReplyQuotesDisplayNames(t *testing.T) {
 		t.Errorf("cc = %q", d.Cc)
 	}
 }
+
+// A note to yourself (from you, to you) is answered to you; mail you sent
+// to others still goes to them.
+func TestReplyToANoteToSelf(t *testing.T) {
+	me := Me{Addresses: []string{"me@example.org", "me@mydomain.org"}}
+	tests := []struct {
+		o    Original
+		want []string
+	}{
+		{Original{From: "Me <me@example.org>", To: []string{"me@example.org"}}, []string{"Me <me@example.org>"}},
+		{Original{From: "me@example.org", To: []string{"me@mydomain.org"}}, []string{"me@example.org"}},
+		{Original{From: "me@example.org", To: []string{"alice@example.org"}}, []string{"alice@example.org"}},
+	}
+	for _, tt := range tests {
+		if d := Reply(tt.o, me, false); !slices.Equal(d.To, tt.want) {
+			t.Errorf("reply to %+v: To %q, want %q", tt.o, d.To, tt.want)
+		}
+	}
+}

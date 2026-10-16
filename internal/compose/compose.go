@@ -64,6 +64,9 @@ func Reply(o Original, me Me, all bool) Draft {
 	if len(to) == 0 { // a reply to your own message goes to its recipients
 		to = withoutOwn(o.To, me)
 	}
+	if len(to) == 0 && o.From != "" { // a note to yourself: back to you
+		to = []string{o.From}
+	}
 	d := Draft{From: sender(o, me), To: recipients(dedupe(to, nil)), Subject: replySubject(o.Subject),
 		InReplyTo: o.MessageID, References: appendRef(o.References, o.MessageID)}
 	if all {
