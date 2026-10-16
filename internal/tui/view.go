@@ -238,6 +238,9 @@ func (m Model) renderList() string {
 	if m.query == queryDrafts {
 		return m.renderDrafts(w, h)
 	}
+	if len(m.msgs) == 0 && m.searchErr != "" {
+		return fit(m.st.errText.Render(" The search failed: "+render.SanitizeLine(m.searchErr)), w, h)
+	}
 	if len(m.msgs) == 0 {
 		return fit(m.st.dim.Render(" Nothing here. Inbox Zero!"), w, h)
 	}
@@ -502,12 +505,12 @@ func (m Model) renderPromptLine() string {
 		return fit(line, m.width, 1)
 	case m.inputKind == inputAttach:
 		return pad("attach file: "+m.input.View(), m.width)
-	case m.inputKind == inputSaveDir && m.open != nil:
-		what := "attachment"
-		if n := len(m.open.Attachments); n > 1 {
-			what = strconv.Itoa(n) + " attachments"
-		} else {
-			what = "1 " + what
+	case m.inputKind == inputSaveDir:
+		what := "attachments"
+		if m.open != nil && len(m.open.Attachments) > 1 {
+			what = strconv.Itoa(len(m.open.Attachments)) + " attachments"
+		} else if m.open != nil {
+			what = "1 attachment"
 		}
 		return pad("save "+what+" to: "+m.input.View(), m.width)
 	case m.sendingID != "":
@@ -521,18 +524,18 @@ func (m Model) renderPromptLine() string {
 			line += "  " + style.Render(render.SanitizeLine(m.notice))
 		}
 		return fit(line, m.width, 1)
-	case m.syncing:
-		line := "syncing…"
-		if len(m.syncLines) > 0 {
-			line += " " + render.SanitizeLine(m.syncLines[len(m.syncLines)-1])
-		}
-		return pad(line, m.width)
 	case m.notice != "":
 		style := m.st.accent
 		if m.noticeErr {
 			style = m.st.errText
 		}
 		return fit(style.Render(render.SanitizeLine(m.notice)), m.width, 1)
+	case m.syncing:
+		line := "syncing…"
+		if len(m.syncLines) > 0 {
+			line += " " + render.SanitizeLine(m.syncLines[len(m.syncLines)-1])
+		}
+		return pad(line, m.width)
 	}
 	return ""
 }

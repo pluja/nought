@@ -146,6 +146,7 @@ type Model struct {
 	query     string
 	searchGen int // results of older searches are ignored
 	msgs      []ops.MessageOut
+	searchErr string // why the last search failed, shown in the empty list
 	more      bool
 	cursor    int
 	offset    int
@@ -168,6 +169,7 @@ type Model struct {
 	reader      viewport.Model
 	inputKind   inputKind
 	input       textinput.Model
+	inputTarget ops.MessageOut // the message a tag or save prompt acts on
 	tagQueue    []tagReq
 	tagBusy     bool
 	status      []ops.AccountStatusOut
@@ -194,6 +196,8 @@ type Model struct {
 	helpTop      int // first help line shown
 	pendingG     bool
 	undo         []undoEntry
+	// Waiting for queued tag changes to be saved before acting.
+	quitAfterSaves, undoAfterSaves bool
 
 	// Writing mail.
 	composing      *ops.DraftOut // the review screen shows while set

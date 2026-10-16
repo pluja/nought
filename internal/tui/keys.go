@@ -145,7 +145,7 @@ func (m Model) listKey(key string) (Model, tea.Cmd) {
 // messageAction handles keys that act on the selected message, in the list
 // and in the reader.
 func (m Model) messageAction(key string) (Model, tea.Cmd) {
-	sel, ok := m.selected()
+	sel, ok := m.target()
 	if !ok {
 		return m, nil
 	}
@@ -247,11 +247,11 @@ func (m Model) cycleFocus() Model {
 		switch {
 		case m.wide() && m.open != nil:
 			m.focus = focusReader
-		case m.sidebar:
+		case m.showSidebar():
 			m.focus = focusSidebar
 		}
 	case focusReader:
-		if m.sidebar {
+		if m.showSidebar() {
 			m.focus = focusSidebar
 		} else {
 			m.focus = focusList
@@ -280,10 +280,14 @@ func (m Model) moveOpen(delta int) (Model, tea.Cmd) {
 }
 
 func (m Model) startInput(kind inputKind, value string) (Model, tea.Cmd) {
-	if kind == inputTags {
-		if _, ok := m.selected(); !ok {
+	if kind == inputTags || kind == inputSaveDir {
+		// The prompt acts on this message, whatever a refresh does to the
+		// list meanwhile.
+		sel, ok := m.target()
+		if !ok {
 			return m, nil
 		}
+		m.inputTarget = sel
 	}
 	m.inputKind = kind
 	m.input.SetValue(value)
@@ -295,33 +299,39 @@ func (m Model) startInput(kind inputKind, value string) (Model, tea.Cmd) {
 	return m, m.input.Focus()
 }
 
-func (m Model) inputKey(k tea.KeyPressMsg) (Model, tea.Cmd) {
-	if m.inputKind == inputConfirmEmptyTrash {
-		m.inputKind = inputNone
-		if k.String() != "y" && k.String() != "Y" {
-			m.notice = "trash kept"
-			return m, nil
-		}
+// confirmKey answers a y/N question: any key but y is a no.
+func (m Model) confirmKey(k tea.KeyPressMsg) (Model, tea.Cmd) {
+	kind, yes := m.inputKind, k.String() == "y" || k.String() == "Y"
+	m.inputKind = inputNone
+	switch {
+	case kind == inputConfirmEmptyTrash && yes:
 		m.notice = "emptying the trash…"
 		return m, m.emptyTrash()
-	}
-	if m.inputKind == inputConfirmDiscard {
-		m.inputKind = inputNone
-		if k.String() != "y" && k.String() != "Y" {
-			m.notice = "draft kept"
-			return m, nil
-		}
+	case kind == inputConfirmEmptyTrash:
+		m.notice = "trash kept"
+	case kind == inputConfirmDiscard && yes:
 		return m, m.discard(m.discarding)
-	}
-	if m.inputKind == inputConfirmDelete {
-		m.inputKind = inputNone
-		if k.String() != "y" && k.String() != "Y" {
-			m.notice = "not deleted"
-			return m, nil
-		}
+	case kind == inputConfirmDiscard:
+		m.notice = "draft kept"
+	case yes: // inputConfirmDelete
 		msg := m.deleting
 		m, drop := m.dropFromView(msg.ID)
 		return m, tea.Batch(drop, m.deleteNow(msg))
+	default:
+		m.notice = "not deleted"
+	}
+	return m, nil
+}
+
+func (m Model) inputKey(k tea.KeyPressMsg) (Model, tea.Cmd) {
+	switch m.inputKind {
+	case inputConfirmEmptyTrash, inputConfirmDiscard, inputConfirmDelete:
+		return m.confirmKey(k)
+	}
+	if (m.inputKind == inputTo || m.inputKind == inputAttach) && m.composing == nil {
+		m.inputKind = inputNone // the review screen closed (sent) under it
+		m.input.Blur()
+		return m, nil
 	}
 	switch k.String() {
 	case "esc":
@@ -371,12 +381,11 @@ func (m Model) submit(kind inputKind, value string) (Model, tea.Cmd) {
 	case inputSearch:
 		return m.goTo(value)
 	case inputTags:
-		sel, ok := m.selected()
 		add, remove := parseTagInput(value)
-		if !ok || len(add)+len(remove) == 0 {
+		if len(add)+len(remove) == 0 {
 			return m, nil
 		}
-		return m.enqueue(newTagReq(sel, add, remove, "tags changed"))
+		return m.enqueue(newTagReq(m.inputTarget, add, remove, "tags changed"))
 	case inputPalette:
 		return m.command(value)
 	case inputLinkNumber:
@@ -387,8 +396,8 @@ func (m Model) submit(kind inputKind, value string) (Model, tea.Cmd) {
 			return m, m.setDraft(ops.DraftSetIn{ID: m.composing.ID, To: value})
 		}
 	case inputSaveDir:
-		if sel, ok := m.selected(); ok && value != "" {
-			return m, m.saveAttachments(sel, value)
+		if value != "" {
+			return m, m.saveAttachments(m.inputTarget, value)
 		}
 	case inputAttach:
 		if value != "" {

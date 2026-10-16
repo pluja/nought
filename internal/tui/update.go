@@ -89,7 +89,7 @@ func (m Model) update(msg tea.Msg) (Model, tea.Cmd) {
 		if len(m.tagQueue) > 0 {
 			return m.startNextTag()
 		}
-		return m.refresh()
+		return m.afterSaves(msg.req)
 
 	case undoDoneMsg:
 		if msg.err != nil {
@@ -209,8 +209,12 @@ func (m Model) searchDone(msg searchDoneMsg) (Model, tea.Cmd) {
 	if msg.gen != m.searchGen || m.tagBusy || len(m.tagQueue) > 0 {
 		return m, nil // superseded, or local changes still being saved
 	}
+	m.searchErr = ""
 	if msg.err != nil {
+		// No results that may not match the query; the list says why it
+		// is empty rather than claim Inbox Zero.
 		m.notice, m.noticeErr = "search: "+msg.err.Error(), true
+		m.searchErr = msg.err.Error()
 		m.msgs, m.more, m.open = nil, false, nil
 		m.focus = focusList
 		return m, nil
@@ -233,9 +237,10 @@ func (m Model) searchDone(msg searchDoneMsg) (Model, tea.Cmd) {
 	sel, _ := m.selected()
 	if m.open != nil && m.open.Message.ID != sel.ID {
 		if m.focus == focusReader {
-			// The open message left this view (e.g. archived while
-			// reading): move on to the next one, as mail readers do.
-			return m.openSelected()
+			// The open message left this view (archived on another
+			// device, say): move on to the next one, as mail readers do,
+			// without marking it read: the user has not chosen it.
+			return m.openMessage(false)
 		}
 		m.open = nil
 	}
@@ -246,6 +251,26 @@ func (m Model) searchDone(msg searchDoneMsg) (Model, tea.Cmd) {
 	}
 	return m.schedulePreview()
 }
+
+// afterSaves runs once the queued tag changes are saved: an undo or a quit
+// that waited for them, then the reload. Marking read on open reloads only
+// the counts: the message would leave an Unread view, and opening the next
+// one would mark that read too, all the way down the list.
+func (m Model) afterSaves(last tagReq) (Model, tea.Cmd) {
+	switch {
+	case m.quitAfterSaves:
+		return m.requestQuit()
+	case m.undoAfterSaves:
+		m.undoAfterSaves = false
+		return m.undoLast()
+	case last.what == "":
+		return m, tea.Batch(m.loadSidebar(), m.loadStatus())
+	}
+	return m.refresh()
+}
+
+// saving reports tag changes not saved yet.
+func (m Model) saving() bool { return m.tagBusy || len(m.tagQueue) > 0 }
 
 // refresh reloads the current view, the sidebar and the status bar.
 func (m Model) refresh() (Model, tea.Cmd) {
@@ -359,7 +384,11 @@ func (m Model) schedulePreview() (Model, tea.Cmd) {
 	return m, previewAfter(m.previewSeq, m.previewWait)
 }
 
-func (m Model) openSelected() (Model, tea.Cmd) {
+func (m Model) openSelected() (Model, tea.Cmd) { return m.openMessage(true) }
+
+// openMessage opens the selected message in the reader; markRead applies the
+// read-on-open setting (an opening the user chose).
+func (m Model) openMessage(markRead bool) (Model, tea.Cmd) {
 	sel, ok := m.selected()
 	if !ok {
 		return m, nil
@@ -367,7 +396,7 @@ func (m Model) openSelected() (Model, tea.Cmd) {
 	m.focus = focusReader
 	m.showGen++
 	cmds := []tea.Cmd{m.show(sel, m.showGen)}
-	if m.prefs.ReadOnOpen() && slices.Contains(sel.Tags, ops.TagUnread) {
+	if markRead && m.prefs.ReadOnOpen() && slices.Contains(sel.Tags, ops.TagUnread) {
 		next, cmd := m.enqueue(newTagReq(sel, nil, []string{ops.TagUnread}, ""))
 		m = next
 		cmds = append(cmds, cmd)
@@ -398,6 +427,13 @@ func (m Model) startSync(auto bool) (Model, tea.Cmd) {
 // requestQuit leaves at once, unless a sync is running: then it is stopped
 // at a safe point first (a second request forces the exit).
 func (m Model) requestQuit() (Model, tea.Cmd) {
+	// Changes shown on screen are saved before leaving; asking again leaves
+	// at once.
+	if m.saving() && !m.quitAfterSaves {
+		m.quitAfterSaves = true
+		m.notice = "saving your changes… (q again leaves now)"
+		return m, nil
+	}
 	// Quitting ends the undo window: queued mail goes first. Asking again
 	// leaves at once; the message then goes at the next sync.
 	if m.sendingID != "" && !m.quitSending {
@@ -417,6 +453,12 @@ func (m Model) requestQuit() (Model, tea.Cmd) {
 }
 
 func (m Model) undoLast() (Model, tea.Cmd) {
+	// The newest change may still be saving: undo it once it is, so the
+	// undo neither races its save nor reverts an older change instead.
+	if m.saving() {
+		m.undoAfterSaves = true
+		return m, nil
+	}
 	if len(m.undo) == 0 {
 		m.notice = "nothing to undo"
 		return m, nil
@@ -424,6 +466,19 @@ func (m Model) undoLast() (Model, tea.Cmd) {
 	u := m.undo[len(m.undo)-1]
 	m.undo = m.undo[:len(m.undo)-1]
 	return m, m.revert(u)
+}
+
+// target is the message an action applies to: in the reader, the one on
+// screen while it is still listed (J may have moved the cursor to the next,
+// still loading); once it has left the list (archived), the selection,
+// which moved on to the next. In the list, the selected one.
+func (m Model) target() (ops.MessageOut, bool) {
+	if m.focus == focusReader && m.open != nil {
+		if i := slices.IndexFunc(m.msgs, func(x ops.MessageOut) bool { return x.ID == m.open.Message.ID }); i >= 0 {
+			return m.msgs[i], true
+		}
+	}
+	return m.selected()
 }
 
 func (m Model) selected() (ops.MessageOut, bool) {

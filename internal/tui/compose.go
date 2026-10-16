@@ -65,6 +65,7 @@ type (
 	flushDoneMsg struct {
 		out  ops.FlushOut
 		quit bool // the flush that ends the session
+		gone bool // the message in its undo window left the outbox: sent elsewhere (a sync)
 		err  error
 	}
 	discardDoneMsg struct{ err error }
@@ -235,6 +236,9 @@ func (m Model) cancelDone(msg cancelDoneMsg) (Model, tea.Cmd) {
 	if msg.err != nil {
 		if errors.Is(msg.err, ops.ErrNotFound) {
 			msg.err = errors.New("too late: it was sent")
+			if msg.entryID == m.sendingID {
+				m.sendingID = ""
+			}
 		}
 		m.notice, m.noticeErr = msg.err.Error(), true
 		return m, nil
@@ -249,9 +253,14 @@ func (m Model) cancelDone(msg cancelDoneMsg) (Model, tea.Cmd) {
 
 // flush sends what is due; all also sends what is in its undo window.
 func (m Model) flush(all bool) tea.Cmd {
+	id := m.sendingID
 	return func() tea.Msg {
 		out, err := ops.Call(m.ctx, m.env, permSend, ops.OutboxFlush, ops.FlushIn{All: all})
-		return flushDoneMsg{out: out, quit: all, err: err}
+		msg := flushDoneMsg{out: out, quit: all, err: err}
+		if pending, listErr := ops.Call(m.ctx, m.env, permTag, ops.OutboxList, struct{}{}); id != "" && listErr == nil {
+			msg.gone = !slices.ContainsFunc(pending, func(e ops.OutboxEntry) bool { return e.ID == id })
+		}
+		return msg
 	}
 }
 
@@ -292,6 +301,10 @@ func (m *Model) sendingOutcome(msg flushDoneMsg) (notice string, failed bool, ag
 		return m.after(d, func(time.Time) tea.Msg { return flushMsg{} })
 	}
 	i := slices.IndexFunc(msg.out.Results, func(e ops.OutboxEntry) bool { return e.ID == m.sendingID })
+	if i < 0 && msg.gone { // a sync or another nou sent it first
+		m.sendingID = ""
+		return "sent: " + m.sendingSubject, false, nil
+	}
 	if i < 0 { // not tried: its window is still open, or another nou is sending
 		wait := max(m.sendingAfter.Sub(m.now()), busyRetry)
 		return "", msg.err != nil, flushAgain(wait + flushMargin)

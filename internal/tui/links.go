@@ -67,11 +67,17 @@ func (m Model) pickLink(value string) (Model, tea.Cmd) {
 
 // linkKey handles the confirmation box: open, copy, or cancel.
 func (m Model) linkKey(key string) (Model, tea.Cmd) {
+	if m.linkPick > len(m.links) { // the links changed under the box (v)
+		m.linkPick = 0
+		return m, nil
+	}
 	link := m.links[m.linkPick-1]
 	clean := render.CleanURL(link.URL).URL
 	m.linkPick = 0
+	// Only the keys the box lists: a habitual Enter must not open the
+	// tracked link and tell the sender you clicked.
 	switch key {
-	case "o", "y", "enter":
+	case "o":
 		return m.openLink(link.URL, "opened ")
 	case "O":
 		return m.openLink(clean, "opened without tracking: ")
