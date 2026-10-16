@@ -271,6 +271,7 @@ func newModel(ctx context.Context, env *ops.Env) Model {
 		input:       in,
 		reader:      viewport.New(),
 		editFile:    execEditor(nil),
+		openURL:     openInBrowser,
 		after:       tea.Tick,
 	}
 	if cfg, err := env.Config(); err == nil {

@@ -24,15 +24,8 @@ func openInBrowser(link string) error {
 	if !openable(link) {
 		return errors.New("only http, https and mailto links can be opened")
 	}
-	var cmd *exec.Cmd
-	switch runtime.GOOS {
-	case "darwin":
-		cmd = exec.Command("open", link) //nolint:gosec // G204: a validated http(s)/mailto URL, one argument, no shell
-	case "windows":
-		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", link) //nolint:gosec // G204: validated URL, no shell
-	default:
-		cmd = exec.Command("xdg-open", link) //nolint:gosec // G204: a validated http(s)/mailto URL, one argument, no shell
-	}
+	args := browserCommand(runtime.GOOS, link)
+	cmd := exec.Command(args[0], args[1:]...) //nolint:gosec // G204: a validated http(s)/mailto URL, one argument, no shell
 	if err := cmd.Start(); err != nil {
 		return err
 	}
@@ -100,6 +93,18 @@ func (m Model) openLink(link, what string) (Model, tea.Cmd) {
 	}
 	m.notice = what + render.Link{URL: link}.Host()
 	return m, nil
+}
+
+// browserCommand is the system's way to open a URL. On Windows it is not
+// "cmd /c start", which would read an & in the URL as another command.
+func browserCommand(goos, u string) []string {
+	switch goos {
+	case "darwin":
+		return []string{"open", u}
+	case "windows":
+		return []string{"rundll32", "url.dll,FileProtocolHandler", u}
+	}
+	return []string{"xdg-open", u}
 }
 
 // renderLinkBox is the confirmation shown before a link is opened.

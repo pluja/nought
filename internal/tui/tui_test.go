@@ -1133,3 +1133,23 @@ func TestSidebarHidesReplied(t *testing.T) {
 		t.Errorf("sidebar:\n%s", screen(m))
 	}
 }
+
+// Opening a link crashed: nothing set the default opener outside tests.
+func TestLinksOpenWithTheSystemOpener(t *testing.T) {
+	m := newModel(t.Context(), newTestModel(t, 120, 30).env)
+	if m.openURL == nil {
+		t.Fatal("no default link opener")
+	}
+	u := "https://example.org/a?b=1&c=2"
+	for goos, want := range map[string][]string{
+		"linux":   {"xdg-open", u},
+		"freebsd": {"xdg-open", u},
+		"darwin":  {"open", u},
+		// Not "cmd /c start": cmd would read the & in the URL as a command.
+		"windows": {"rundll32", "url.dll,FileProtocolHandler", u},
+	} {
+		if got := browserCommand(goos, u); !slices.Equal(got, want) {
+			t.Errorf("%s: %q, want %q", goos, got, want)
+		}
+	}
+}
