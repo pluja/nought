@@ -20,6 +20,9 @@ type Paths struct {
 	// of backups: it is mail the user wants gone.
 	TransientDir  string `json:"transient_dir"`
 	TransientDump string `json:"transient_dump"`
+	// Drafts and the outbox hold mail being written or waiting to be sent.
+	DraftsDir string `json:"drafts_dir"`
+	OutboxDir string `json:"outbox_dir"`
 }
 
 // TransientArchive returns the Maildir for an account's deleted and
@@ -38,7 +41,7 @@ func (p Paths) AccountArchive(account string) string {
 // skipped because they can be rebuilt, and the ones that must never be
 // backed up (deleted and expiring mail).
 func (p Paths) BackupSet() (include, optional, never []string) {
-	return []string{p.ArchiveDir, p.TagsDump, p.Journal, p.ConfigFile},
+	return []string{p.ArchiveDir, p.TagsDump, p.Journal, p.ConfigFile, p.DraftsDir, p.OutboxDir},
 		[]string{p.IndexFile},
 		[]string{p.TransientDir}
 }
@@ -64,6 +67,8 @@ func ResolvePaths(goos string, getenv func(string) string) (Paths, error) {
 
 		TransientDir:  filepath.Join(dataDir, "transient"),
 		TransientDump: filepath.Join(dataDir, "transient", "tags.dump"),
+		DraftsDir:     filepath.Join(dataDir, "drafts"),
+		OutboxDir:     filepath.Join(dataDir, "outbox"),
 	}, nil
 }
 

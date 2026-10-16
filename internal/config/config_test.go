@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -102,7 +103,7 @@ func TestResolvePaths(t *testing.T) {
 				t.Errorf("AccountArchive = %q", got)
 			}
 			include, optional, never := p.BackupSet()
-			if len(include) != 4 || len(optional) != 1 || optional[0] != p.IndexFile || len(never) != 1 || never[0] != p.TransientDir {
+			if len(include) != 6 || len(optional) != 1 || optional[0] != p.IndexFile || len(never) != 1 || never[0] != p.TransientDir {
 				t.Errorf("BackupSet = %v, %v, %v", include, optional, never)
 			}
 		})
@@ -412,5 +413,60 @@ func TestPolicyDescribe(t *testing.T) {
 		if got := p.Describe(); got != want {
 			t.Errorf("Describe(%+v) = %q, want %q", p, got, want)
 		}
+	}
+}
+
+const composeTOML = `
+send_delay = "30s"
+
+[[account]]
+name = "personal"
+email = "Me@Example.org"
+deletion = "disabled"
+identities = ["Me@MyDomain.org"]
+signature = "me"
+save_sent = "server"
+
+[account.imap]
+host = "imap.example.org"
+port = 993
+tls = "implicit"
+`
+
+func TestComposeSettings(t *testing.T) {
+	c, err := Load(writeConfig(t, composeTOML))
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := c.Accounts[0]
+	if got := a.Addresses(); !slices.Equal(got, []string{"me@example.org", "me@mydomain.org"}) {
+		t.Errorf("Addresses = %v", got)
+	}
+	if a.Signature != "me" || a.SaveSent != SaveSentServer || c.SendDelayDuration() != 30*time.Second {
+		t.Errorf("settings = %+v, delay %v", a, c.SendDelayDuration())
+	}
+	for _, bad := range []struct{ old, new string }{
+		{`send_delay = "30s"`, `send_delay = "10m"`},
+		{`send_delay = "30s"`, `send_delay = "x"`},
+		{`identities = ["Me@MyDomain.org"]`, `identities = ["not an address"]`},
+		{`save_sent = "server"`, `save_sent = "cloud"`},
+	} {
+		if _, err := Load(writeConfig(t, strings.Replace(composeTOML, bad.old, bad.new, 1))); err == nil {
+			t.Errorf("accepted %s", bad.new)
+		}
+	}
+	if d := (&Config{}).SendDelayDuration(); d != DefaultSendDelay {
+		t.Errorf("default delay %v", d)
+	}
+}
+
+func TestDraftsAndOutboxAreBackedUp(t *testing.T) {
+	p, err := ResolvePaths("linux", env(map[string]string{"HOME": "/home/u"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	include, _, _ := p.BackupSet()
+	if p.DraftsDir == "" || !slices.Contains(include, p.DraftsDir) || !slices.Contains(include, p.OutboxDir) {
+		t.Errorf("backup set %v lacks drafts or outbox (%q, %q)", include, p.DraftsDir, p.OutboxDir)
 	}
 }

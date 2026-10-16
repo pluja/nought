@@ -42,8 +42,11 @@ type Config struct {
 	// PreferBody picks the version shown when a message has both: "html"
 	// (converted to text, the default) or "plain".
 	PreferBody string `toml:"prefer_body,omitempty"`
-	Rules      []Rule `toml:"rule,omitempty"`
-	TUI        TUI    `toml:"tui,omitempty"`
+	// SendDelay is the TUI's undo window before mail is sent ("10s" by
+	// default, "0" sends at once, at most 5m).
+	SendDelay string `toml:"send_delay,omitempty"`
+	Rules     []Rule `toml:"rule,omitempty"`
+	TUI       TUI    `toml:"tui,omitempty"`
 }
 
 // Body versions for PreferBody.
@@ -59,6 +62,21 @@ type Rule struct {
 	Query      string   `toml:"query"`
 	Tags       []string `toml:"tags,omitempty"`
 	ExpireDays int      `toml:"expire_days,omitempty"`
+}
+
+// The undo window before mail is sent.
+const (
+	DefaultSendDelay = 10 * time.Second
+	MaxSendDelay     = 5 * time.Minute
+)
+
+// SendDelayDuration returns the undo window; Validate has checked it.
+func (c *Config) SendDelayDuration() time.Duration {
+	if c.SendDelay == "" {
+		return DefaultSendDelay
+	}
+	d, _ := time.ParseDuration(c.SendDelay)
+	return d
 }
 
 // DefaultTrashDays applies when trash_days is not set.
@@ -127,6 +145,30 @@ type Account struct {
 	IMAP            Server       `toml:"imap"`
 	SMTP            Server       `toml:"smtp,omitempty"`
 	Folders         []FolderRule `toml:"folder,omitempty"`
+	// Identities are other addresses this account sends from (custom
+	// domains); replies to them are sent from them.
+	Identities []string `toml:"identities,omitempty"`
+	// Signature is plain text added after "-- " to new messages and replies.
+	Signature string `toml:"signature,omitempty"`
+	// SaveSent is "local" (the default: sent mail only in nought) or
+	// "server" (also appended to the server's Sent folder).
+	SaveSent string `toml:"save_sent,omitempty"`
+}
+
+// Where sent mail is kept.
+const (
+	SaveSentLocal  = "local"
+	SaveSentServer = "server"
+)
+
+// Addresses returns the account's own addresses, lowercased: its email
+// first, then its identities.
+func (a Account) Addresses() []string {
+	out := []string{strings.ToLower(a.Email)}
+	for _, id := range a.Identities {
+		out = append(out, strings.ToLower(id))
+	}
+	return out
 }
 
 // Server is a TLS mail server endpoint.
@@ -261,6 +303,11 @@ func (c *Config) Validate() error {
 			}
 		}
 	}
+	if s := c.SendDelay; s != "" {
+		if d, err := time.ParseDuration(s); err != nil || d < 0 || d > MaxSendDelay {
+			return fmt.Errorf("send_delay %q: use a duration like \"10s\", at most %v, or \"0\"", s, MaxSendDelay)
+		}
+	}
 	if s := c.TUI.SyncEvery; s != "" {
 		d, err := time.ParseDuration(s)
 		if err != nil || d != 0 && (d < MinSyncEvery || d > MaxSyncEvery) {
@@ -324,6 +371,16 @@ func (a *Account) validate() error {
 		if err := a.SMTP.validate(); err != nil {
 			return fmt.Errorf("smtp: %w", err)
 		}
+	}
+	for _, id := range a.Identities {
+		if addr, err := mail.ParseAddress(id); err != nil || addr.Address != strings.TrimSpace(id) {
+			return fmt.Errorf("identity %q must be a plain email address", id)
+		}
+	}
+	switch a.SaveSent {
+	case "", SaveSentLocal, SaveSentServer:
+	default:
+		return fmt.Errorf("save_sent must be %q or %q", SaveSentLocal, SaveSentServer)
 	}
 	for _, r := range a.Folders {
 		if err := r.validate(); err != nil {
