@@ -62,9 +62,10 @@ const (
 
 // sideItem is one entry in the sidebar.
 type sideItem struct {
-	label string
-	query string
-	count int // -1 when not counted
+	label   string
+	query   string
+	count   int    // -1 when not counted
+	heading string // shown above this item, to start a section
 }
 
 // undoEntry reverts one tag change.

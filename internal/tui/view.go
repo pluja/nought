@@ -192,6 +192,9 @@ func (m Model) renderSidebar() string {
 		if m.focus == focusSidebar && i == m.sideIdx {
 			line = m.st.accent.Render("▌") + ansi.Cut(line, 1, sidebarWidth)
 		}
+		if it.heading != "" {
+			lines = append(lines, "", m.st.dim.Render(" "+it.heading))
+		}
 		lines = append(lines, line)
 	}
 	return fit(strings.Join(lines, "\n"), sidebarWidth, m.bodyHeight())

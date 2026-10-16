@@ -174,12 +174,23 @@ func (m Model) loadSidebar() tea.Cmd {
 			items = append(items, sideItem{label: "★ " + s.Name, query: s.Query, count: -1})
 		}
 		if tags, err := ops.Call(m.ctx, m.env, permTag, ops.TagsList, struct{}{}); err == nil {
+			// Folder tags say where mail came from; they get their own
+			// section. INBOX is left out: the Inbox view is the inbox.
+			var folders []sideItem
 			for _, t := range tags {
-				if t.Tag == ops.TagInbox || t.Tag == ops.TagUnread || t.Tag == ops.TagFlagged || hiddenTag(t.Tag) {
-					continue
+				folder, isFolder := strings.CutPrefix(t.Tag, "folder:")
+				switch {
+				case t.Tag == ops.TagInbox || t.Tag == ops.TagUnread || t.Tag == ops.TagFlagged || hiddenTag(t.Tag):
+				case isFolder && folder != "inbox":
+					folders = append(folders, sideItem{label: folder, query: "tag:" + t.Tag, count: t.Count})
+				case !isFolder:
+					items = append(items, sideItem{label: "#" + t.Tag, query: "tag:" + t.Tag, count: t.Count})
 				}
-				items = append(items, sideItem{label: "#" + t.Tag, query: "tag:" + t.Tag, count: t.Count})
 			}
+			if len(folders) > 0 {
+				folders[0].heading = "Folders"
+			}
+			items = append(items, folders...)
 		}
 		return sidebarDoneMsg{items: items}
 	}

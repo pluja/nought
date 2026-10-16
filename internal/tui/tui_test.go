@@ -982,3 +982,31 @@ func TestHelpDescribesTheInboxModel(t *testing.T) {
 		t.Errorf("help with deletion off:\n%s", s)
 	}
 }
+
+// Origin folders are listed under a Folders heading, without the folder:
+// prefix; INBOX is left out (the Inbox view is the inbox).
+func TestSidebarFolders(t *testing.T) {
+	m := newTestModel(t, 120, 30)
+	if _, err := ops.Call(t.Context(), m.env, ops.Delete, ops.MsgTag,
+		ops.TagIn{Query: "subject:invoice", Add: []string{"folder:archive/2024", "bills"}}); err != nil {
+		t.Fatal(err)
+	}
+	m = drive(t, m, m.loadSidebar()())
+	var labels []string
+	for _, it := range m.side {
+		labels = append(labels, it.label)
+	}
+	if slices.ContainsFunc(labels, func(l string) bool { return strings.Contains(l, "folder:") }) {
+		t.Errorf("folder tags listed as tags: %v", labels)
+	}
+	i := slices.IndexFunc(m.side, func(it sideItem) bool { return it.label == "archive/2024" })
+	if i < 0 || m.side[i].query != "tag:folder:archive/2024" || m.side[i].heading != "Folders" {
+		t.Fatalf("no archive/2024 folder entry: %+v", m.side)
+	}
+	if !slices.ContainsFunc(m.side, func(it sideItem) bool { return it.label == "#bills" }) {
+		t.Errorf("user tag missing: %v", labels)
+	}
+	if s := screen(m); !strings.Contains(s, "Folders") || strings.Contains(s, "#folder:") {
+		t.Errorf("sidebar:\n%s", s)
+	}
+}
