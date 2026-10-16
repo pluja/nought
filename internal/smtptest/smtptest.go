@@ -93,7 +93,9 @@ func Start(t testing.TB, opts Options) *Server {
 	s.Port = ln.Addr().(*net.TCPAddr).Port
 	done := make(chan struct{})
 	go func() { _ = s.srv.Serve(ln); close(done) }()
-	t.Cleanup(func() { s.Close(); <-done })
+	// Closing the listener too: a test that ends before Serve starts would
+	// otherwise wait for it forever.
+	t.Cleanup(func() { s.Close(); _ = ln.Close(); <-done })
 	return s
 }
 
