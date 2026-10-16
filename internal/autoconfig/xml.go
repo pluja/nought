@@ -121,7 +121,7 @@ func validHost(h string) bool {
 	if len(h) > 253 || !strings.Contains(h, ".") || net.ParseIP(h) != nil {
 		return false
 	}
-	for _, label := range strings.Split(h, ".") {
+	for label := range strings.SplitSeq(h, ".") {
 		if len(label) == 0 || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
 			return false
 		}

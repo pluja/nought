@@ -58,7 +58,7 @@ func (ix *Index) Addresses(ctx context.Context, account string, limit int) ([]Ad
 			count(from, 1)
 			continue
 		}
-		for _, entry := range strings.Split(to, "\n") {
+		for entry := range strings.SplitSeq(to, "\n") {
 			count(entry, 2)
 		}
 	}

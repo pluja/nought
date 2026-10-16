@@ -53,7 +53,7 @@ func TestBuildFlowedLines(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := string(raw[bytes.Index(raw, []byte("\r\n\r\n"))+4:])
-	for _, line := range strings.Split(strings.TrimRight(body, "\r\n"), "\r\n") {
+	for line := range strings.SplitSeq(strings.TrimRight(body, "\r\n"), "\r\n") {
 		if len(line) > 78 {
 			t.Errorf("line longer than 78: %q", line)
 		}

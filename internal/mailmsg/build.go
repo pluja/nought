@@ -186,7 +186,7 @@ func writeBody(w io.Writer, h mail.Header, m Outgoing) error {
 // transferEncoding is 7bit for plain ASCII text with short lines, else
 // quoted-printable.
 func transferEncoding(text string) string {
-	for _, line := range strings.Split(text, "\r\n") {
+	for line := range strings.SplitSeq(text, "\r\n") {
 		if len(line) > 998 {
 			return "quoted-printable"
 		}
@@ -221,7 +221,7 @@ func lines(text string) string {
 
 func flowed(text string) string {
 	var b strings.Builder
-	for _, line := range strings.Split(strings.TrimSuffix(lines(text), "\n"), "\n") {
+	for line := range strings.SplitSeq(strings.TrimSuffix(lines(text), "\n"), "\n") {
 		if line != "-- " {
 			line = strings.TrimRight(line, " ")
 		}

@@ -152,7 +152,7 @@ func (ix *Index) Dump(ctx context.Context, w io.Writer, keep func(tags []string)
 		}
 		var line strings.Builder
 		if tags != "" {
-			for _, t := range strings.Split(tags, tagSep) {
+			for t := range strings.SplitSeq(tags, tagSep) {
 				line.WriteString("+" + encodeTag(t) + " ")
 			}
 		}
@@ -239,7 +239,7 @@ func parseDumpLine(line string) (tags, invalid []string, key dumpKey, err error)
 	if sep < 0 {
 		return nil, nil, dumpKey{}, errors.New(`missing "--" separator`)
 	}
-	for _, f := range strings.Fields(line[:sep]) {
+	for f := range strings.FieldsSeq(line[:sep]) {
 		enc, ok := strings.CutPrefix(f, "+")
 		if !ok {
 			return nil, nil, dumpKey{}, fmt.Errorf("tag operation %q is not supported", f)

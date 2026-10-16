@@ -280,7 +280,7 @@ func previewAfter(seq int, wait time.Duration) tea.Cmd {
 
 // parseTagInput reads "+a -b c" (a bare word adds).
 func parseTagInput(s string) (add, remove []string) {
-	for _, f := range strings.Fields(s) {
+	for f := range strings.FieldsSeq(s) {
 		switch {
 		case strings.HasPrefix(f, "-") && len(f) > 1:
 			remove = append(remove, strings.ToLower(f[1:]))

@@ -4,6 +4,7 @@ package tui
 
 import (
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -201,12 +202,7 @@ func TestPromptsAndErrorsStayVisible(t *testing.T) {
 }
 
 func slicesContains(s []string, v string) bool {
-	for _, x := range s {
-		if x == v {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(s, v)
 }
 
 // Review: a quick second r opened two drafts and two editors; the To input

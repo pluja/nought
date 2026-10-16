@@ -108,7 +108,7 @@ func Check(in CheckInput) []Problem {
 // signature: the words the user wrote.
 func ownText(body string) string {
 	var b strings.Builder
-	for _, line := range strings.Split(body, "\n") {
+	for line := range strings.SplitSeq(body, "\n") {
 		if line == "-- " || strings.HasPrefix(line, forwardMarker) {
 			break
 		}

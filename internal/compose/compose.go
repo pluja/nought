@@ -217,7 +217,7 @@ func quote(body string) string {
 		return ""
 	}
 	var b strings.Builder
-	for _, line := range strings.Split(body, "\n") {
+	for line := range strings.SplitSeq(body, "\n") {
 		switch {
 		case strings.HasPrefix(line, ">"):
 			b.WriteString(">" + line + "\n")

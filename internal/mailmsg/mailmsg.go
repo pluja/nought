@@ -132,7 +132,7 @@ func msgIDs(h mail.Header, key string) []string {
 		// Be lenient, but only with tokens that look like IDs, so prose
 		// such as "see my previous mail" does not become a thread key.
 		ids = nil
-		for _, f := range strings.Fields(h.Get(key)) {
+		for f := range strings.FieldsSeq(h.Get(key)) {
 			if strings.Contains(f, "@") || strings.HasPrefix(f, "<") && strings.HasSuffix(f, ">") {
 				ids = append(ids, f)
 			}

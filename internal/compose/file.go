@@ -29,7 +29,7 @@ func Parse(text string, base Draft) (Draft, error) {
 		return Draft{}, errors.New("the header lines contain a carriage return")
 	}
 	d := Draft{InReplyTo: base.InReplyTo, References: base.References, Body: body}
-	for _, line := range strings.Split(head, "\n") {
+	for line := range strings.SplitSeq(head, "\n") {
 		if strings.HasPrefix(line, "#") {
 			continue
 		}
@@ -50,7 +50,7 @@ func Parse(text string, base Draft) (Draft, error) {
 		case "subject":
 			d.Subject = value
 		case "attach":
-			for _, p := range strings.Split(value, ",") {
+			for p := range strings.SplitSeq(value, ",") {
 				if p = strings.TrimSpace(p); p != "" {
 					d.Attach = append(d.Attach, p)
 				}

@@ -51,7 +51,7 @@ type Result struct {
 	Provider  string        `json:"provider,omitempty"`
 	Source    string        `json:"source"`
 	IMAP      config.Server `json:"imap"`
-	SMTP      config.Server `json:"smtp,omitempty"`
+	SMTP      config.Server `json:"smtp"`
 	Username  string        `json:"username"`
 	Contacted []string      `json:"contacted"` // network destinations used, for transparency
 }

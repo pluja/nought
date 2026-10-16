@@ -246,8 +246,8 @@ func isFolderInternalData(raw []byte) bool {
 // is called name.
 func firstHeader(raw []byte, name string) (string, bool) {
 	line := raw
-	if i := bytes.IndexByte(raw, '\n'); i >= 0 {
-		line = raw[:i]
+	if before, _, ok := bytes.Cut(raw, []byte{'\n'}); ok {
+		line = before
 	}
 	line = bytes.TrimRight(line, "\r")
 	prefix := strings.ToLower(name) + ":"

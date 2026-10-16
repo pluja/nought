@@ -244,7 +244,7 @@ var (
 // without comments, !important or hacks. Later declarations win.
 func declarations(style string) map[string]string {
 	out := map[string]string{}
-	for _, decl := range strings.Split(cssComment.ReplaceAllString(strings.ToLower(style), ""), ";") {
+	for decl := range strings.SplitSeq(cssComment.ReplaceAllString(strings.ToLower(style), ""), ";") {
 		k, v, ok := strings.Cut(decl, ":")
 		if !ok {
 			continue
