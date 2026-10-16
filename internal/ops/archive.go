@@ -71,7 +71,7 @@ func indexMessage(ctx context.Context, env *Env, ix *index.Index, account string
 		MessageID: h.MessageID,
 		Date:      h.Date,
 		From:      h.From,
-		To:        h.To,
+		To:        append(h.To, h.Cc...), // the index keeps To and Cc together
 		Subject:   h.Subject,
 		Size:      int64(len(raw)),
 		ThreadKey: mailmsg.ThreadKey(h, hash),

@@ -27,7 +27,9 @@ type Header struct {
 	MessageID  string
 	Date       time.Time
 	From       string
-	To         []string // To and Cc
+	To         []string // To only
+	Cc         []string
+	ReplyTo    []string
 	Subject    string
 	References []string
 	InReplyTo  string
@@ -75,16 +77,17 @@ func Parse(raw []byte) (Header, error) {
 	}
 	out.Subject = text(h, "Subject")
 	out.From = firstAddress(h, "From")
-	out.To = append(addresses(h, "To"), addresses(h, "Cc")...)
-	if len(out.To) > maxAddresses {
-		out.To = out.To[:maxAddresses]
-	}
+	out.To = limit(addresses(h, "To"))
+	out.Cc = limit(addresses(h, "Cc"))
+	out.ReplyTo = limit(addresses(h, "Reply-To"))
 	out.References = msgIDs(h, "References")
 	if ids := msgIDs(h, "In-Reply-To"); len(ids) > 0 {
 		out.InReplyTo = ids[0]
 	}
 	return out, errors.Join(errs...)
 }
+
+func limit(list []string) []string { return list[:min(len(list), maxAddresses)] }
 
 // text returns a decoded header value, falling back to the raw value.
 func text(h mail.Header, key string) string {
