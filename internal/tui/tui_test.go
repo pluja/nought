@@ -3,9 +3,9 @@
 package tui
 
 import (
-	"fmt"
 	"errors"
 	"flag"
+	"fmt"
 	"io"
 	"log/slog"
 	"os"
