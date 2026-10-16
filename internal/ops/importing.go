@@ -9,6 +9,7 @@ import (
 	"iter"
 	"os"
 	"path/filepath"
+	"slices"
 
 	"github.com/pluja/nought/internal/importer"
 	"github.com/pluja/nought/internal/index"
@@ -58,7 +59,14 @@ var ImportRun = Op[ImportIn, ImportOut]{
 	Name:    "import.run",
 	Summary: "Import messages from a Maildir tree, .eml files or an mbox file",
 	Perm:    Tag,
-	Run:     runImport,
+	// Importing mail marked deleted or expiring is a deletion, as in msg tag.
+	PermFor: func(in ImportIn) Permission {
+		if slices.ContainsFunc(in.Tags, IsDeletionTag) {
+			return Delete
+		}
+		return Tag
+	},
+	Run: runImport,
 }
 
 func runImport(ctx context.Context, env *Env, in ImportIn) (ImportOut, error) {
@@ -131,6 +139,11 @@ func runImport(ctx context.Context, env *Env, in ImportIn) (ImportOut, error) {
 	if !in.DryRun && (out.Imported > 0 || changedTags) {
 		if err := writeTagsDump(ctx, env); err != nil {
 			return out, err
+		}
+		if isTransient(in.Tags) { // imported as deleted: into the transient store
+			if err := placeAll(ctx, env); err != nil {
+				return out, err
+			}
 		}
 	}
 	if out.Failed > 0 {

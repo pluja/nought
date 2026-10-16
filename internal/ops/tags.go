@@ -74,7 +74,8 @@ type TagsRestoreIn struct {
 var TagsRestore = Op[TagsRestoreIn, index.RestoreResult]{
 	Name:    "tags.restore",
 	Summary: "Set tags from a dump file (nought or notmuch format)",
-	Perm:    Tag,
+	// A dump can mark mail deleted or expiring: deletion, for good later.
+	Perm: Delete,
 	Run: func(ctx context.Context, env *Env, in TagsRestoreIn) (index.RestoreResult, error) {
 		f, err := os.Open(in.Path)
 		if errors.Is(err, os.ErrNotExist) {
@@ -95,7 +96,12 @@ var TagsRestore = Op[TagsRestoreIn, index.RestoreResult]{
 		if err := syncFlagsFromTags(ctx, env); err != nil {
 			return res, err
 		}
-		return res, writeTagsDump(ctx, env)
+		// The dump first, then the files where their tags say (a restored
+		// deletion moves to the transient store).
+		if err := writeTagsDump(ctx, env); err != nil {
+			return res, err
+		}
+		return res, placeAll(ctx, env)
 	},
 }
 

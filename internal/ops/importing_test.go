@@ -466,3 +466,30 @@ func TestEmptyArchiveIsNotRebuilt(t *testing.T) {
 		t.Errorf("rebuilt an index over an empty archive: %s", log.String())
 	}
 }
+
+// Review: restoring a dump, or importing with tags, can mark mail for
+// permanent deletion: that needs the deletion permission, like msg tag. A
+// restored deletion also moves the file where its tags say.
+func TestDeletionTagsNeedTheDeletePermission(t *testing.T) {
+	env := newTestEnv(t)
+	importSample(t, env)
+	dump := filepath.Join(t.TempDir(), "evil.dump")
+	writeFile(t, dump, "+deleted +delete-after:2026-01-01 -- id:1@x\n")
+	if _, err := Call(t.Context(), env, Tag, TagsRestore, TagsRestoreIn{Path: dump}); !errors.Is(err, ErrPermission) {
+		t.Errorf("tag-level restore of deletion tags: %v", err)
+	}
+	if _, err := Call(t.Context(), env, Tag, ImportRun, ImportIn{Path: thunderbirdExport(t), Account: "personal", Tags: []string{"deleted"}}); !errors.Is(err, ErrPermission) {
+		t.Errorf("tag-level import with deleted: %v", err)
+	}
+	if _, err := Call(t.Context(), env, Delete, TagsRestore, TagsRestoreIn{Path: dump}); err != nil {
+		t.Fatal(err)
+	}
+	m := search(t, env, "id:1@x tag:deleted")
+	tr, err := env.Transient("personal")
+	if err != nil || len(m) != 1 {
+		t.Fatalf("restored = %v, %v", m, err)
+	}
+	if tr.Len() != 1 {
+		t.Errorf("the restored deletion stayed in the archive (transient holds %d)", tr.Len())
+	}
+}
