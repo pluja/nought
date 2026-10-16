@@ -69,8 +69,8 @@ func TestReplyReviewSendUndo(t *testing.T) {
 		t.Fatalf("no review screen:\n%s", screen(m))
 	}
 	m = drive(t, m, key("y"))
-	if m.composing != nil || !strings.Contains(m.notice, "z undoes") || m.sendingID == "" {
-		t.Fatalf("after y: notice %q", m.notice)
+	if m.composing != nil || !strings.Contains(screen(m), "in 10s · z undoes") || m.sendingID == "" {
+		t.Fatalf("after y:\n%s", screen(m))
 	}
 	m = drive(t, m, key("z"))
 	if m.composing == nil || m.sendingID != "" || len(srv.Messages()) != 0 {
@@ -216,5 +216,33 @@ func TestSyncSummaryMentionsSentMail(t *testing.T) {
 	r := summarize(ops.SyncOut{Outbox: ops.FlushOut{Sent: 2, Failed: 1}}, nil)
 	if s := r.String(); !strings.Contains(s, "sent 2") || r.problems != 1 || !r.worthTelling() {
 		t.Errorf("summary %q, problems %d", s, r.problems)
+	}
+}
+
+// The undo window counts down, and stays on screen while you work.
+func TestSendCountsDown(t *testing.T) {
+	m, _ := newSendModel(t)
+	m.editFile = fakeEditor(func(s string) string { return strings.Replace(s, "To: ", "To: bob@example.org", 1) })
+	m = drive(t, m, key("c"))
+	m = drive(t, m, key("y"))
+	m.now = func() time.Time { return testNow.Add(3 * time.Second) }
+	m = drive(t, m, countdownMsg{id: m.sendingID}, key("j")) // a tick, then other work
+	if !strings.Contains(screen(m), "in 07s · z undoes") {
+		t.Errorf("no countdown:\n%s", screen(m))
+	}
+	m.now = func() time.Time { return testNow.Add(time.Minute) }
+	if _, cmd := m.Update(countdownMsg{id: m.sendingID}); cmd != nil {
+		t.Error("the countdown goes on after the window")
+	}
+}
+
+func TestSecondsLeft(t *testing.T) {
+	for d, want := range map[time.Duration]string{
+		10 * time.Second: "10s", 8*time.Second + time.Millisecond: "09s", 500 * time.Millisecond: "01s",
+		65 * time.Second: "1m 05s", 5 * time.Minute: "5m 00s",
+	} {
+		if got := secondsLeft(d); got != want {
+			t.Errorf("%v: %q, want %q", d, got, want)
+		}
 	}
 }

@@ -9,6 +9,7 @@ package tui
 import (
 	"errors"
 	"fmt"
+	"math"
 	"os/exec"
 	"slices"
 	"strings"
@@ -58,7 +59,9 @@ type (
 		out     ops.DraftOut
 		err     error
 	}
-	flushMsg     struct{}
+	flushMsg struct{}
+	// countdownMsg redraws the undo window's countdown each second.
+	countdownMsg struct{ id string }
 	flushDoneMsg struct {
 		out  ops.FlushOut
 		quit bool // the flush that ends the session
@@ -182,12 +185,42 @@ func (m Model) queued(msg queuedMsg) (Model, tea.Cmd) {
 	m.composing = nil
 	m.sendingID, m.sendingSubject, m.sendingAfter = msg.entry.ID, msg.entry.Subject, msg.entry.SendAfter
 	wait := max(msg.entry.SendAfter.Sub(m.now()), 0)
-	m.notice = "sending…"
-	if wait > 0 {
-		m.notice = "sending in " + shortDuration(wait) + "… z undoes"
-	}
+	m.notice = "" // the countdown line says it
 	next, cmd := m.refresh()
-	return next, tea.Batch(cmd, m.after(wait+flushMargin, func(time.Time) tea.Msg { return flushMsg{} }))
+	return next, tea.Batch(cmd, next.tickCountdown(),
+		m.after(wait+flushMargin, func(time.Time) tea.Msg { return flushMsg{} }))
+}
+
+func (m Model) tickCountdown() tea.Cmd {
+	id := m.sendingID
+	return m.after(time.Second, func(time.Time) tea.Msg { return countdownMsg{id: id} })
+}
+
+// countdownTick keeps the undo window's line ticking until the window closes.
+func (m Model) countdownTick(msg countdownMsg) (Model, tea.Cmd) {
+	if msg.id != m.sendingID || !m.sendingAfter.After(m.now()) {
+		return m, nil
+	}
+	return m, m.tickCountdown()
+}
+
+// secondsLeft is the time left in the undo window: "09s", or "1m 05s".
+// Two digits keep the line from jittering as it counts down.
+func secondsLeft(d time.Duration) string {
+	s := int(math.Ceil(d.Seconds()))
+	if s < 60 {
+		return fmt.Sprintf("%02ds", s)
+	}
+	return fmt.Sprintf("%dm %02ds", s/60, s%60)
+}
+
+// sendingLine is the message in its undo window, with the time left.
+func (m Model) sendingLine() string {
+	line := "sending “" + render.SanitizeLine(m.sendingSubject) + "”"
+	if left := m.sendingAfter.Sub(m.now()); left > 0 {
+		return line + " in " + secondsLeft(left) + " · z undoes"
+	}
+	return line + "…"
 }
 
 // cancelSend takes a message out of the outbox, back to review.

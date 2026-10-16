@@ -473,6 +473,17 @@ func (m Model) renderPromptLine() string {
 		return fit(line, m.width, 1)
 	case m.inputKind == inputAttach:
 		return pad("attach file: "+m.input.View(), m.width)
+	case m.sendingID != "":
+		// The undo window stays in sight while you work; news follows it.
+		line := m.st.accent.Render(m.sendingLine())
+		if m.notice != "" {
+			style := m.st.dim
+			if m.noticeErr {
+				style = m.st.errText
+			}
+			line += "  " + style.Render(render.SanitizeLine(m.notice))
+		}
+		return fit(line, m.width, 1)
 	case m.syncing:
 		line := "syncing…"
 		if len(m.syncLines) > 0 {
@@ -485,8 +496,6 @@ func (m Model) renderPromptLine() string {
 			style = m.st.errText
 		}
 		return fit(style.Render(render.SanitizeLine(m.notice)), m.width, 1)
-	case m.sendingID != "":
-		return fit(m.st.dim.Render("sending “"+render.SanitizeLine(m.sendingSubject)+"”… z undoes"), m.width, 1)
 	}
 	return ""
 }

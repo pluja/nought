@@ -161,6 +161,8 @@ func (m Model) update(msg tea.Msg) (Model, tea.Cmd) {
 		return m.queued(msg)
 	case cancelDoneMsg:
 		return m.cancelDone(msg)
+	case countdownMsg:
+		return m.countdownTick(msg)
 	case flushMsg:
 		return m, m.flush(false)
 	case flushDoneMsg:
