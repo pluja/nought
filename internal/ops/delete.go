@@ -300,7 +300,7 @@ var MsgRestore = Op[RestoreIn, TagOut]{
 	Summary: "Restore deleted or expiring messages to the inbox",
 	Perm:    Tag,
 	Run: func(ctx context.Context, env *Env, in RestoreIn) (TagOut, error) {
-		q, err := queryOrID(ctx, env, in.Query, in.Account)
+		q, err := queryOrIDWithTrash(ctx, env, in.Query, in.Account)
 		if err != nil {
 			return TagOut{}, err
 		}

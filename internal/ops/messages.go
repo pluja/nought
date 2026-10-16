@@ -398,10 +398,23 @@ func runTag(ctx context.Context, env *Env, in TagIn) (out TagOut, err error) {
 // queryOrID parses a query. A bare message ID is accepted as a convenience
 // and must identify exactly one message, like msg show. An empty query is
 // refused: it would match every message.
+// queryOrID parses a query, or resolves a bare message id (any case) to
+// that exact message. A query leaves out the trash unless it asks for it
+// (tag:deleted), as search does; an id means that message, trashed or not.
 func queryOrID(ctx context.Context, env *Env, s, account string) (query.Query, error) {
+	return parseQueryOrID(ctx, env, s, account, true)
+}
+
+// queryOrIDWithTrash is queryOrID for actions on the trash (restore).
+func queryOrIDWithTrash(ctx context.Context, env *Env, s, account string) (query.Query, error) {
+	return parseQueryOrID(ctx, env, s, account, false)
+}
+
+func parseQueryOrID(ctx context.Context, env *Env, s, account string, hideTrash bool) (query.Query, error) {
 	s = strings.TrimSpace(s)
-	if len(s) >= index.MinPrefix && len(s) <= 64 && isLowerHex(s) {
-		m, err := resolve(ctx, env, account, s)
+	byID := len(s) >= index.MinPrefix && len(s) <= 64 && isHex(s)
+	if byID {
+		m, err := resolve(ctx, env, account, strings.ToLower(s))
 		if errors.Is(err, ErrNotFound) {
 			return query.Query{}, fmt.Errorf("no message with id %s (to search for the word, quote it: '\"%s\"'): %w", s, s, ErrNotFound)
 		}
@@ -419,11 +432,14 @@ func queryOrID(ctx context.Context, env *Env, s, account string) (query.Query, e
 	if len(q.Groups) == 0 {
 		return q, usageError("a query is required (e.g. 'tag:inbox from:bob' or a message id); it may not be empty")
 	}
+	if hideTrash && !byID {
+		q = withoutTrash(q)
+	}
 	return q, nil
 }
 
-func isLowerHex(s string) bool {
-	for _, c := range s {
+func isHex(s string) bool {
+	for _, c := range strings.ToLower(s) {
 		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
 			return false
 		}
@@ -539,13 +555,19 @@ func parseWithoutTrash(s string) (query.Query, error) {
 	if err != nil {
 		return q, err
 	}
+	return withoutTrash(q), nil
+}
+
+// withoutTrash leaves the trash out of q, unless q asks for it or names
+// messages (hash:, id:), which means them, trashed or not.
+func withoutTrash(q query.Query) query.Query {
 	for _, g := range q.Groups {
 		for _, t := range g {
-			if t.Field == query.Tag && t.Value == TagDeleted {
-				return q, nil
+			if t.Field == query.Tag && t.Value == TagDeleted || t.Field == query.Hash || t.Field == query.ID {
+				return q
 			}
 		}
 	}
 	q.Groups = append(q.Groups, []query.Term{{Field: query.Tag, Value: TagDeleted, Not: true}})
-	return q, nil
+	return q
 }

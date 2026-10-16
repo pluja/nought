@@ -324,3 +324,30 @@ func readFile(t *testing.T, path string) string {
 	}
 	return string(b)
 }
+
+// Review: tag, archive and delete see what search shows: trashed mail only
+// when the query asks for it (tag:deleted) or names the message by id.
+// Ids are accepted in upper case too.
+func TestActionsMatchWhatSearchShows(t *testing.T) {
+	env := newTestEnv(t)
+	importSample(t, env)
+	id := idOf(t, env, `subject:"read one"`)
+	if _, err := Call(t.Context(), env, Delete, MsgDelete, DeleteIn{Query: id}); err != nil {
+		t.Fatal(err)
+	}
+	res, err := Call(t.Context(), env, Read, MsgSearch, SearchIn{Query: "from:alice"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	shown := len(res.Messages)
+	out, err := Call(t.Context(), env, Tag, MsgTag, TagIn{Query: "from:alice", Add: []string{"x"}, DryRun: true})
+	if err != nil || out.Matched != shown {
+		t.Errorf("msg tag matched %d, search shows %d (%v)", out.Matched, shown, err)
+	}
+	if out, err := Call(t.Context(), env, Tag, MsgTag, TagIn{Query: "from:alice tag:deleted", Add: []string{"x"}, DryRun: true}); err != nil || out.Matched != 1 {
+		t.Errorf("asking for the trash: matched %d, %v", out.Matched, err)
+	}
+	if out, err := Call(t.Context(), env, Tag, MsgTag, TagIn{Query: strings.ToUpper(id), Add: []string{"x"}, DryRun: true}); err != nil || out.Matched != 1 {
+		t.Errorf("upper-case id of a trashed message: matched %d, %v", out.Matched, err)
+	}
+}

@@ -268,7 +268,9 @@ tags = ["newsletter"]
 ## Searching
 
 Terms are ANDed; `a OR b` ORs two terms; `-term` negates (put `--` before a query that starts
-with `-`).
+with `-`). Searches, and actions like `msg tag` or `msg delete`, leave out the trash unless the
+query asks for it (`tag:deleted`) or names a message (its id, `hash:` or `id:`). Text matches
+ignore case in every language.
 
 | Term | Matches |
 |---|---|
