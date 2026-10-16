@@ -44,7 +44,7 @@ func (m Model) key(k tea.KeyPressMsg) (Model, tea.Cmd) {
 				m.reader.GotoTop()
 				return m, nil
 			}
-			m.cursor = 0
+			m.cursor, m.draftIdx = 0, 0
 			return m.schedulePreview()
 		case "i":
 			return m.goTo(queryInbox)
@@ -311,7 +311,7 @@ func (m Model) inputKey(k tea.KeyPressMsg) (Model, tea.Cmd) {
 			m.notice = "draft kept"
 			return m, nil
 		}
-		return m, m.discard(m.composing.ID)
+		return m, m.discard(m.discarding)
 	}
 	if m.inputKind == inputConfirmDelete {
 		m.inputKind = inputNone

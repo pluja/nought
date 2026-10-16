@@ -61,7 +61,7 @@ const (
 	inputConfirmEmptyTrash
 	inputTo             // the review screen's To line
 	inputAttach         // a file to attach
-	inputConfirmDiscard // discard the draft under review
+	inputConfirmDiscard // discard a draft (m.discarding)
 	inputSaveDir        // where to save the open message's attachments
 )
 
@@ -198,6 +198,7 @@ type Model struct {
 	// Writing mail.
 	composing      *ops.DraftOut // the review screen shows while set
 	editing        string        // the draft open in the editor
+	discarding     string        // the draft the discard question is about
 	editFile       func(path string) tea.Cmd
 	sendingID      string // the outbox entry in its undo window
 	sendingSubject string

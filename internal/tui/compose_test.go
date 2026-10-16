@@ -246,3 +246,25 @@ func TestSecondsLeft(t *testing.T) {
 		}
 	}
 }
+
+// Deferred (d): D discards a draft from the Drafts view, after asking.
+func TestDiscardFromTheDraftsView(t *testing.T) {
+	m, _ := newSendModel(t)
+	m.editFile = fakeEditor(func(s string) string { return strings.Replace(s, "To: ", "To: bob@example.org", 1) })
+	m = drive(t, m, key("c"))
+	m = drive(t, m, key("d")) // keep as draft
+	m = drive(t, m, keys("gd")...)
+	m = drive(t, m, key("D"))
+	if !strings.Contains(screen(m), "Discard this draft?") {
+		t.Fatalf("no confirmation:\n%s", screen(m))
+	}
+	m = drive(t, m, key("n"))
+	if len(drafts(t, m)) != 1 {
+		t.Fatal("discarded without a yes")
+	}
+	m = drive(t, m, key("D"))
+	m = drive(t, m, key("y"))
+	if len(drafts(t, m)) != 0 || len(m.drafts) != 0 {
+		t.Errorf("drafts left: %d (view %d)", len(drafts(t, m)), len(m.drafts))
+	}
+}

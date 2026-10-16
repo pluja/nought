@@ -169,7 +169,7 @@ func (m Model) reviewKey(key string) (Model, tea.Cmd) {
 		m.notice = "kept in Drafts (gd)"
 		return m.refresh()
 	case "q":
-		m.inputKind = inputConfirmDiscard
+		m.inputKind, m.discarding = inputConfirmDiscard, d.ID
 	case "?":
 		m.help = true
 	}

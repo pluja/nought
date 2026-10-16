@@ -58,6 +58,14 @@ func (m Model) draftsKey(key string) (Model, tea.Cmd) {
 		m.draftIdx = min(m.draftIdx+1, max(len(m.drafts)-1, 0))
 	case "k", "up":
 		m.draftIdx = max(m.draftIdx-1, 0)
+	case "G", "end":
+		m.draftIdx = max(len(m.drafts)-1, 0)
+	case "home":
+		m.draftIdx = 0
+	case "D":
+		if m.draftIdx < len(m.drafts) {
+			m.inputKind, m.discarding = inputConfirmDiscard, m.drafts[m.draftIdx].ID
+		}
 	case "enter", "right":
 		if m.draftIdx >= len(m.drafts) {
 			return m, nil

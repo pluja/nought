@@ -559,7 +559,7 @@ func (m Model) renderHints() string {
 	case m.query == queryTrash:
 		hints = [][2]string{{"enter", "open"}, {"#", "restore"}, {"D", "delete now"}, {"z", "undo"}}
 	case m.query == queryDrafts:
-		hints = [][2]string{{"enter", "review"}, {"c", "new message"}}
+		hints = [][2]string{{"enter", "review"}, {"D", "discard"}, {"c", "new message"}}
 	default:
 		hints = [][2]string{{"enter", "open"}, {"e", "archive"}, {"/", "search"}, {"z", "undo"}}
 	}
