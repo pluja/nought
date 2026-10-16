@@ -32,13 +32,15 @@ type Me struct {
 
 // Draft is a message being written.
 type Draft struct {
-	From        string
-	To, Cc, Bcc []string
-	Subject     string
-	Attach      []string // file paths as written (~ not expanded)
-	Body        string
-	InReplyTo   string   // hidden from the editor file
-	References  []string // hidden from the editor file
+	From       string   `json:"from"`
+	To         []string `json:"to"`
+	Cc         []string `json:"cc,omitempty"`
+	Bcc        []string `json:"bcc,omitempty"`
+	Subject    string   `json:"subject"`
+	Attach     []string `json:"attach,omitempty"` // file paths as written (~ not expanded)
+	Body       string   `json:"body"`
+	InReplyTo  string   `json:"in_reply_to,omitempty"` // hidden from the editor file
+	References []string `json:"references,omitempty"`  // hidden from the editor file
 }
 
 const forwardMarker = "---------- Forwarded message ----------"
@@ -196,6 +198,11 @@ func quote(body string) string {
 		}
 	}
 	return b.String()
+}
+
+// Signed is body with the signature, as new messages get it.
+func Signed(body string, me Me) string {
+	return strings.TrimRight(body, "\n") + "\n" + signature(me)
 }
 
 func signature(me Me) string {
