@@ -1120,3 +1120,16 @@ func TestWrappedQuotesKeepTheirBars(t *testing.T) {
 		t.Errorf("got:\n%s\nwant:\n%s", ansi.Strip(got), want)
 	}
 }
+
+// "replied" is state (is:replied), like unread and flagged: not a tag of
+// the user's in the sidebar.
+func TestSidebarHidesReplied(t *testing.T) {
+	m := newTestModel(t, 120, 30)
+	if _, err := ops.Call(t.Context(), m.env, ops.Delete, ops.MsgTag, ops.TagIn{Query: "subject:lunch", Add: []string{ops.TagReplied}}); err != nil {
+		t.Fatal(err)
+	}
+	m = drive(t, m, sidebarDoneMsg{items: run(m.loadSidebar())[0].(sidebarDoneMsg).items})
+	if strings.Contains(screen(m), "#replied") {
+		t.Errorf("sidebar:\n%s", screen(m))
+	}
+}
