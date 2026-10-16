@@ -192,7 +192,7 @@ From scripts, the message is given in flags and sent at once:
 ```sh
 nou compose --to alice@example.org --subject "Tomorrow" --body-file note.txt --attach menu.pdf --send
 echo "Thanks!" | nou msg reply a3f9c2e1b0d4 --body-file - --send
-nou msg forward a3f9c2e1b0d4 --to bob@example.org --send
+nou msg forward a3f9c2e1b0d4 --to bob@example.org --cc carol@example.org --attach notes.pdf --send
 nou compose --to bob@example.org --subject Later --body-file note.txt   # a draft, not sent
 nou draft list; nou draft edit <id>; nou draft send <id>
 nou outbox list; nou outbox retry <id>; nou outbox cancel <id>
@@ -224,6 +224,13 @@ A reply goes to the `Reply-To` address if there is one. It is sent from whicheve
 seen in `To:` is never used as the sender. That is what alias services such as addy.io and
 SimpleLogin need: you reply to the reverse alias from your real address, and the service sends it
 on from your alias.
+
+## Attachments
+
+`nou msg show <id>` lists a message's attachments, numbered, and `nou msg save <id> [number...]
+--dir DIR` saves them (all, or those numbered). In the TUI, `w` saves the open message's files,
+to Downloads unless you say otherwise. Names from mail are made safe, and an existing file is
+never overwritten: you get `invoice (1).pdf`.
 
 ## Deleting mail
 
