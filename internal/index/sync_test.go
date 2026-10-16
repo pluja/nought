@@ -332,3 +332,30 @@ func TestSyncedUntilTheFolderRestarts(t *testing.T) {
 		}
 	}
 }
+
+// Review: after a server reused a UID that nought had already expunged,
+// forgetting the folder must let the next sync record the new message:
+// the old record of the expunged one kept conflicting, so the folder never
+// got past it again. The expunge journal keeps the history.
+func TestForgetFolderClearsReusedExpungedUIDs(t *testing.T) {
+	ix, _ := openIndex(t)
+	ctx := t.Context()
+	old := ServerCopy{Account: "a", Folder: "INBOX", UIDValidity: 5, UID: 7, Hash: hash(1), InternalDate: now}
+	if err := ix.RecordCopy(ctx, old, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := ix.MarkExpunged(ctx, []ServerCopy{old}, now); err != nil {
+		t.Fatal(err)
+	}
+	reused := old
+	reused.Hash = hash(2)
+	if err := ix.RecordCopy(ctx, reused, now); !errors.Is(err, ErrCopyConflict) {
+		t.Fatalf("reused = %v, want ErrCopyConflict", err)
+	}
+	if err := ix.ForgetFolder(ctx, "a", "INBOX", 5); err != nil {
+		t.Fatal(err)
+	}
+	if err := ix.RecordCopy(ctx, reused, now); err != nil {
+		t.Errorf("after forgetting the folder, the new message cannot be recorded: %v", err)
+	}
+}

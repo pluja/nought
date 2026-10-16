@@ -56,13 +56,15 @@ func (ix *Index) ResetFolder(ctx context.Context, account, folder string, uidVal
 	})
 }
 
-// ForgetFolder drops a folder's pending copies and starts it over from the
-// first UID, keeping the record of expunged ones. Used when the server broke
-// UID semantics: everything is fetched and matched to the archive again.
+// ForgetFolder drops a folder's copies and starts it over from the first
+// UID. Used when the server broke UID semantics: everything is fetched and
+// matched to the archive again. Its expunged copies go too: their UIDs mean
+// nothing now, and kept, they would conflict with the server's reused ones
+// forever (the expunge journal keeps the history).
 func (ix *Index) ForgetFolder(ctx context.Context, account, folder string, uidValidity uint32) error {
 	return ix.tx(ctx, func(tx *sql.Tx) error {
 		if _, err := tx.ExecContext(ctx, `
-			DELETE FROM server_copies WHERE account = ? AND folder = ? AND expunged_at IS NULL`, account, folder); err != nil {
+			DELETE FROM server_copies WHERE account = ? AND folder = ?`, account, folder); err != nil {
 			return err
 		}
 		return restartFolder(ctx, tx, account, folder, uidValidity)
