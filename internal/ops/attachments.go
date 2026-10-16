@@ -133,7 +133,7 @@ func safeFileName(name string, n int) string {
 			ext = ""
 		}
 		stem := strings.ToValidUTF8(name[:maxName-len(ext)], "")
-		name = stem + ext
+		name = strings.Trim(stem+ext, " .") // the cut may end in either
 	}
 	return name
 }

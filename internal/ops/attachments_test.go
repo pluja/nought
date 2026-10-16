@@ -132,3 +132,12 @@ func TestOutputIsCleanForAgents(t *testing.T) {
 		t.Errorf("content lost: %q %q", show.Message.Subject, show.Body)
 	}
 }
+
+// Review: shortening a long name could leave it ending in a space or dot,
+// which Windows drops, so the file saved differed from the name reported.
+func TestSafeFileNameNoTrailingDot(t *testing.T) {
+	name := strings.Repeat("a", 195) + "    .x.verylongextensionthatisdropped"
+	if got := safeFileName(name, 1); strings.HasSuffix(got, " ") || strings.HasSuffix(got, ".") {
+		t.Errorf("%q", got)
+	}
+}

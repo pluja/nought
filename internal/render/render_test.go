@@ -434,3 +434,37 @@ func TestQuotedTextStyledByWord(t *testing.T) {
 		t.Errorf("got %q", got)
 	}
 }
+
+// Review: an escape sequence without its end hid the rest of a plain-text
+// body (newlines included), and blank-looking characters were kept.
+func TestSanitizeGaps(t *testing.T) {
+	if got := Sanitize("a\x1b]b\nc\nd"); got != "a\nc\nd" {
+		t.Errorf("unterminated OSC: %q", got)
+	}
+	for _, r := range []rune{0x3164, 0xFFA0, 0x2800, 0x115F, 0x1160, 0x17B4, 0x17B5, 0x034F} {
+		if got := Sanitize("a" + string(r) + "b"); got != "ab" {
+			t.Errorf("U+%04X kept: %q", r, got)
+		}
+	}
+}
+
+// Review: plain text had no size cap (HTML has one): a few MB of quote
+// markers froze the TUI.
+func TestTextWithLinksIsCapped(t *testing.T) {
+	huge := strings.Repeat(">>>>>>>>>\n", 400000) // 4 MB
+	got, _ := TextWithLinks(huge, Styler{})
+	if len(got) > MaxTextOutput+len(truncated) {
+		t.Errorf("output %d bytes", len(got))
+	}
+}
+
+// Review: a look-alike host (Cyrillic а in apple.com) is shown as the
+// punycode it really is.
+func TestHostIsShownAsASCII(t *testing.T) {
+	if got := (Link{URL: "https://аpple.com/x"}).Host(); got != "xn--pple-43d.com" {
+		t.Errorf("host = %q", got)
+	}
+	if got := (Link{URL: "https://example.org/x"}).Host(); got != "example.org" {
+		t.Errorf("host = %q", got)
+	}
+}

@@ -15,7 +15,9 @@ import (
 var (
 	// CSI (ESC [ ... final) and OSC (ESC ] ... BEL or ESC \) sequences.
 	ansiCSI = regexp.MustCompile(`\x1b\[[0-?]*[ -/]*[@-~]`)
-	ansiOSC = regexp.MustCompile(`\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)?`)
+	// An OSC without its end stops at the end of the line, so it cannot
+	// hide the rest of a message.
+	ansiOSC = regexp.MustCompile(`\x1b\][^\x07\x1b\n]*(?:\x07|\x1b\\)?`)
 )
 
 // Sanitize makes text safe to print to a terminal: it removes terminal
@@ -48,7 +50,14 @@ func SanitizeLine(s string) string {
 // way to smuggle invisible text to AI). The zero-width joiner and
 // non-joiner are kept: scripts like Persian and emoji sequences need them.
 func isInvisible(r rune) bool {
-	return unicode.Is(unicode.Cf, r) && r != 0x200C && r != 0x200D
+	switch r {
+	case 0x200C, 0x200D:
+		return false
+	// Letters and marks that render blank: fillers for padding or spoofing.
+	case 0x034F, 0x115F, 0x1160, 0x17B4, 0x17B5, 0x2800, 0x3164, 0xFFA0:
+		return true
+	}
+	return unicode.Is(unicode.Cf, r)
 }
 
 func isBidiControl(r rune) bool {
