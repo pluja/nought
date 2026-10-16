@@ -10,6 +10,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/pluja/nought/internal/render"
 )
 
 // attachmentMail archives a message with two attachments, one with a
@@ -94,5 +96,39 @@ func TestSafeFileName(t *testing.T) {
 	}
 	if got := safeFileName(long, 1); len(got) > 200 || !strings.HasSuffix(got, ".pdf") {
 		t.Errorf("long name: %d bytes, %q", len(got), got[len(got)-8:])
+	}
+}
+
+// Review: what ops returns (--json today, MCP later) is cleaned like the
+// terminal output: a mail must not smuggle invisible instructions (tag
+// characters, bidi overrides, escape sequences) to an agent reading it.
+func TestOutputIsCleanForAgents(t *testing.T) {
+	env := draftEnv(t)
+	hidden := "\U000e0049\U000e0067\u202e\x1b[31m\x1b]0;x\a"
+	raw := "From: Eve" + hidden + " <eve@x.org>\r\nTo: me@example.org\r\nMessage-ID: <evil@x>\r\nSubject: hi" + hidden + "\r\n" +
+		"MIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=b\r\n\r\n--b\r\nContent-Type: text/plain\r\n\r\nbody" + hidden + "\r\n" +
+		"--b\r\nContent-Type: text/plain\r\nContent-Disposition: attachment; filename=\"a" + "\u202e" + "fdp.exe\"\r\n\r\nx\r\n--b--\r\n"
+	if _, _, err := archive(t.Context(), env, "personal", []byte(raw), "", nil); err != nil {
+		t.Fatal(err)
+	}
+	show, err := Call(t.Context(), env, Read, MsgShow, ShowIn{ID: idOf(t, env, "id:evil@x")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	search, err := Call(t.Context(), env, Read, MsgSearch, SearchIn{Query: "id:evil@x"})
+	if err != nil || len(search.Messages) != 1 {
+		t.Fatalf("search = %+v, %v", search, err)
+	}
+	fields := []string{show.Message.Subject, show.Message.From, show.Body, search.Messages[0].Subject, search.Messages[0].From}
+	for _, a := range show.Attachments {
+		fields = append(fields, a.Filename)
+	}
+	for _, f := range fields {
+		if f != render.Sanitize(f) || strings.ContainsAny(f, "\x1b\u202e\U000e0049") {
+			t.Errorf("not cleaned: %q", f)
+		}
+	}
+	if !strings.Contains(show.Body, "body") || !strings.Contains(show.Message.Subject, "hi") {
+		t.Errorf("content lost: %q %q", show.Message.Subject, show.Body)
 	}
 }

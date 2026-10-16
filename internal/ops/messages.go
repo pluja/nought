@@ -48,9 +48,16 @@ type ServerLocation struct {
 	LeavesAt *time.Time `json:"leaves_at,omitempty"`
 }
 
+// messageOut is what frontends (and agents) get of a message. Text from
+// the mail is cleaned of control, bidi and invisible characters, which could
+// hide instructions to an agent or spoof what a person sees.
 func messageOut(m index.Message) MessageOut {
+	to := make([]string, len(m.To))
+	for i, t := range m.To {
+		to[i] = render.SanitizeLine(t)
+	}
 	out := MessageOut{
-		ID: m.Hash[:IDLen], Account: m.Account, From: m.From, To: m.To, Subject: m.Subject,
+		ID: m.Hash[:IDLen], Account: m.Account, From: render.SanitizeLine(m.From), To: to, Subject: render.SanitizeLine(m.Subject),
 		Tags: m.Tags, MessageID: m.MessageID, Thread: m.ThreadKey, Size: m.Size, Server: []ServerLocation{},
 	}
 	if !m.Date.IsZero() {
@@ -165,6 +172,9 @@ var MsgShow = Op[ShowIn, ShowOut]{
 			env.Log.Debug("body parse problem", "id", m.Hash[:IDLen])
 		}
 		out := ShowOut{Message: messageOut(m), Attachments: content.Attachments}
+		for i, a := range out.Attachments {
+			out.Attachments[i].Filename, out.Attachments[i].ContentType = render.SanitizeLine(a.Filename), render.SanitizeLine(a.ContentType)
+		}
 		ix, err := env.Index(ctx)
 		if err != nil {
 			return ShowOut{}, err
@@ -202,6 +212,9 @@ var MsgShow = Op[ShowIn, ShowOut]{
 				out.Alternative = "text/html"
 			}
 		}
+		// Cleaned like the headers; Source and Raw keep the original bytes
+		// for those who render or pipe them themselves.
+		out.Body = render.Sanitize(out.Body)
 		if in.Raw {
 			out.Raw = string(raw)
 		}
