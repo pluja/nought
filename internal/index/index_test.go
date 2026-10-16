@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/pluja/nought/internal/query"
@@ -515,4 +516,38 @@ func TestSearchFoldsEveryScript(t *testing.T) {
 			t.Errorf("%s: %d, %v", q, n, err)
 		}
 	}
+}
+
+// The busy retry of a first open waits a little more each time, gives up
+// after a while, and stops at once when the context ends (Ctrl-C). Time is
+// synctest's, so the test does not wait.
+func TestRetryBusy(t *testing.T) {
+	busy := errors.New("busy")
+	isBusy := func(err error) bool { return errors.Is(err, busy) }
+	synctest.Test(t, func(t *testing.T) {
+		calls := 0
+		err := retryBusy(t.Context(), isBusy, func() error {
+			if calls++; calls < 4 {
+				return busy
+			}
+			return nil
+		})
+		if err != nil || calls != 4 {
+			t.Errorf("err %v after %d calls", err, calls)
+		}
+		calls = 0
+		if err := retryBusy(t.Context(), isBusy, func() error { calls++; return busy }); !errors.Is(err, busy) || calls != 51 {
+			t.Errorf("never free: err %v after %d calls", err, calls)
+		}
+		ctx, cancel := context.WithCancel(t.Context())
+		calls = 0
+		err = retryBusy(ctx, isBusy, func() error {
+			calls++
+			cancel()
+			return busy
+		})
+		if !errors.Is(err, context.Canceled) || calls != 1 {
+			t.Errorf("cancelled: err %v after %d calls", err, calls)
+		}
+	})
 }

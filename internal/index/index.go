@@ -99,41 +99,54 @@ func (ix *Index) migrate(ctx context.Context) error {
 		return err
 	}
 	slices.Sort(names)
-	for attempt := 0; ; attempt++ {
+	for {
 		// Read the version inside the (immediate, write-locked) transaction
 		// so concurrent first opens cannot both apply the same migration.
 		done := false
-		err := ix.tx(ctx, func(tx *sql.Tx) error {
-			var version int
-			if err := tx.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
-				return fmt.Errorf("read schema version: %w", err)
-			}
-			if version > len(names) {
-				return fmt.Errorf("index schema version %d is newer than this nou supports (%d); upgrade nou", version, len(names))
-			}
-			if version == len(names) {
-				done = true
-				return nil
-			}
-			script, err := migrations.ReadFile(names[version])
-			if err != nil {
+		err := retryBusy(ctx, isBusy, func() error {
+			return ix.tx(ctx, func(tx *sql.Tx) error {
+				var version int
+				if err := tx.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
+					return fmt.Errorf("read schema version: %w", err)
+				}
+				if version > len(names) {
+					return fmt.Errorf("index schema version %d is newer than this nou supports (%d); upgrade nou", version, len(names))
+				}
+				if version == len(names) {
+					done = true
+					return nil
+				}
+				script, err := migrations.ReadFile(names[version])
+				if err != nil {
+					return err
+				}
+				if _, err := tx.ExecContext(ctx, string(script)); err != nil {
+					return fmt.Errorf("apply migration %s: %w", filepath.Base(names[version]), err)
+				}
+				_, err = tx.ExecContext(ctx, fmt.Sprintf("PRAGMA user_version = %d", version+1))
 				return err
-			}
-			if _, err := tx.ExecContext(ctx, string(script)); err != nil {
-				return fmt.Errorf("apply migration %s: %w", filepath.Base(names[version]), err)
-			}
-			_, err = tx.ExecContext(ctx, fmt.Sprintf("PRAGMA user_version = %d", version+1))
-			return err
+			})
 		})
-		// Concurrent first opens can see SQLITE_BUSY while another process
-		// switches the new database to WAL; the busy handler does not cover
-		// that, so retry briefly.
-		if isBusy(err) && attempt < 50 {
-			time.Sleep(time.Duration(20+attempt*10) * time.Millisecond)
-			continue
-		}
 		if err != nil || done {
 			return err
+		}
+	}
+}
+
+// retryBusy runs fn until it is not busy: concurrent first opens can see
+// SQLITE_BUSY while another process switches the new database to WAL, which
+// the busy handler does not cover. It waits a little longer each time, up to
+// 50 retries (about 14 s), and stops when ctx ends.
+func retryBusy(ctx context.Context, busy func(error) bool, fn func() error) error {
+	for attempt := 0; ; attempt++ {
+		err := fn()
+		if !busy(err) || attempt == 50 {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(time.Duration(20+attempt*10) * time.Millisecond):
 		}
 	}
 }
