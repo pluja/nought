@@ -8,3 +8,5 @@
 
 # Local environment (paths on the developer's machine)
 .envrc
+*.md
+!README.md
