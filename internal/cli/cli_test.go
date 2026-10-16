@@ -291,3 +291,27 @@ func TestPrintSyncOtherDevices(t *testing.T) {
 		}
 	}
 }
+
+// Review: the shell turns subject:"verification code" into one argument,
+// subject:verification code; joined with spaces, it became two terms and
+// matched (and could delete for good) other mail. An argument keeps the
+// meaning the shell gave it.
+func TestQueryFromArgs(t *testing.T) {
+	tests := []struct {
+		args []string
+		want string
+	}{
+		{[]string{"tag:inbox", "is:unread"}, "tag:inbox is:unread"},
+		{[]string{"subject:verification code"}, `subject:"verification code"`},
+		{[]string{"-from:Big Shop", "tag:inbox"}, `-from:"Big Shop" tag:inbox`},
+		{[]string{"two words"}, `"two words"`},
+		{[]string{`subject:"already quoted"`}, `subject:"already quoted"`},
+		{[]string{"a3f9c2e1b0d4"}, "a3f9c2e1b0d4"},
+		{[]string{"date:2026-01-01..2026-02-01"}, "date:2026-01-01..2026-02-01"},
+	}
+	for _, tt := range tests {
+		if got := queryFromArgs(tt.args); got != tt.want {
+			t.Errorf("queryFromArgs(%q) = %q, want %q", tt.args, got, tt.want)
+		}
+	}
+}

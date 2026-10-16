@@ -33,7 +33,7 @@ func newSearchCmd(a *app) *cobra.Command {
 		Example: "  nou search tag:inbox is:unread\n  nou search from:bob date:2026-01-01.. -- -tag:done",
 		Args:    cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			in.Query = strings.Join(args, " ")
+			in.Query = queryFromArgs(args)
 			out, err := ops.Call(cmd.Context(), a.env, callerPerm, ops.MsgSearch, in)
 			return a.result(cmd, out, err, func(w io.Writer) error {
 				for _, m := range out.Messages {
@@ -51,6 +51,32 @@ func newSearchCmd(a *app) *cobra.Command {
 	cmd.Flags().IntVarP(&in.Limit, "limit", "l", ops.DefaultLimit, "maximum number of results")
 	cmd.Flags().IntVar(&in.Offset, "offset", 0, "skip this many results")
 	return cmd
+}
+
+// queryFromArgs joins the arguments into a query. An argument with spaces
+// in it was quoted on the command line (subject:"verification code" reaches
+// nou as one argument, subject:verification code): it is quoted again, so
+// it stays one term instead of becoming two that match other mail.
+func queryFromArgs(args []string) string {
+	terms := make([]string, len(args))
+	for i, a := range args {
+		terms[i] = a
+		if !strings.ContainsAny(a, " \t") || strings.Contains(a, `"`) {
+			continue
+		}
+		prefix, value := "", a
+		if field, rest, ok := strings.Cut(strings.TrimPrefix(a, "-"), ":"); ok && isFieldName(field) {
+			prefix, value = a[:len(a)-len(rest)], rest
+		} else if strings.HasPrefix(a, "-") {
+			prefix, value = "-", a[1:]
+		}
+		terms[i] = prefix + `"` + value + `"`
+	}
+	return strings.Join(terms, " ")
+}
+
+func isFieldName(s string) bool {
+	return s != "" && strings.Trim(s, "abcdefghijklmnopqrstuvwxyz") == ""
 }
 
 // messageLine formats one search result. Everything from the message is
@@ -207,7 +233,7 @@ func newMsgTagCmd(a *app) *cobra.Command {
 		Example: "  nou msg tag a3f9c2e1b0d4 --add todo\n  nou msg tag from:newsletter@example.org --add newsletter --remove inbox",
 		Args:    cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			in.Query = strings.Join(args, " ")
+			in.Query = queryFromArgs(args)
 			out, err := ops.Call(cmd.Context(), a.env, callerPerm, ops.MsgTag, in)
 			return a.result(cmd, out, err, func(w io.Writer) error { return printTagOut(w, out) })
 		},
@@ -228,7 +254,7 @@ func newMsgArchiveCmd(a *app) *cobra.Command {
 		Example: "  nou msg archive a3f9c2e1b0d4\n  nou msg archive tag:inbox from:notifications@example.org",
 		Args:    cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			in.Query = strings.Join(args, " ")
+			in.Query = queryFromArgs(args)
 			out, err := ops.Call(cmd.Context(), a.env, callerPerm, ops.MsgArchive, in)
 			return a.result(cmd, out, err, func(w io.Writer) error { return printTagOut(w, out) })
 		},

@@ -4,7 +4,6 @@ package cli
 
 import (
 	"io"
-	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -23,7 +22,7 @@ func newMsgDeleteCmd(a *app) *cobra.Command {
 		Example: "  nou msg delete a3f9c2e1b0d4\n  nou msg delete --now subject:\"verification code\"",
 		Args:    cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			in.Query = strings.Join(args, " ")
+			in.Query = queryFromArgs(args)
 			out, err := ops.Call(cmd.Context(), a.env, callerPerm, ops.MsgDelete, in)
 			return a.result(cmd, out, err, func(w io.Writer) error {
 				switch {
@@ -50,7 +49,7 @@ func newMsgRestoreCmd(a *app) *cobra.Command {
 		Short: ops.MsgRestore.Summary,
 		Args:  cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			in.Query = strings.Join(args, " ")
+			in.Query = queryFromArgs(args)
 			out, err := ops.Call(cmd.Context(), a.env, callerPerm, ops.MsgRestore, in)
 			return a.result(cmd, out, err, func(w io.Writer) error {
 				return printf(w, "restored %d\n", out.Changed)
