@@ -20,7 +20,8 @@ func newImportCmd(a *app) *cobra.Command {
 			"A directory is read as a Maildir tree (cur/ and new/ folders, e.g. a Thunderbird\n" +
 			"export) plus any *.eml files; a file is read as mbox. Messages already in the\n" +
 			"account, by content or Message-ID, are skipped. Each message is tagged with its\n" +
-			"source folder (folder:<name>). Imported mail is not put in the inbox unless --inbox.",
+			"source folder (folder:<name>). Imported mail is not put in the inbox unless --inbox,\n" +
+			"and rules (tags, expiry) apply to new mail only, not to imported mail.",
 		Example: "  nou import ~/thunderbird-export --account personal --dry-run",
 		Args:    exactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {

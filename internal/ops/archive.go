@@ -25,10 +25,24 @@ const (
 	TagReplied = "replied"
 )
 
-// archive stores raw in the account's Maildir (verified) and indexes it.
-// It is the single path by which mail enters the archive, used by both
-// import and sync.
+// archive stores raw in the account's Maildir (verified), indexes it and,
+// if it is new, applies the rules. With keep, it is the only way mail
+// enters the archive: sync and sending use archive, import uses keep.
 func archive(ctx context.Context, env *Env, account string, raw []byte, flags string, tags []string) (index.Message, bool, error) {
+	m, created, err := keep(ctx, env, account, raw, flags, tags)
+	if err == nil && created {
+		ix, err := env.Index(ctx)
+		if err != nil {
+			return m, created, err
+		}
+		return m, created, applyRules(ctx, env, ix, &m)
+	}
+	return m, created, err
+}
+
+// keep stores and indexes a message without applying the rules: imported
+// mail is old mail, which rules (an expiry above all) must not touch.
+func keep(ctx context.Context, env *Env, account string, raw []byte, flags string, tags []string) (index.Message, bool, error) {
 	st, err := env.Store(account)
 	if err != nil {
 		return index.Message{}, false, err
@@ -41,11 +55,7 @@ func archive(ctx context.Context, env *Env, account string, raw []byte, flags st
 	if err != nil {
 		return index.Message{}, false, err
 	}
-	m, created, err := indexMessage(ctx, env, ix, account, raw, entry.Flags, tags)
-	if err == nil && created {
-		err = applyRules(ctx, env, ix, &m)
-	}
-	return m, created, err
+	return indexMessage(ctx, env, ix, account, raw, entry.Flags, tags)
 }
 
 // indexMessage adds a stored message to the index. Parsing is best effort:

@@ -13,6 +13,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/pluja/nought/internal/config"
 	"github.com/pluja/nought/internal/index"
 	"github.com/pluja/nought/internal/query"
 	"github.com/pluja/nought/internal/store"
@@ -491,5 +492,30 @@ func TestDeletionTagsNeedTheDeletePermission(t *testing.T) {
 	}
 	if tr.Len() != 1 {
 		t.Errorf("the restored deletion stayed in the archive (transient holds %d)", tr.Len())
+	}
+}
+
+// Review: rules act on new mail as it is archived, not on old mail being
+// imported: an expire_days rule made a 2015 message expire the next day.
+func TestImportDoesNotApplyRules(t *testing.T) {
+	env := newTestEnv(t)
+	cfg, err := env.Config()
+	if err != nil {
+		t.Fatal(err)
+	}
+	next := *cfg
+	next.Rules = []config.Rule{{Query: "from:alice", Tags: []string{"friend"}, ExpireDays: 1}}
+	if err := saveConfig(env, &next); err != nil {
+		t.Fatal(err)
+	}
+	importSample(t, env)
+	out, err := Call(t.Context(), env, Read, MsgSearch, SearchIn{Query: "from:alice"})
+	if err != nil || len(out.Messages) == 0 {
+		t.Fatalf("imported mail from alice: %+v, %v", out, err)
+	}
+	for _, m := range out.Messages {
+		if slices.Contains(m.Tags, "friend") || slices.ContainsFunc(m.Tags, IsExpiryTag) {
+			t.Errorf("a rule applied to imported mail: %v", m.Tags)
+		}
 	}
 }

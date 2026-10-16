@@ -129,7 +129,7 @@ func runImport(ctx context.Context, env *Env, in ImportIn) (ImportOut, error) {
 			out.Imported++
 			continue
 		}
-		if _, _, err := archive(ctx, env, in.Account, item.Raw, item.Flags, tags); err != nil {
+		if _, _, err := keep(ctx, env, in.Account, item.Raw, item.Flags, tags); err != nil {
 			out.fail(item.Source, err)
 			continue
 		}
