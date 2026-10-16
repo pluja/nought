@@ -1,0 +1,91 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1081" height="678" viewBox="0 0 1081 678">
+<rect width="100%" height="100%" rx="10" fill="#1a1b26"/>
+<circle cx="24" cy="19" r="6" fill="#ff5f57"/>
+<circle cx="44" cy="19" r="6" fill="#febc2e"/>
+<circle cx="64" cy="19" r="6" fill="#28c840"/>
+<text x="541" y="23" fill="#787c99" font-family="sans-serif" font-size="13" text-anchor="middle">nou</text>
+<g font-family="'JetBrains Mono','Fira Code','SF Mono',Menlo,Consolas,'DejaVu Sans Mono',monospace" font-size="14" xml:space="preserve">
+<text x="18.00" y="66.00" textLength="50.58" lengthAdjust="spacingAndGlyphs" fill="#7dcfff" font-weight="bold">nought</text>
+<text x="85.44" y="66.00" textLength="33.72" lengthAdjust="spacingAndGlyphs" fill="#c0caf5" font-weight="bold">keys</text>
+<text x="119.16" y="66.00" textLength="295.05" lengthAdjust="spacingAndGlyphs" fill="#c0caf5" fill-opacity="0.55">  j/k scroll · any other key closes</text>
+<text x="26.43" y="104.00" textLength="33.72" lengthAdjust="spacingAndGlyphs" fill="#7dcfff" font-weight="bold">Move</text>
+<text x="473.22" y="104.00" textLength="134.88" lengthAdjust="spacingAndGlyphs" fill="#7dcfff" font-weight="bold">Act on a message</text>
+<text x="43.29" y="123.00" textLength="109.59" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">j k ↓ ↑      </text>
+<text x="152.88" y="123.00" textLength="337.20" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">  move                                  </text>
+<text x="490.08" y="123.00" textLength="42.15" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">e    </text>
+<text x="532.23" y="123.00" textLength="531.09" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">  archive: out of the inbox                                    </text>
+<text x="43.29" y="142.00" textLength="109.59" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">gg G         </text>
+<text x="152.88" y="142.00" textLength="337.20" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">  first, last                           </text>
+<text x="490.08" y="142.00" textLength="42.15" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">#    </text>
+<text x="532.23" y="142.00" textLength="531.09" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">  trash / restore                                              </text>
+<text x="43.29" y="161.00" textLength="109.59" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">Ctrl-d Ctrl-u</text>
+<text x="152.88" y="161.00" textLength="337.20" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">  half a page                           </text>
+<text x="490.08" y="161.00" textLength="42.15" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">D    </text>
+<text x="532.23" y="161.00" textLength="531.09" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">  delete for good (asks)                                       </text>
+<text x="43.29" y="180.00" textLength="109.59" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">J K          </text>
+<text x="152.88" y="180.00" textLength="337.20" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">  next, previous message                </text>
+<text x="490.08" y="180.00" textLength="42.15" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">u    </text>
+<text x="532.23" y="180.00" textLength="531.09" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">  read / unread                                                </text>
+<text x="43.29" y="199.00" textLength="109.59" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">Tab          </text>
+<text x="152.88" y="199.00" textLength="337.20" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">  switch pane                           </text>
+<text x="490.08" y="199.00" textLength="42.15" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">s    </text>
+<text x="532.23" y="199.00" textLength="531.09" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">  flag / unflag                                                </text>
+<text x="43.29" y="218.00" textLength="109.59" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">b            </text>
+<text x="152.88" y="218.00" textLength="337.20" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">  show / hide the sidebar               </text>
+<text x="490.08" y="218.00" textLength="42.15" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">t    </text>
+<text x="532.23" y="218.00" textLength="531.09" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">  tags: +add -remove                                           </text>
+<text x="490.08" y="237.00" textLength="42.15" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">r R  </text>
+<text x="532.23" y="237.00" textLength="531.09" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">  reply, reply to all                                          </text>
+<text x="26.43" y="256.00" textLength="42.15" lengthAdjust="spacingAndGlyphs" fill="#7dcfff" font-weight="bold">Go to</text>
+<text x="490.08" y="256.00" textLength="42.15" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">f    </text>
+<text x="532.23" y="256.00" textLength="531.09" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">  forward                                                      </text>
+<text x="43.29" y="275.00" textLength="109.59" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">gi ge        </text>
+<text x="152.88" y="275.00" textLength="337.20" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">  inbox, archive                        </text>
+<text x="490.08" y="275.00" textLength="42.15" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">z    </text>
+<text x="532.23" y="275.00" textLength="531.09" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">  undo (also a send, for a few seconds)                        </text>
+<text x="43.29" y="294.00" textLength="109.59" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">gu gf        </text>
+<text x="152.88" y="294.00" textLength="910.44" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">  unread, flagged                                                                                           </text>
+<text x="43.29" y="313.00" textLength="109.59" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">ga gt        </text>
+<text x="152.88" y="313.00" textLength="320.34" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">  all mail, trash                     </text>
+<text x="473.22" y="313.00" textLength="33.72" lengthAdjust="spacingAndGlyphs" fill="#7dcfff" font-weight="bold">Read</text>
+<text x="43.29" y="332.00" textLength="109.59" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">gd           </text>
+<text x="152.88" y="332.00" textLength="337.20" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">  drafts                                </text>
+<text x="490.08" y="332.00" textLength="42.15" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">Enter</text>
+<text x="532.23" y="332.00" textLength="531.09" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">  open (marks it read)                                         </text>
+<text x="43.29" y="351.00" textLength="109.59" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">/            </text>
+<text x="152.88" y="351.00" textLength="337.20" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">  search                                </text>
+<text x="490.08" y="351.00" textLength="42.15" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">Esc  </text>
+<text x="532.23" y="351.00" textLength="531.09" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">  back to the list                                             </text>
+<text x="43.29" y="370.00" textLength="109.59" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">:            </text>
+<text x="152.88" y="370.00" textLength="337.20" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">  command, e.g. :search :tag :sync      </text>
+<text x="490.08" y="370.00" textLength="42.15" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">o    </text>
+<text x="532.23" y="370.00" textLength="531.09" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">  open a link (asks first)                                     </text>
+<text x="490.08" y="389.00" textLength="42.15" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">L    </text>
+<text x="532.23" y="389.00" textLength="531.09" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">  show / hide its links                                        </text>
+<text x="26.43" y="408.00" textLength="67.44" lengthAdjust="spacingAndGlyphs" fill="#7dcfff" font-weight="bold">Anywhere</text>
+<text x="490.08" y="408.00" textLength="42.15" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">v    </text>
+<text x="532.23" y="408.00" textLength="531.09" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">  plain text / HTML version                                    </text>
+<text x="43.29" y="427.00" textLength="109.59" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">c            </text>
+<text x="152.88" y="427.00" textLength="910.44" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">  write a new message                                                                                       </text>
+<text x="43.29" y="446.00" textLength="109.59" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">S            </text>
+<text x="152.88" y="446.00" textLength="910.44" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">  sync now                                                                                                  </text>
+<text x="43.29" y="465.00" textLength="109.59" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">:empty-trash </text>
+<text x="152.88" y="465.00" textLength="910.44" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">  empty the trash (asks)                                                                                    </text>
+<text x="43.29" y="484.00" textLength="109.59" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">:reindex     </text>
+<text x="152.88" y="484.00" textLength="910.44" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">  rebuild the index                                                                                         </text>
+<text x="43.29" y="503.00" textLength="109.59" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">?            </text>
+<text x="152.88" y="503.00" textLength="910.44" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">  this help                                                                                                 </text>
+<text x="43.29" y="522.00" textLength="109.59" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">q            </text>
+<text x="152.88" y="522.00" textLength="910.44" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">  quit                                                                                                      </text>
+<text x="26.43" y="560.00" textLength="151.74" lengthAdjust="spacingAndGlyphs" fill="#7dcfff" font-weight="bold">What happens where</text>
+<text x="43.29" y="579.00" textLength="75.87" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">e archive</text>
+<text x="119.16" y="579.00" textLength="944.16" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">  out of the inbox; it leaves the server at the next sync (or after keep_days).                                 </text>
+<text x="43.29" y="598.00" textLength="75.87" lengthAdjust="spacingAndGlyphs" fill="#7dcfff"># trash  </text>
+<text x="119.16" y="598.00" textLength="944.16" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">  the server copy is deleted at the next sync; here it is kept for 30 days.                                     </text>
+<text x="43.29" y="617.00" textLength="75.87" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">D delete </text>
+<text x="119.16" y="617.00" textLength="944.16" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">  deleted from the server at the next sync, then from here.                                                     </text>
+<text x="43.29" y="636.00" textLength="75.87" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">t tags   </text>
+<text x="119.16" y="636.00" textLength="944.16" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">  here only, like read and flagged: never sent to a server.                                                     </text>
+<text x="18.00" y="655.00" textLength="1045.32" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">   On your phone: archive or delete, and nought does the same here at the next sync.                                        </text>
+</g>
+</svg>

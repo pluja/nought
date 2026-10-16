@@ -7,9 +7,33 @@ It archives your mail locally, in plain files you own, and keeps the server down
 Everything it does is a command with `--json` output and stable exit codes, so shell scripts, cron
 jobs and AI agents can use it as easily as you can. There is also a keyboard-driven TUI.
 
+![The nought TUI: the inbox, with a reply thread open](docs/images/inbox.svg)
+
 > **Status:** early development. Import, archive, search, tags, sync with verified server deletion,
 > mirroring of what your phone does, writing and sending mail, and the TUI work. MCP, PGP and a GUI
 > are planned.
+
+## A quick tour
+
+**HTML mail, read as text.** Nothing is rendered or fetched: no tracking pixels, no remote
+images. Links become numbered references, and `o` opens one after showing where it goes.
+
+![A newsletter converted to text, its links numbered](docs/images/newsletter.svg)
+
+**Write in your own editor, then review.** nought checks the message before it goes: missing
+recipients, a sender that is not yours, an attachment you mention but forgot, a typo in an address.
+
+![The review screen, warning that an attachment is mentioned but missing](docs/images/review.svg)
+
+**Undo send.** A sent message waits a few seconds, counting down; `z` brings it back.
+
+![The undo countdown after sending a reply](docs/images/sending.svg)
+
+**Every key on one page** (`?`):
+
+![The help screen](docs/images/help.svg)
+
+The screenshots show a made-up mailbox; `make screenshots` draws them from the real TUI.
 
 ## Principles
 
@@ -269,6 +293,7 @@ nou sync && restic backup ~/.local/share/nought ~/.config/nought \
 ```sh
 make check     # lint (vet, staticcheck, golangci-lint), tests with coverage floor, govulncheck, build
 make test      # go test -race ./...
+make screenshots  # redraw docs/images from a made-up mailbox
 ```
 
 ## License

@@ -31,7 +31,7 @@ check: lint cover vuln build
 # --- Local test environment (never touches your real nought data) ---------
 # A Dovecot server on 127.0.0.1:10993 (TLS) and :10143 (STARTTLS), and a
 # NOUGHT_HOME inside the repository. See testenv/README.md.
-.PHONY: testenv-up testenv-down testenv-reset testenv-seed dev integration
+.PHONY: testenv-up testenv-down testenv-reset testenv-seed dev integration screenshots
 
 TESTENV   := podman compose -p nought-testenv -f testenv/compose.yaml
 DEV_ENV   := NOU_DEV=1 NOUGHT_HOME=$(CURDIR)/testenv/home NOU_DEV_CA=$(CURDIR)/testenv/certs/tls.crt
@@ -58,3 +58,13 @@ dev:
 
 integration:
 	$(DEV_ENV) $(GO) test -tags integration -count=1 ./internal/integration/...
+
+# README screenshots, from a made-up mailbox (no real mail): ANSI screens
+# from the TUI, drawn as SVG terminal windows.
+screenshots:
+	rm -rf $(CURDIR)/.screens && mkdir -p $(CURDIR)/.screens docs/images
+	TZ=UTC $(GO) test ./internal/tui -run TestScreenshots -count=1 -screenshots=$(CURDIR)/.screens
+	for f in .screens/*.ansi; do \
+		$(GO) run ./tools/ansisvg -title "nou" < $$f > docs/images/$$(basename $$f .ansi).svg || exit 1; \
+	done
+	rm -rf $(CURDIR)/.screens
