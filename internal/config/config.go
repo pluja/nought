@@ -173,17 +173,17 @@ func (a Account) Addresses() []string {
 
 // Server is a TLS mail server endpoint.
 type Server struct {
-	Host string `toml:"host,omitempty"`
-	Port int    `toml:"port,omitempty"`
-	TLS  string `toml:"tls,omitempty"`
+	Host string `toml:"host,omitempty" json:"host"`
+	Port int    `toml:"port,omitempty" json:"port"`
+	TLS  string `toml:"tls,omitempty" json:"tls"`
 }
 
 // FolderRule maps server folders, by glob, to a policy.
 type FolderRule struct {
-	Match    string `toml:"match"`
-	Action   string `toml:"action,omitempty"`
-	KeepDays *int   `toml:"keep_days,omitempty"`
-	MaxDays  *int   `toml:"max_days,omitempty"`
+	Match    string `toml:"match" json:"match"`
+	Action   string `toml:"action,omitempty" json:"action,omitempty"`
+	KeepDays *int   `toml:"keep_days,omitempty" json:"keep_days,omitempty"`
+	MaxDays  *int   `toml:"max_days,omitempty" json:"max_days,omitempty"`
 }
 
 // Login returns the IMAP/SMTP username, which defaults to the email address.

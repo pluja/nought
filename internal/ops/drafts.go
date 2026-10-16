@@ -359,8 +359,19 @@ func wordPrefix(s, prefix string) bool {
 // limit is enforced when sending.
 const sizeLimit = 25 << 20
 
+// draftOut is a draft as frontends get it; lists are [] rather than null in
+// JSON.
 func draftOut(ctx context.Context, env *Env, info DraftInfo, d compose.Draft) DraftOut {
-	return DraftOut{DraftInfo: info, Draft: d, Problems: draftChecks(ctx, env, info, d)}
+	for _, l := range []*[]string{&d.To, &d.Cc, &d.Bcc, &d.Attach, &d.References} {
+		if *l == nil {
+			*l = []string{}
+		}
+	}
+	problems := draftChecks(ctx, env, info, d)
+	if problems == nil {
+		problems = []compose.Problem{}
+	}
+	return DraftOut{DraftInfo: info, Draft: d, Problems: problems}
 }
 
 // draftChecks runs the checks with what the archive knows.

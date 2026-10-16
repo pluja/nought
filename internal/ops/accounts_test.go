@@ -3,8 +3,10 @@
 package ops
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -210,6 +212,34 @@ func TestSpecialFoldersAreIgnoredWhateverTheirName(t *testing.T) {
 	for _, tt := range tests {
 		if got := folderPolicy(a, tt.f).Action; got != tt.want {
 			t.Errorf("%+v: %s, want %s", tt.f, got, tt.want)
+		}
+	}
+}
+
+// Review: --json is a stable interface: snake_case names everywhere, and
+// lists as [] (never null).
+func TestJSONSchemaIsConsistent(t *testing.T) {
+	env := draftEnv(t)
+	acct, err := Call(t.Context(), env, Read, AccountShow, AccountName{Name: "personal"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, err := Call(t.Context(), env, Draft, DraftNew, DraftNewIn{Subject: "s", Body: "x\n"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ok, err := Call(t.Context(), env, Draft, DraftNew, DraftNewIn{To: []string{"a@x.org"}, Subject: "s", Body: "x\n"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, v := range []any{acct, d, ok} {
+		b, err := json.Marshal(v)
+		if err != nil {
+			t.Fatal(err)
+		}
+		s := string(b)
+		if regexp.MustCompile(`"[A-Z][A-Za-z]*":`).MatchString(s) || strings.Contains(s, ":null") {
+			t.Errorf("not snake_case or has null:\n%s", s)
 		}
 	}
 }
