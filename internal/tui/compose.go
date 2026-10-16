@@ -113,6 +113,10 @@ func (m Model) draftReady(msg draftMsg) (Model, tea.Cmd) {
 		m.editing = msg.out.ID
 		return m, m.editFile(msg.out.Path)
 	}
+	if msg.out.Discarded {
+		m.composing, m.notice = nil, "nothing written; discarded"
+		return m.refresh()
+	}
 	m.composing = &msg.out
 	return m, nil
 }

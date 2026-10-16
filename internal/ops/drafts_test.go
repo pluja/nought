@@ -154,3 +154,30 @@ func TestDraftSet(t *testing.T) {
 		t.Errorf("tag-level set = %v", err)
 	}
 }
+
+// Quitting the editor without saving drops a draft nothing was written in.
+func TestDraftUpdateDiscardsUntouchedDraft(t *testing.T) {
+	env := draftEnv(t)
+	n, err := Call(t.Context(), env, Draft, DraftNew, DraftNewIn{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out, err := Call(t.Context(), env, Draft, DraftUpdate, DraftIDIn{ID: n.ID}); err != nil || !out.Discarded {
+		t.Errorf("untouched new draft: %+v, %v", out, err)
+	}
+	r, err := Call(t.Context(), env, Draft, DraftReply, DraftReplyIn{ID: idOf(t, env, `subject:"read one"`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(r.Path, []byte(strings.Replace(compose.Render(r.Draft), "\n\n", "\n\nOK.", 1)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 { // written once: kept, even when later left untouched
+		if out, err := Call(t.Context(), env, Draft, DraftUpdate, DraftIDIn{ID: r.ID}); err != nil || out.Discarded {
+			t.Fatalf("edited reply: %+v, %v", out, err)
+		}
+	}
+	if list, _ := Call(t.Context(), env, Read, DraftList, struct{}{}); len(list) != 1 || list[0].ID != r.ID {
+		t.Errorf("drafts = %+v", list)
+	}
+}

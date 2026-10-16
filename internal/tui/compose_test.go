@@ -120,7 +120,7 @@ func TestFlushReportsSent(t *testing.T) {
 
 func TestToCompletesFromCorrespondents(t *testing.T) {
 	m, _ := newSendModel(t)
-	m.editFile = fakeEditor(func(s string) string { return s })
+	m.editFile = fakeEditor(func(s string) string { return s + "Hello\n" })
 	m = drive(t, m, key("c"))
 	m = drive(t, m, key("t"))
 	m = drive(t, m, keys("ali")...)
@@ -163,5 +163,14 @@ func TestDraftsViewAndQuitFlush(t *testing.T) {
 	}
 	if !quit || len(srv.Messages()) != 1 {
 		t.Errorf("quit: quit %v, sent %d", quit, len(srv.Messages()))
+	}
+}
+
+func TestUntouchedNewMessageIsDropped(t *testing.T) {
+	m, _ := newSendModel(t)
+	m.editFile = fakeEditor(func(s string) string { return s }) // quit without saving
+	m = drive(t, m, key("c"))
+	if m.composing != nil || !strings.Contains(m.notice, "discarded") || len(drafts(t, m)) != 0 {
+		t.Errorf("composing %v, notice %q, drafts %d", m.composing != nil, m.notice, len(drafts(t, m)))
 	}
 }

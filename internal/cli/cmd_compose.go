@@ -239,6 +239,9 @@ func (a *app) editLoop(cmd *cobra.Command, out ops.DraftOut) error {
 		if out, err = ops.Call(ctx, a.env, callerPerm, ops.DraftUpdate, ops.DraftIDIn{ID: id}); err != nil {
 			return fmt.Errorf("%w (draft %s kept: nou draft edit %s)", err, id, id)
 		}
+		if out.Discarded {
+			return p.say("Nothing written; discarded.")
+		}
 		again, err := a.choose(cmd, p, out)
 		if errors.Is(err, errQuit) {
 			return p.say("Draft %s kept.", id)

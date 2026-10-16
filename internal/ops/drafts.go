@@ -5,6 +5,7 @@ package ops
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -47,6 +48,9 @@ type DraftInfo struct {
 	Created    time.Time `json:"created"`
 	Updated    time.Time `json:"updated"`
 	LastError  string    `json:"last_error,omitempty"` // why it came back from the outbox
+	// Untouched is the SHA-256 of the editor file as nought wrote it, until
+	// the user changes it.
+	Untouched string `json:"untouched,omitempty"`
 }
 
 // DraftOut is a draft with its content and the problems to look at.
@@ -54,6 +58,9 @@ type DraftOut struct {
 	DraftInfo
 	Draft    compose.Draft     `json:"draft"`
 	Problems []compose.Problem `json:"problems"`
+	// Discarded: the editor closed without anything written in a new
+	// draft, so it was dropped.
+	Discarded bool `json:"discarded,omitempty"`
 }
 
 // DraftNewIn starts a new message. Subject, Body and Attach are for
@@ -155,7 +162,9 @@ func above(text, body string) string {
 	return strings.TrimRight(text, "\n") + "\n\n" + strings.TrimLeft(body, "\n")
 }
 
-// DraftUpdate reads a draft's editor file again, after editing.
+// DraftUpdate reads a draft's editor file again, after editing. A new
+// draft whose file the editor left as it was is dropped (Discarded), the
+// way quitting the editor without saving abandons a message.
 var DraftUpdate = Op[DraftIDIn, DraftOut]{
 	Name: "draft.update", Summary: "Read a draft again after editing it", Perm: Draft,
 	Run: func(ctx context.Context, env *Env, in DraftIDIn) (DraftOut, error) {
@@ -163,6 +172,16 @@ var DraftUpdate = Op[DraftIDIn, DraftOut]{
 		if err != nil {
 			return DraftOut{}, err
 		}
+		if info.Untouched != "" {
+			text, err := os.ReadFile(info.Path)
+			if err != nil {
+				return DraftOut{}, err
+			}
+			if fileHash(string(text)) == info.Untouched {
+				return DraftOut{DraftInfo: info, Draft: d, Problems: []compose.Problem{}, Discarded: true}, removeDraft(env, info.ID)
+			}
+		}
+		info.Untouched = ""
 		info.Subject, info.To, info.Updated = d.Subject, d.To, env.Now().UTC()
 		if err := saveDraftInfo(env, info); err != nil {
 			return DraftOut{}, err
@@ -194,6 +213,7 @@ var DraftSet = Op[DraftSetIn, DraftOut]{
 		if err := writeDraftFile(info.Path, d); err != nil {
 			return DraftOut{}, err
 		}
+		info.Untouched = "" // changed by the user, through the frontend
 		info.Subject, info.To, info.Updated = d.Subject, d.To, env.Now().UTC()
 		if err := saveDraftInfo(env, info); err != nil {
 			return DraftOut{}, err
@@ -355,7 +375,7 @@ func createDraft(ctx context.Context, env *Env, info DraftInfo, d compose.Draft)
 	now := env.Now().UTC()
 	info.ID, info.Created, info.Updated = id, now, now
 	info.Subject, info.To, info.InReplyTo, info.References = d.Subject, d.To, d.InReplyTo, d.References
-	info.Path = draftPath(env, id, ".txt")
+	info.Path, info.Untouched = draftPath(env, id, ".txt"), fileHash(compose.Render(d))
 	if err := writeDraftFile(info.Path, d); err != nil {
 		return DraftOut{}, err
 	}
@@ -363,6 +383,11 @@ func createDraft(ctx context.Context, env *Env, info DraftInfo, d compose.Draft)
 		return DraftOut{}, err
 	}
 	return draftOut(ctx, env, info, d), nil
+}
+
+func fileHash(text string) string {
+	sum := sha256.Sum256([]byte(text))
+	return hex.EncodeToString(sum[:])
 }
 
 func writeDraftFile(path string, d compose.Draft) error {

@@ -22,7 +22,8 @@ import (
 )
 
 // composeApp is an app whose account sends to a test SMTP server, with an
-// editor that writes the given versions of the file in turn.
+// editor that writes the given versions of the file in turn ("": quit
+// without saving).
 func composeApp(t *testing.T, stdin string, versions ...string) (*app, *smtptest.Server, *[]string) {
 	t.Helper()
 	srv := smtptest.Start(t, smtptest.Options{})
@@ -53,6 +54,9 @@ func composeApp(t *testing.T, stdin string, versions ...string) (*app, *smtptest
 			t.Fatal("the editor opened too often")
 		}
 		edited = append(edited, path)
+		if versions[len(edited)-1] == "" {
+			return nil // quit without saving
+		}
 		return os.WriteFile(path, []byte(versions[len(edited)-1]), 0o600)
 	}
 	return a, srv, &edited
@@ -84,6 +88,7 @@ func TestComposeInTerminal(t *testing.T) {
 		{"edit twice, discard", "e\nq\n", []string{ready, ready}, 0, 0, "Discarded."},
 		{"refused, kept", "s\nd\n", []string{"From: me@example.org\nSubject: Hi\n\nHello\n"}, 0, 1, "cannot send: no recipients"},
 		{"input ends", "", []string{ready}, 0, 1, "kept"},
+		{"nothing written", "", []string{""}, 0, 0, "discarded"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
