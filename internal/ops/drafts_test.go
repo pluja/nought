@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -36,7 +37,8 @@ func TestDraftReplyLifecycle(t *testing.T) {
 		t.Errorf("reply draft = %+v", out)
 	}
 	info, err := os.Stat(out.Path)
-	if err != nil || info.Mode().Perm() != 0o600 || !strings.HasPrefix(out.Path, env.Paths.DraftsDir) {
+	// Windows has no Unix modes: it reports 0666.
+	if err != nil || runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 || !strings.HasPrefix(out.Path, env.Paths.DraftsDir) {
 		t.Fatalf("editor file %s: %v %v", out.Path, info, err)
 	}
 	// The user edits the file.
