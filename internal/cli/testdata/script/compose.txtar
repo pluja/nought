@@ -45,6 +45,12 @@ stdout 'Hello'
 exec nou msg forward $HELLO --to dave@example.org --send
 stdout '^sent: Fwd: Hello$'
 smtpcount 4
+exec nou msg reply $HELLO --cc carol@example.org --attach body.txt --body-file reply.txt
+capture CCDRAFT '^draft ([0-9a-f]{32})'
+exec nou draft show $CCDRAFT
+stdout '^Cc: carol@example.org$'
+stdout '^Attach: body.txt$'
+exec nou draft discard $CCDRAFT
 
 # A blocking check refuses to send; the draft is kept.
 code 2 nou compose --subject nobody --body-file body.txt --send

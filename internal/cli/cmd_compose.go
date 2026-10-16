@@ -112,6 +112,8 @@ func newMsgReplyCmd(a *app) *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&in.All, "all", false, "reply to all recipients")
+	cmd.Flags().StringArrayVar(&in.Cc, "cc", nil, "also copy to (repeatable)")
+	cmd.Flags().StringArrayVar(&in.Attach, "attach", nil, "file to attach (repeatable)")
 	cmd.Flags().StringVarP(&in.Account, "account", "a", "", "account, if the id exists in several")
 	f.bind(cmd)
 	return cmd
@@ -140,6 +142,8 @@ func newMsgForwardCmd(a *app) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringArrayVar(&in.To, "to", nil, "recipient (repeatable)")
+	cmd.Flags().StringArrayVar(&in.Cc, "cc", nil, "copy to (repeatable)")
+	cmd.Flags().StringArrayVar(&in.Attach, "attach", nil, "another file to attach (repeatable)")
 	cmd.Flags().StringVarP(&in.Account, "account", "a", "", "account, if the id exists in several")
 	f.bind(cmd)
 	return cmd

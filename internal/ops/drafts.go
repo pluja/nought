@@ -78,10 +78,12 @@ type DraftNewIn struct {
 
 // DraftReplyIn answers an archived message.
 type DraftReplyIn struct {
-	ID      string `json:"id"`
-	Account string `json:"account,omitempty"`
-	All     bool   `json:"all,omitempty"`
-	Body    string `json:"body,omitempty"` // written above the quote (scripts)
+	ID      string   `json:"id"`
+	Account string   `json:"account,omitempty"`
+	All     bool     `json:"all,omitempty"`
+	Body    string   `json:"body,omitempty"` // written above the quote (scripts)
+	Cc      []string `json:"cc,omitempty"`   // added to the copies
+	Attach  []string `json:"attach,omitempty"`
 }
 
 // DraftForwardIn forwards an archived message.
@@ -89,7 +91,9 @@ type DraftForwardIn struct {
 	ID      string   `json:"id"`
 	Account string   `json:"account,omitempty"`
 	To      []string `json:"to,omitempty"`
-	Body    string   `json:"body,omitempty"` // written above the forwarded message (scripts)
+	Cc      []string `json:"cc,omitempty"`
+	Body    string   `json:"body,omitempty"`   // written above the forwarded message (scripts)
+	Attach  []string `json:"attach,omitempty"` // added to the original's files
 }
 
 // DraftIDIn names a draft (or an outbox entry).
@@ -122,6 +126,9 @@ var DraftNew = Op[DraftNewIn, DraftOut]{
 var DraftReply = Op[DraftReplyIn, DraftOut]{
 	Name: "draft.reply", Summary: "Start a reply to a message", Perm: Draft,
 	Run: func(ctx context.Context, env *Env, in DraftReplyIn) (DraftOut, error) {
+		if err := headerValues(slices.Concat(in.Cc, in.Attach)...); err != nil {
+			return DraftOut{}, err
+		}
 		m, _, o, err := source(ctx, env, in.Account, in.ID)
 		if err != nil {
 			return DraftOut{}, err
@@ -135,8 +142,9 @@ var DraftReply = Op[DraftReplyIn, DraftOut]{
 			kind = KindReplyAll
 		}
 		d := compose.Reply(o, me(a), in.All)
-		d.Body = above(in.Body, d.Body)
-		return createDraft(ctx, env, DraftInfo{Account: a.Name, Kind: kind, SourceHash: m.Hash}, d, in.Body != "")
+		d.Body, d.Cc, d.Attach = above(in.Body, d.Body), append(d.Cc, in.Cc...), in.Attach
+		return createDraft(ctx, env, DraftInfo{Account: a.Name, Kind: kind, SourceHash: m.Hash}, d,
+			in.Body != "" || len(in.Cc)+len(in.Attach) > 0)
 	},
 }
 
@@ -144,7 +152,7 @@ var DraftReply = Op[DraftReplyIn, DraftOut]{
 var DraftForward = Op[DraftForwardIn, DraftOut]{
 	Name: "draft.forward", Summary: "Start forwarding a message", Perm: Draft,
 	Run: func(ctx context.Context, env *Env, in DraftForwardIn) (DraftOut, error) {
-		if err := headerValues(in.To...); err != nil {
+		if err := headerValues(slices.Concat(in.To, in.Cc, in.Attach)...); err != nil {
 			return DraftOut{}, err
 		}
 		m, _, o, err := source(ctx, env, in.Account, in.ID)
@@ -156,9 +164,9 @@ var DraftForward = Op[DraftForwardIn, DraftOut]{
 			return DraftOut{}, err
 		}
 		d := compose.Forward(o, me(a))
-		d.To, d.Body = in.To, above(in.Body, d.Body)
+		d.To, d.Cc, d.Attach, d.Body = in.To, in.Cc, in.Attach, above(in.Body, d.Body)
 		return createDraft(ctx, env, DraftInfo{Account: a.Name, Kind: KindForward, SourceHash: m.Hash}, d,
-			in.Body != "" || len(in.To) > 0)
+			in.Body != "" || len(in.To)+len(in.Cc)+len(in.Attach) > 0)
 	},
 }
 
@@ -363,8 +371,8 @@ func draftChecks(ctx context.Context, env *Env, info DraftInfo, d compose.Draft)
 			switch {
 			case err != nil:
 				return 0, err
-			case st.IsDir():
-				return 0, errors.New("is a directory")
+			case !st.Mode().IsRegular(): // a directory, or a pipe or device that would hang the send
+				return 0, errors.New("is not a regular file")
 			}
 			return st.Size(), nil
 		}}
@@ -376,6 +384,11 @@ func draftChecks(ctx context.Context, env *Env, info DraftInfo, d compose.Draft)
 			for _, k := range known {
 				in.Known = append(in.Known, k.Address)
 			}
+		}
+	}
+	if info.Kind == KindReply || info.Kind == KindReplyAll {
+		if _, _, o, err := source(ctx, env, info.Account, info.SourceHash); err == nil {
+			in.Original = &o
 		}
 	}
 	if info.Kind == KindForward {

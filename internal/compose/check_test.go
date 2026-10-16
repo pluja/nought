@@ -71,3 +71,25 @@ func TestChecks(t *testing.T) {
 		t.Errorf("reply-all size: %+v", ps)
 	}
 }
+
+// Deferred (f): a reply that goes to a Reply-To at another domain than
+// the sender's says so: a mailing list, or a trick.
+func TestReplyToElsewhereWarns(t *testing.T) {
+	me := Me{Addresses: []string{"me@example.org"}}
+	o := Original{From: "Bank <alerts@bank.example>", ReplyTo: []string{"Bank <help@evil.example>"}}
+	warned := func(to []string, o Original) bool {
+		d := Draft{From: "me@example.org", To: to, Subject: "s", Body: "b"}
+		in := CheckInput{Draft: d, Me: me, Original: &o, Attach: func(string) (int64, error) { return 0, nil }}
+		return slices.ContainsFunc(Check(in), func(p Problem) bool { return !p.Blocking && strings.Contains(p.Text, "Reply-To") })
+	}
+	if !warned([]string{"Bank <help@evil.example>"}, o) {
+		t.Error("no warning for a Reply-To at another domain")
+	}
+	if warned([]string{"alerts@bank.example"}, o) {
+		t.Error("warned though the reply goes to the sender")
+	}
+	same := Original{From: "a@bank.example", ReplyTo: []string{"help@bank.example"}}
+	if warned([]string{"help@bank.example"}, same) {
+		t.Error("warned for a Reply-To at the sender's domain")
+	}
+}

@@ -27,6 +27,8 @@ type CheckInput struct {
 	CarriedAttachments int
 	CarriedSize        int64
 	SizeLimit          int64
+	// Original is the message answered, for replies.
+	Original *Original
 }
 
 // mentionsAttachment finds words that announce an attachment (English,
@@ -68,6 +70,15 @@ func Check(in CheckInput) []Problem {
 	}
 	if n := len(d.To) + len(d.Cc); in.ReplyAll && n > 10 {
 		warn("reply-all to %d people", n)
+	}
+	if o := in.Original; o != nil {
+		from := address(o.From)
+		for _, r := range o.ReplyTo {
+			a := address(r)
+			if a != "" && from != "" && domain(a) != domain(from) && slices.ContainsFunc(d.To, func(t string) bool { return address(t) == a }) {
+				warn("replies go to %s (the Reply-To), not to the sender %s", a, from)
+			}
+		}
 	}
 	for _, r := range recipients {
 		a := address(r)
@@ -139,3 +150,6 @@ func within(a, b string, max int) bool {
 	}
 	return prev[len(b)] <= max
 }
+
+// domain is the part of an address after the @.
+func domain(addr string) string { return addr[strings.LastIndex(addr, "@")+1:] }

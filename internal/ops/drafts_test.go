@@ -254,3 +254,22 @@ func TestReplyQuoteIsCleanText(t *testing.T) {
 		t.Errorf("editor file %q, %v", file, err)
 	}
 }
+
+// Deferred (e): scripts add copies and files to replies and forwards.
+func TestReplyAndForwardWithCcAndFiles(t *testing.T) {
+	env := draftEnv(t)
+	id := idOf(t, env, `subject:"read one"`)
+	file := filepath.Join(t.TempDir(), "notes.txt")
+	writeFile(t, file, "notes")
+	r, err := Call(t.Context(), env, Draft, DraftReply, DraftReplyIn{ID: id, Cc: []string{"carol@x.org"}, Attach: []string{file}})
+	if err != nil || !slices.Contains(r.Draft.Cc, "carol@x.org") || !slices.Equal(r.Draft.Attach, []string{file}) {
+		t.Errorf("reply = %+v, %v", r.Draft, err)
+	}
+	f, err := Call(t.Context(), env, Draft, DraftForward, DraftForwardIn{ID: id, To: []string{"bob@x.org"}, Cc: []string{"dan@x.org"}, Attach: []string{file}})
+	if err != nil || !slices.Equal(f.Draft.Cc, []string{"dan@x.org"}) || !slices.Equal(f.Draft.Attach, []string{file}) {
+		t.Errorf("forward = %+v, %v", f.Draft, err)
+	}
+	if _, err := Call(t.Context(), env, Draft, DraftReply, DraftReplyIn{ID: id, Cc: []string{"a@x.org\nBcc: e@x.org"}}); !errors.Is(err, ErrUsage) {
+		t.Errorf("control character in Cc: %v", err)
+	}
+}
