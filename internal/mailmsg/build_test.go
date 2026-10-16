@@ -111,3 +111,20 @@ func FuzzBuild(f *testing.F) {
 		_, _ = Bodies(raw)
 	})
 }
+
+func TestAttachmentDataRoundTrip(t *testing.T) {
+	raw, _, err := Build(Outgoing{From: "me@example.org", To: []string{"a@example.org"}, Subject: "s", Body: "b\n",
+		Attachments: []OutgoingAttachment{{Filename: "a.pdf", ContentType: "application/pdf", Data: []byte("%PDF-1")},
+			{Filename: "n.txt", ContentType: "text/plain", Data: []byte("notes\n")}}}, time.Now(), fixedRand())
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := AttachmentData(raw)
+	if err != nil || len(got) != 2 || got[0].Filename != "a.pdf" || string(got[0].Data) != "%PDF-1" ||
+		got[1].ContentType != "text/plain" || string(got[1].Data) != "notes\n" {
+		t.Errorf("attachments = %+v, %v", got, err)
+	}
+	if none, err := AttachmentData([]byte("Subject: x\r\n\r\nplain")); err != nil || len(none) != 0 {
+		t.Errorf("plain message: %+v, %v", none, err)
+	}
+}

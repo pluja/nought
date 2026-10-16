@@ -38,6 +38,10 @@ type Env struct {
 	// IMAPTimeout bounds each read and write to a mail server; 0 means the
 	// default. Tests shorten it.
 	IMAPTimeout time.Duration
+	// SMTPTimeout bounds one SMTP transaction; 0 means the default.
+	SMTPTimeout time.Duration
+	// outboxMu serializes sending, undo and retry of outbox entries.
+	outboxMu sync.Mutex
 	// Network is used by account discovery; tests replace it.
 	Network autoconfig.Network
 

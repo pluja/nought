@@ -32,6 +32,7 @@ type SyncIn struct {
 // SyncOut reports a sync, per account and folder.
 type SyncOut struct {
 	Accounts []AccountSyncOut `json:"accounts"`
+	Outbox   FlushOut         `json:"outbox"` // due mail, sent with the sync
 	DryRun   bool             `json:"dry_run"`
 }
 
@@ -146,6 +147,16 @@ func runSync(ctx context.Context, env *Env, in SyncIn) (SyncOut, error) {
 		wg.Go(func() { out.Accounts[i] = syncAccount(ctx, env, a, passwords[i], in) })
 	}
 	wg.Wait()
+
+	// A sync is when nought is online: due mail goes out with it. A send
+	// failure stays in the outbox and is reported, not fatal to the sync.
+	if !in.DryRun {
+		flushed, err := Call(ctx, env, Send, OutboxFlush, FlushIn{})
+		if err != nil {
+			flushed.Notes = append(flushed.Notes, err.Error())
+		}
+		out.Outbox = flushed
+	}
 
 	fetched, failed := 0, 0
 	for _, a := range out.Accounts {

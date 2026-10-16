@@ -211,19 +211,7 @@ func Bodies(raw []byte) (Content, error) {
 		if part.MultipartReader() != nil {
 			return nil
 		}
-		mediaType, _, _ := part.Header.ContentType()
-		if mediaType == "" {
-			mediaType = "text/plain"
-		}
-		disp, params, _ := part.Header.ContentDisposition()
-		filename := params["filename"]
-		if filename == "" {
-			_, ctParams, _ := part.Header.ContentType()
-			filename = ctParams["name"]
-		}
-		filename = decodeWord(filename)
-		isAttachment := disp == "attachment" || filename != ""
-
+		mediaType, filename, isAttachment := partKind(part)
 		switch {
 		case !isAttachment && mediaType == "text/plain" && c.Plain == "":
 			c.Plain = readText(part.Body)
@@ -242,6 +230,66 @@ func Bodies(raw []byte) (Content, error) {
 		return c, fmt.Errorf("read parts: %w", walkErr)
 	}
 	return c, nil
+}
+
+// partKind classifies a leaf part: its media type, its file name, and
+// whether it is an attachment (rather than the text of the message).
+func partKind(part *message.Entity) (mediaType, filename string, attachment bool) {
+	mediaType, ctParams, _ := part.Header.ContentType()
+	if mediaType == "" {
+		mediaType = "text/plain"
+	}
+	disp, params, _ := part.Header.ContentDisposition()
+	filename = params["filename"]
+	if filename == "" {
+		filename = ctParams["name"]
+	}
+	filename = decodeWord(filename)
+	attachment = disp == "attachment" || filename != "" || !strings.HasPrefix(mediaType, "text/")
+	return mediaType, filename, attachment
+}
+
+// maxAttachmentBytes bounds what AttachmentData reads.
+const maxAttachmentBytes = 256 << 20
+
+// AttachmentData returns a message's attachments with their contents (to
+// forward them).
+func AttachmentData(raw []byte) ([]OutgoingAttachment, error) {
+	e, err := message.ReadWithOptions(bytes.NewReader(raw), readOptions)
+	if e == nil {
+		return nil, fmt.Errorf("parse message: %w", err)
+	}
+	var out []OutgoingAttachment
+	var total int64
+	parts := 0
+	err = e.Walk(func(_ []int, part *message.Entity, err error) error {
+		if parts++; parts > maxParts {
+			return errTooManyParts
+		}
+		if err != nil && !message.IsUnknownCharset(err) && !message.IsUnknownEncoding(err) {
+			return err
+		}
+		if part.MultipartReader() != nil {
+			return nil
+		}
+		mediaType, filename, attachment := partKind(part)
+		if !attachment {
+			return nil
+		}
+		data, err := io.ReadAll(io.LimitReader(part.Body, maxAttachmentBytes-total+1))
+		if err != nil {
+			return err
+		}
+		if total += int64(len(data)); total > maxAttachmentBytes {
+			return errors.New("attachments are too large")
+		}
+		out = append(out, OutgoingAttachment{Filename: oneLine(filename), ContentType: mediaType, Data: data})
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("read attachments: %w", err)
+	}
+	return out, nil
 }
 
 func readText(r io.Reader) string {

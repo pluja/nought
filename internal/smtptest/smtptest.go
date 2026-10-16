@@ -7,6 +7,7 @@ package smtptest
 import (
 	"bytes"
 	"crypto/tls"
+	"encoding/pem"
 	"io"
 	"net"
 	"strconv"
@@ -49,6 +50,7 @@ type Server struct {
 	Host   string
 	Port   int
 	Client *tls.Config // trusts the server's certificate
+	CAPEM  []byte      // the certificate, PEM-encoded, to trust it next to others
 	opts   Options
 
 	mu       sync.Mutex
@@ -62,7 +64,8 @@ type Server struct {
 func Start(t testing.TB, opts Options) *Server {
 	t.Helper()
 	cert, client := imaptest.Certificate(t)
-	s := &Server{Host: "127.0.0.1", Client: client, opts: opts, starttls: opts.StartTLS || opts.NoStartTLS}
+	s := &Server{Host: "127.0.0.1", Client: client, opts: opts, starttls: opts.StartTLS || opts.NoStartTLS,
+		CAPEM: pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: cert.Certificate[0]})}
 	s.failData.Store(int64(opts.FailData))
 	s.srv = smtp.NewServer(backend{s})
 	s.srv.Domain = "smtptest"
