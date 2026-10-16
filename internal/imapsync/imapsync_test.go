@@ -401,3 +401,23 @@ func TestExists(t *testing.T) {
 		}
 	}
 }
+
+func TestAppend(t *testing.T) {
+	s := imaptest.Start(t, imaptest.Options{})
+	c := dial(t, s)
+	date := time.Date(2026, 10, 16, 9, 0, 0, 0, time.UTC)
+	if err := c.Append("Sent", []string{"Seen"}, date, []byte(raw)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Select("Sent", true); err != nil {
+		t.Fatal(err)
+	}
+	uids, err := c.AllUIDs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	infos, err := c.Infos(uids)
+	if err != nil || len(infos) != 1 || !infos[0].Seen || !infos[0].InternalDate.Equal(date) {
+		t.Errorf("appended = %+v, %v", infos, err)
+	}
+}

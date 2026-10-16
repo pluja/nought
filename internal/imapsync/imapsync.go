@@ -149,9 +149,10 @@ func (c *Conn) HasUIDPlus() bool { return c.c.Caps().Has(imap.CapUIDPlus) }
 type Folder struct {
 	Name string // for display, tags and policies: "/"-separated, no control characters
 	Raw  string // the server's own name, used to select it and to key sync state
-	// Trash is set for the folder the server marks as its trash (RFC 6154
-	// SPECIAL-USE \Trash); servers without SPECIAL-USE mark none.
-	Trash bool
+	// Trash and Sent are set for the folders the server marks as its trash
+	// and sent mail (RFC 6154 SPECIAL-USE); servers without SPECIAL-USE mark
+	// none.
+	Trash, Sent bool
 }
 
 // Folders lists selectable folders.
@@ -183,7 +184,8 @@ func (c *Conn) Folders() ([]Folder, error) {
 			}
 			return r
 		}, name)
-		out = append(out, Folder{Name: name, Raw: l.Mailbox, Trash: slices.Contains(l.Attrs, imap.MailboxAttrTrash)})
+		out = append(out, Folder{Name: name, Raw: l.Mailbox,
+			Trash: slices.Contains(l.Attrs, imap.MailboxAttrTrash), Sent: slices.Contains(l.Attrs, imap.MailboxAttrSent)})
 	}
 	slices.SortFunc(out, func(a, b Folder) int { return strings.Compare(a.Name, b.Name) })
 	return out, nil
@@ -198,6 +200,27 @@ func (c *Conn) Exists(raw string) (bool, error) {
 		return false, nil
 	}
 	return err == nil, err
+}
+
+// Append stores msg in a folder (by its raw name) with the given flags
+// ("Seen", "Flagged", "Answered") and internal date.
+func (c *Conn) Append(raw string, flags []string, date time.Time, msg []byte) error {
+	fl := make([]imap.Flag, 0, len(flags))
+	for _, f := range flags {
+		fl = append(fl, imap.Flag(`\`+f))
+	}
+	cmd := c.c.Append(raw, int64(len(msg)), &imap.AppendOptions{Flags: fl, Time: date})
+	if _, err := cmd.Write(msg); err != nil {
+		_ = cmd.Close()
+		return fmt.Errorf("append to %s: %w", raw, err)
+	}
+	if err := cmd.Close(); err != nil {
+		return fmt.Errorf("append to %s: %w", raw, err)
+	}
+	if _, err := cmd.Wait(); err != nil {
+		return fmt.Errorf("append to %s: %w", raw, err)
+	}
+	return nil
 }
 
 // Mailbox is the state of a selected folder.
