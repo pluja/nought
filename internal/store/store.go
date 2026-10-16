@@ -466,6 +466,13 @@ func (m *Maildir) MoveTo(dst *Maildir, hash string) error {
 	return m.Remove(hash)
 }
 
+// GetVerified returns a message's bytes only if they still match its hash
+// (ErrCorrupt otherwise): the read that must precede deleting another copy.
+func (m *Maildir) GetVerified(hash string) ([]byte, error) {
+	raw, _, err := m.readVerified(hash)
+	return raw, err
+}
+
 // readVerified returns a message that matches its hash, and its flags.
 func (m *Maildir) readVerified(hash string) ([]byte, string, error) {
 	m.mu.Lock()

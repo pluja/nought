@@ -15,7 +15,6 @@ import (
 	"github.com/pluja/nought/internal/imapsync"
 	"github.com/pluja/nought/internal/index"
 	"github.com/pluja/nought/internal/journal"
-	"github.com/pluja/nought/internal/store"
 )
 
 // expungeDue deletes from the server the folder's messages that are due:
@@ -165,11 +164,7 @@ func verifiedLocal(env *Env, account, hash string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	raw, err := st.Get(hash)
-	if err == nil && store.Hash(raw) != hash {
-		err = store.ErrCorrupt
-	}
-	return raw, err
+	return st.GetVerified(hash)
 }
 
 // sameHeader reports whether a header block fetched from the server is the

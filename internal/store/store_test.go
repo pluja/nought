@@ -536,3 +536,33 @@ func TestConcurrentUse(t *testing.T) {
 		t.Errorf("stored %d, want 80", m.Len())
 	}
 }
+
+// GetVerified is the read before a server copy is deleted: it returns the
+// bytes only if they still match their hash.
+func TestGetVerified(t *testing.T) {
+	m, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw := []byte("Subject: x\r\n\r\nkeep me\r\n")
+	e, _, err := m.Put(raw, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := m.GetVerified(e.Hash); err != nil || string(got) != string(raw) {
+		t.Fatalf("intact: %q, %v", got, err)
+	}
+	name, err := m.lookup(e.Hash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.root.WriteFile(name, []byte("damaged"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.GetVerified(e.Hash); !errors.Is(err, ErrCorrupt) {
+		t.Errorf("damaged: %v, want ErrCorrupt", err)
+	}
+	if _, err := m.GetVerified(Hash([]byte("absent"))); !errors.Is(err, ErrNotFound) {
+		t.Errorf("absent: %v, want ErrNotFound", err)
+	}
+}
