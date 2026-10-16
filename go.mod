@@ -2,6 +2,8 @@ module nought
 
 go 1.26.0
 
+toolchain go1.26.9
+
 tool (
 	golang.org/x/vuln/cmd/govulncheck
 	honnef.co/go/tools/cmd/staticcheck
