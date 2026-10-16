@@ -85,7 +85,8 @@ func TestComposeInTerminal(t *testing.T) {
 		want     string
 	}{
 		{"edit then send", "s\n", []string{ready}, 1, 0, "sent: Hi"},
-		{"edit twice, discard", "e\nq\n", []string{ready, ready}, 0, 0, "Discarded."},
+		{"edit twice, discard", "e\nq\ny\n", []string{ready, ready}, 0, 0, "Discarded."},
+		{"discard asks first", "q\nn\nd\n", []string{ready}, 0, 1, "kept"},
 		{"refused, kept", "s\nd\n", []string{"From: me@example.org\nSubject: Hi\n\nHello\n"}, 0, 1, "cannot send: no recipients"},
 		{"input ends", "", []string{ready}, 0, 1, "kept"},
 		{"nothing written", "", []string{""}, 0, 0, "discarded"},
@@ -128,5 +129,20 @@ func TestEditorCommand(t *testing.T) {
 		if got := a.editorCommand(); !slices.Equal(got, tt.want) {
 			t.Errorf("VISUAL=%q EDITOR=%q: %q, want %q", tt.visual, tt.editor, got, tt.want)
 		}
+	}
+}
+
+func TestPrintSyncShowsTheOutbox(t *testing.T) {
+	var b strings.Builder
+	out := ops.SyncOut{Outbox: ops.FlushOut{Sent: 1, Failed: 1, Notes: []string{"\"Hi\" may have been sent"}}}
+	if err := printSync(&b, out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(b.String(), "outbox: sent 1, failed 1") || !strings.Contains(b.String(), "may have been sent") {
+		t.Errorf("output:\n%s", b.String())
+	}
+	b.Reset()
+	if err := printSync(&b, ops.SyncOut{}); err != nil || strings.Contains(b.String(), "outbox") {
+		t.Errorf("an idle outbox is mentioned:\n%s", b.String())
 	}
 }

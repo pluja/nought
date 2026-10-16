@@ -7,6 +7,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
+	"errors"
 	"os"
 	"slices"
 	"strings"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/pluja/nought/internal/config"
 	"github.com/pluja/nought/internal/imaptest"
+	"github.com/pluja/nought/internal/lock"
 	"github.com/pluja/nought/internal/smtptest"
 )
 
@@ -311,5 +313,111 @@ func TestSaveSentOnServer(t *testing.T) {
 	sync := runSyncOK(t, env, SyncIn{})
 	if f := folder(t, sync, "Sent"); f.Fetched != 1 || len(search(t, env, "subject:copied")) != 1 {
 		t.Errorf("the appended copy was not recognised as the same message: %+v", f)
+	}
+}
+
+// Review: a message whose fate is unknown is never sent again by itself.
+func TestLostReplyIsNeverResent(t *testing.T) {
+	env, srv := sendEnv(t, smtptest.Options{DropData: true})
+	d := newDraft(t, env, "alice@example.org", "Maybe", "x\n")
+	e, err := Call(t.Context(), env, Send, MsgSend, SendIn{DraftID: d.ID, Now: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	flushNow(t, env)
+	out := flushNow(t, env)
+	got, err := loadEntry(env, e.ID)
+	if err != nil || got.State != StateSending || len(srv.Messages()) != 1 || len(out.Notes) == 0 {
+		t.Errorf("entry %+v, %v; %d received; notes %q", got, err, len(srv.Messages()), out.Notes)
+	}
+}
+
+// Review: another nou process (a cron sync, the TUI) may be sending.
+func TestOutboxLockedByAnotherProcess(t *testing.T) {
+	env, srv := sendEnv(t, smtptest.Options{})
+	d := newDraft(t, env, "alice@example.org", "Once", "x\n")
+	e, err := Call(t.Context(), env, Send, MsgSend, SendIn{DraftID: d.ID, Now: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	held, err := lock.Acquire(outboxLock(env))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Call(t.Context(), env, Send, OutboxFlush, FlushIn{All: true}); !errors.Is(err, ErrBusy) || len(srv.Messages()) != 0 {
+		t.Errorf("flush while locked: %v", err)
+	}
+	if _, err := Call(t.Context(), env, Draft, OutboxCancel, DraftIDIn{ID: e.ID}); !errors.Is(err, ErrBusy) {
+		t.Errorf("cancel while locked: %v", err)
+	}
+	if err := held.Release(); err != nil {
+		t.Fatal(err)
+	}
+	if out := flushNow(t, env); out.Sent != 1 {
+		t.Errorf("after release: %+v", out)
+	}
+}
+
+// Review: sending a draft twice must not queue it twice; a queued draft
+// cannot be discarded (it would still go out).
+func TestQueuedDraftIsQueuedOnce(t *testing.T) {
+	env, srv := sendEnv(t, smtptest.Options{})
+	d := newDraft(t, env, "alice@example.org", "Twice", "x\n")
+	e, err := Call(t.Context(), env, Send, MsgSend, SendIn{DraftID: d.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Call(t.Context(), env, Send, MsgSend, SendIn{DraftID: d.ID, Now: true}); !errors.Is(err, ErrUsage) {
+		t.Errorf("second send: %v", err)
+	}
+	if _, err := Call(t.Context(), env, Draft, DraftDiscard, DraftIDIn{ID: d.ID}); !errors.Is(err, ErrUsage) {
+		t.Errorf("discard while queued: %v", err)
+	}
+	if _, err := loadEntry(env, e.ID); err != nil {
+		t.Fatal(err)
+	}
+	if out := flushNow(t, env); out.Sent != 1 || len(srv.Messages()) != 1 {
+		t.Errorf("flush: %+v, %d received", out, len(srv.Messages()))
+	}
+}
+
+// Review: the flush says what became of each message it tried, so
+// frontends need not guess from the outbox listing.
+func TestFlushReportsEachEntry(t *testing.T) {
+	env, srv := sendEnv(t, smtptest.Options{})
+	ok := newDraft(t, env, "alice@example.org", "Fine", "x\n")
+	sent, err := Call(t.Context(), env, Send, MsgSend, SendIn{DraftID: ok.ID, Now: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := flushNow(t, env)
+	if len(out.Results) != 1 || out.Results[0].ID != sent.ID || out.Results[0].State != StateSent {
+		t.Fatalf("results = %+v", out.Results)
+	}
+	srv.SetFailData(550)
+	bad := newDraft(t, env, "alice@example.org", "Refused", "x\n")
+	refused, err := Call(t.Context(), env, Send, MsgSend, SendIn{DraftID: bad.ID, Now: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out = flushNow(t, env)
+	if len(out.Results) != 1 || out.Results[0].ID != refused.ID || out.Results[0].State != StateFailed || out.Results[0].LastError == "" {
+		t.Errorf("results = %+v", out.Results)
+	}
+}
+
+// Review: a message refused during a sync (cron, the TUI's auto sync) is
+// not silent: the sync reports it and is partial.
+func TestSyncReportsRefusedMail(t *testing.T) {
+	env, srv := sendEnv(t, smtptest.Options{})
+	attachIMAP(t, env, srv, config.SaveSentLocal)
+	srv.SetFailData(550)
+	d := newDraft(t, env, "alice@example.org", "Refused", "x\n")
+	if _, err := Call(t.Context(), env, Send, MsgSend, SendIn{DraftID: d.ID, Now: true}); err != nil {
+		t.Fatal(err)
+	}
+	out, err := Call(t.Context(), env, Delete, SyncRun, SyncIn{})
+	if !errors.Is(err, ErrPartial) || out.Outbox.Failed != 1 {
+		t.Errorf("sync: %v, outbox %+v", err, out.Outbox)
 	}
 }

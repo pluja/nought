@@ -16,6 +16,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/pluja/nought/internal/atomicfile"
 	"github.com/pluja/nought/internal/compose"
@@ -100,6 +101,9 @@ type DraftIDIn struct {
 var DraftNew = Op[DraftNewIn, DraftOut]{
 	Name: "draft.new", Summary: "Start a new message (a local draft)", Perm: Draft,
 	Run: func(ctx context.Context, env *Env, in DraftNewIn) (DraftOut, error) {
+		if err := headerValues(slices.Concat(in.To, in.Cc, in.Bcc, in.Attach, []string{in.Subject})...); err != nil {
+			return DraftOut{}, err
+		}
 		a, err := sendingAccount(env, in.Account)
 		if err != nil {
 			return DraftOut{}, err
@@ -109,7 +113,8 @@ var DraftNew = Op[DraftNewIn, DraftOut]{
 		if in.Body != "" {
 			d.Body = compose.Signed(in.Body, me(a))
 		}
-		return createDraft(ctx, env, DraftInfo{Account: a.Name, Kind: KindNew}, d)
+		given := in.Body != "" || in.Subject != "" || len(in.To)+len(in.Cc)+len(in.Bcc)+len(in.Attach) > 0
+		return createDraft(ctx, env, DraftInfo{Account: a.Name, Kind: KindNew}, d, given)
 	},
 }
 
@@ -131,7 +136,7 @@ var DraftReply = Op[DraftReplyIn, DraftOut]{
 		}
 		d := compose.Reply(o, me(a), in.All)
 		d.Body = above(in.Body, d.Body)
-		return createDraft(ctx, env, DraftInfo{Account: a.Name, Kind: kind, SourceHash: m.Hash}, d)
+		return createDraft(ctx, env, DraftInfo{Account: a.Name, Kind: kind, SourceHash: m.Hash}, d, in.Body != "")
 	},
 }
 
@@ -139,6 +144,9 @@ var DraftReply = Op[DraftReplyIn, DraftOut]{
 var DraftForward = Op[DraftForwardIn, DraftOut]{
 	Name: "draft.forward", Summary: "Start forwarding a message", Perm: Draft,
 	Run: func(ctx context.Context, env *Env, in DraftForwardIn) (DraftOut, error) {
+		if err := headerValues(in.To...); err != nil {
+			return DraftOut{}, err
+		}
 		m, _, o, err := source(ctx, env, in.Account, in.ID)
 		if err != nil {
 			return DraftOut{}, err
@@ -149,8 +157,21 @@ var DraftForward = Op[DraftForwardIn, DraftOut]{
 		}
 		d := compose.Forward(o, me(a))
 		d.To, d.Body = in.To, above(in.Body, d.Body)
-		return createDraft(ctx, env, DraftInfo{Account: a.Name, Kind: KindForward, SourceHash: m.Hash}, d)
+		return createDraft(ctx, env, DraftInfo{Account: a.Name, Kind: KindForward, SourceHash: m.Hash}, d,
+			in.Body != "" || len(in.To) > 0)
 	},
+}
+
+// headerValues refuses line breaks and other control characters in values
+// a caller gives for header lines: in the editor file, "a\nBcc: x" would
+// become a header of its own.
+func headerValues(values ...string) error {
+	for _, v := range values {
+		if strings.ContainsFunc(v, unicode.IsControl) {
+			return usageError("%q contains a line break or another control character", v)
+		}
+	}
+	return nil
 }
 
 // above puts text written in advance (by a script) where the cursor would
@@ -202,6 +223,9 @@ type DraftSetIn struct {
 var DraftSet = Op[DraftSetIn, DraftOut]{
 	Name: "draft.set", Summary: "Change a draft's recipients or add attachments", Perm: Draft,
 	Run: func(ctx context.Context, env *Env, in DraftSetIn) (DraftOut, error) {
+		if err := headerValues(append([]string{in.To}, in.Attach...)...); err != nil {
+			return DraftOut{}, err
+		}
 		info, d, err := loadDraft(env, in.ID)
 		if err != nil {
 			return DraftOut{}, err
@@ -268,6 +292,15 @@ var DraftDiscard = Op[DraftIDIn, struct{}]{
 	Run: func(_ context.Context, env *Env, in DraftIDIn) (struct{}, error) {
 		if !validID(in.ID) {
 			return struct{}{}, usageError("%q is not a draft id", in.ID)
+		}
+		release, err := lockOutbox(env)
+		if err != nil {
+			return struct{}{}, err
+		}
+		defer release()
+		// A queued message would still go out: take it out first.
+		if e, ok, err := queued(env, in.ID); err != nil || ok {
+			return struct{}{}, errors.Join(err, usageError("this draft is in the outbox: nou outbox cancel %s first", e.ID))
 		}
 		return struct{}{}, removeDraft(env, in.ID)
 	},
@@ -367,7 +400,9 @@ func expandPath(p string) string {
 	return p
 }
 
-func createDraft(ctx context.Context, env *Env, info DraftInfo, d compose.Draft) (DraftOut, error) {
+// createDraft saves a new draft. given: the caller supplied some of its
+// content, so it is never dropped as untouched.
+func createDraft(ctx context.Context, env *Env, info DraftInfo, d compose.Draft, given bool) (DraftOut, error) {
 	id, err := newID()
 	if err != nil {
 		return DraftOut{}, err
@@ -375,7 +410,10 @@ func createDraft(ctx context.Context, env *Env, info DraftInfo, d compose.Draft)
 	now := env.Now().UTC()
 	info.ID, info.Created, info.Updated = id, now, now
 	info.Subject, info.To, info.InReplyTo, info.References = d.Subject, d.To, d.InReplyTo, d.References
-	info.Path, info.Untouched = draftPath(env, id, ".txt"), fileHash(compose.Render(d))
+	info.Path = draftPath(env, id, ".txt")
+	if !given {
+		info.Untouched = fileHash(compose.Render(d))
+	}
 	if err := writeDraftFile(info.Path, d); err != nil {
 		return DraftOut{}, err
 	}

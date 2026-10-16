@@ -28,13 +28,14 @@ type autoSyncMsg struct{ gen int }
 // syncResult condenses a sync.
 type syncResult struct {
 	fetched, expunged, problems int
+	sent                        int  // queued mail sent by the sync
 	archived, deleted, back     int  // done on another device, mirrored here
 	held                        bool // a mass removal waits for :sync accept-removals
 	busy                        bool // another sync (e.g. a cron job) was running
 }
 
 func summarize(out ops.SyncOut, err error) syncResult {
-	var r syncResult
+	r := syncResult{sent: out.Outbox.Sent, problems: out.Outbox.Failed}
 	for _, a := range out.Accounts {
 		if a.Error != "" {
 			r.problems++
@@ -66,6 +67,9 @@ func (r syncResult) String() string {
 		return "another sync is running; trying again later"
 	}
 	s := "synced: " + strconv.Itoa(r.fetched) + " new, " + strconv.Itoa(r.expunged) + " left the server"
+	if r.sent > 0 {
+		s += "; sent " + strconv.Itoa(r.sent)
+	}
 	if other := ops.DescribeOtherDevices(r.archived, r.deleted, r.back); other != "" {
 		s += "; on another device: " + other
 	}
@@ -80,7 +84,7 @@ func (r syncResult) String() string {
 
 // worthTelling: automatic syncs stay quiet unless something happened.
 func (r syncResult) worthTelling() bool {
-	return r.fetched+r.expunged+r.problems+r.archived+r.deleted+r.back > 0 || r.held
+	return r.fetched+r.expunged+r.problems+r.archived+r.deleted+r.back+r.sent > 0 || r.held
 }
 
 // nextSyncDelay doubles the interval for each failure in a row, up to an

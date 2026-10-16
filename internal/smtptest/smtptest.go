@@ -36,6 +36,7 @@ type Options struct {
 	RejectRcpt string // this recipient is refused with 550
 	FailData   int    // DATA fails with this SMTP code (4xx or 5xx)
 	MaxSize    int64  // advertised SIZE limit
+	DropData   bool   // accept DATA, then drop the connection before replying
 	// User and Password are the accepted credentials (default: the
 	// package's User and Password).
 	User, Password string
@@ -120,10 +121,13 @@ func (s *Server) Close() { _ = s.srv.Close() }
 
 type backend struct{ s *Server }
 
-func (b backend) NewSession(*smtp.Conn) (smtp.Session, error) { return &session{s: b.s}, nil }
+func (b backend) NewSession(c *smtp.Conn) (smtp.Session, error) {
+	return &session{s: b.s, conn: c}, nil
+}
 
 type session struct {
 	s    *Server
+	conn *smtp.Conn
 	auth string
 	msg  Received
 }
@@ -168,6 +172,9 @@ func (ss *session) Data(r io.Reader) error {
 	ss.s.mu.Lock()
 	ss.s.received = append(ss.s.received, ss.msg)
 	ss.s.mu.Unlock()
+	if ss.s.opts.DropData { // the message is taken, but the client never hears so
+		_ = ss.conn.Conn().Close()
+	}
 	return nil
 }
 

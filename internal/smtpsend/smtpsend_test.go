@@ -38,6 +38,16 @@ func TestSendDeliversAllOrNothing(t *testing.T) {
 	}
 }
 
+// A connection lost while waiting for the reply to the message leaves its
+// fate unknown: it may have been delivered, so it must not be retried.
+func TestSendLostReplyIsUnknown(t *testing.T) {
+	srv := smtptest.Start(t, smtptest.Options{DropData: true})
+	err := send(t, srv, []string{"a@example.org"}, []byte("x\r\n"))
+	if !errors.Is(err, ErrUnknown) || errors.Is(err, ErrTemporary) || len(srv.Messages()) != 1 {
+		t.Errorf("lost reply: %v (%d received)", err, len(srv.Messages()))
+	}
+}
+
 func TestSendErrorKinds(t *testing.T) {
 	for code, want := range map[int]error{451: ErrTemporary, 554: ErrPermanent} {
 		srv := smtptest.Start(t, smtptest.Options{FailData: code})

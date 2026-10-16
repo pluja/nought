@@ -190,16 +190,12 @@ func (a *app) sendNow(cmd *cobra.Command, draftID string) error {
 
 // flushAndReport sends what is due and reports what became of e.
 func (a *app) flushAndReport(cmd *cobra.Command, e ops.OutboxEntry) error {
-	ctx := cmd.Context()
-	flushed, flushErr := ops.Call(ctx, a.env, callerPerm, ops.OutboxFlush, ops.FlushIn{})
-	pending, err := ops.Call(ctx, a.env, callerPerm, ops.OutboxList, struct{}{})
-	if err != nil {
-		return errors.Join(flushErr, err)
+	flushed, flushErr := ops.Call(cmd.Context(), a.env, callerPerm, ops.OutboxFlush, ops.FlushIn{})
+	i := slices.IndexFunc(flushed.Results, func(r ops.OutboxEntry) bool { return r.ID == e.ID })
+	if i < 0 { // not tried: another nou is sending
+		return fmt.Errorf("%q is queued but was not sent: %w", e.Subject, flushErr)
 	}
-	e.State = ops.StateSent // gone from the outbox
-	if i := slices.IndexFunc(pending, func(p ops.OutboxEntry) bool { return p.ID == e.ID }); i >= 0 {
-		e = pending[i]
-	}
+	e = flushed.Results[i]
 	if err := a.emit(cmd, e, func(w io.Writer) error {
 		if e.State != ops.StateSent {
 			return nil
@@ -209,11 +205,34 @@ func (a *app) flushAndReport(cmd *cobra.Command, e ops.OutboxEntry) error {
 		return err
 	}
 	a.notes(cmd, flushed.Notes)
+	return errors.Join(outcome(e), flushErr)
+}
+
+// worstOutcome: a message that needs the user outweighs one tried later.
+func worstOutcome(results []ops.OutboxEntry) error {
+	var later error
+	for _, r := range results {
+		err := outcome(r)
+		if err != nil && !errors.Is(err, ops.ErrPartial) {
+			return err
+		}
+		if later == nil {
+			later = err
+		}
+	}
+	return later
+}
+
+// outcome is the error for a message that was not sent: exit 3 when it
+// will be tried again, 1 when it needs the user.
+func outcome(e ops.OutboxEntry) error {
 	switch e.State {
 	case ops.StateSent:
-		return flushErr
+		return nil
 	case ops.StateFailed:
 		return fmt.Errorf("the server refused %q: %s (nou outbox retry or nou outbox cancel %s)", e.Subject, e.LastError, e.ID)
+	case ops.StateSending:
+		return fmt.Errorf("%q may have been sent: %s (check, then nou outbox retry or nou outbox cancel %s)", e.Subject, e.LastError, e.ID)
 	default:
 		return fmt.Errorf("%q was not sent (%s); it will be retried at the next sync or nou outbox send: %w",
 			e.Subject, e.LastError, ops.ErrPartial)
@@ -276,6 +295,12 @@ func (a *app) choose(cmd *cobra.Command, p *prompter, out ops.DraftOut) (again b
 		case "d":
 			return false, p.say("Draft %s kept.", out.ID)
 		case "q":
+			if sure, err := p.yes("Discard this message?", false); err != nil || !sure {
+				if err != nil {
+					return false, err
+				}
+				continue
+			}
 			if _, err := ops.Call(cmd.Context(), a.env, callerPerm, ops.DraftDiscard, ops.DraftIDIn{ID: out.ID}); err != nil {
 				return false, err
 			}

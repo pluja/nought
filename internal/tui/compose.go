@@ -34,6 +34,8 @@ const (
 	retryDelay = 2 * time.Minute
 	// flushMargin lets the undo window close before the timer sends.
 	flushMargin = 200 * time.Millisecond
+	// busyRetry is how soon to try again while another nou is sending.
+	busyRetry = 5 * time.Second
 	// maxSuggestions is how many addresses the To input proposes.
 	maxSuggestions = 5
 )
@@ -58,10 +60,9 @@ type (
 	}
 	flushMsg     struct{}
 	flushDoneMsg struct {
-		out     ops.FlushOut
-		pending []ops.OutboxEntry // the outbox after the flush
-		quit    bool              // the flush that ends the session
-		err     error
+		out  ops.FlushOut
+		quit bool // the flush that ends the session
+		err  error
 	}
 	discardDoneMsg struct{ err error }
 	suggestDoneMsg struct {
@@ -179,7 +180,7 @@ func (m Model) queued(msg queuedMsg) (Model, tea.Cmd) {
 		return m, nil
 	}
 	m.composing = nil
-	m.sendingID, m.sendingSubject = msg.entry.ID, msg.entry.Subject
+	m.sendingID, m.sendingSubject, m.sendingAfter = msg.entry.ID, msg.entry.Subject, msg.entry.SendAfter
 	wait := max(msg.entry.SendAfter.Sub(m.now()), 0)
 	m.notice = "sending…"
 	if wait > 0 {
@@ -217,51 +218,67 @@ func (m Model) cancelDone(msg cancelDoneMsg) (Model, tea.Cmd) {
 func (m Model) flush(all bool) tea.Cmd {
 	return func() tea.Msg {
 		out, err := ops.Call(m.ctx, m.env, permSend, ops.OutboxFlush, ops.FlushIn{All: all})
-		pending, listErr := ops.Call(m.ctx, m.env, permTag, ops.OutboxList, struct{}{})
-		return flushDoneMsg{out: out, pending: pending, quit: all, err: errors.Join(err, listErr)}
+		return flushDoneMsg{out: out, quit: all, err: err}
 	}
 }
 
 func (m Model) flushDone(msg flushDoneMsg) (Model, tea.Cmd) {
 	var again tea.Cmd
 	failed := msg.err != nil
-	if i := slices.IndexFunc(msg.pending, func(e ops.OutboxEntry) bool { return e.ID == m.sendingID }); m.sendingID != "" {
-		switch {
-		case i < 0:
-			m.notice, m.noticeErr = "sent: "+m.sendingSubject, false
-			m.sendingID = ""
-		case msg.pending[i].State == ops.StateFailed:
-			m.notice, failed = "not sent: "+msg.pending[i].LastError+" (it waits in Drafts, gd)", true
-			m.sendingID = ""
-		case msg.pending[i].State == ops.StateWaiting && msg.pending[i].LastError == "":
-			// Still in its window (the timer was early): wait again.
-			wait := max(msg.pending[i].SendAfter.Sub(m.now()), 0)
-			again = m.after(wait+flushMargin, func(time.Time) tea.Msg { return flushMsg{} })
-		default: // the server could not take it now
-			m.notice, failed = "not sent yet ("+msg.pending[i].LastError+"); trying again in 2 minutes", true
-			m.sendingID = ""
-			again = m.after(retryDelay, func(time.Time) tea.Msg { return flushMsg{} })
+	if m.sendingID != "" {
+		var notice string
+		notice, failed, again = m.sendingOutcome(msg)
+		if notice != "" {
+			m.notice = notice
 		}
 	}
-	switch {
-	case msg.err != nil:
-		m.notice = "send: " + msg.err.Error()
-	case len(msg.out.Notes) > 0:
-		m.notice += "; " + strings.Join(msg.out.Notes, "; ")
+	m.notice = joinNotice(m.notice, msg.out.Notes...)
+	if msg.err != nil {
+		m.notice = joinNotice(m.notice, "send: "+msg.err.Error())
 	}
-	m.noticeErr = m.noticeErr || failed
+	m.noticeErr = failed
 	if msg.quit {
 		m.quitSending = false
-		if !failed {
+		if !failed && m.sendingID == "" {
 			return m.requestQuit()
 		}
 		// Not sent: say so instead of leaving. The message stays in the
 		// outbox and goes at a later sync.
-		m.notice += " · q quits"
+		m.sendingID = ""
+		m.notice = joinNotice(m.notice, "q quits")
 		return m, nil
 	}
 	next, cmd := m.refresh()
 	return next, tea.Batch(again, cmd)
+}
+
+// sendingOutcome reads what became of the message in its undo window, and
+// clears sendingID once it needs no more watching.
+func (m *Model) sendingOutcome(msg flushDoneMsg) (notice string, failed bool, again tea.Cmd) {
+	flushAgain := func(d time.Duration) tea.Cmd {
+		return m.after(d, func(time.Time) tea.Msg { return flushMsg{} })
+	}
+	i := slices.IndexFunc(msg.out.Results, func(e ops.OutboxEntry) bool { return e.ID == m.sendingID })
+	if i < 0 { // not tried: its window is still open, or another nou is sending
+		wait := max(m.sendingAfter.Sub(m.now()), busyRetry)
+		return "", msg.err != nil, flushAgain(wait + flushMargin)
+	}
+	e := msg.out.Results[i]
+	m.sendingID = ""
+	switch e.State {
+	case ops.StateSent:
+		return "sent: " + e.Subject, msg.err != nil, nil
+	case ops.StateFailed:
+		return "not sent: " + e.LastError + " (it waits in Drafts, gd)", true, nil
+	case ops.StateSending:
+		return "may have been sent: " + e.LastError + " (see Drafts, gd)", true, nil
+	}
+	return "not sent yet (" + e.LastError + "); trying again in " + shortDuration(retryDelay), true, flushAgain(retryDelay)
+}
+
+// joinNotice adds remarks to a notice.
+func joinNotice(notice string, more ...string) string {
+	return strings.Join(slices.DeleteFunc(append([]string{notice}, more...), func(s string) bool { return s == "" }), "; ")
 }
 
 // suggest proposes known addresses for the word being typed in To.

@@ -128,3 +128,30 @@ func TestAttachmentDataRoundTrip(t *testing.T) {
 		t.Errorf("plain message: %+v, %v", none, err)
 	}
 }
+
+// Review: a bare CR or NUL (from a quoted hostile message) never reaches
+// the wire, where a bare CR before "." could end the message early.
+func TestBuildBodyHasOnlyCRLF(t *testing.T) {
+	raw, _, err := Build(Outgoing{From: "me@example.org", To: []string{"a@example.org"}, Subject: "s",
+		Body: "a\r.\rQUIT\x00\r\nb\n"}, time.Now(), fixedRand())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(raw, []byte{0}) || bytes.Count(raw, []byte("\r")) != bytes.Count(raw, []byte("\r\n")) {
+		t.Errorf("bare CR or NUL in %q", raw)
+	}
+}
+
+// Review: a type with parameters (text/plain; charset=utf-8, as Go gives
+// for .txt) must not leave the header empty.
+func TestBuildAttachmentTypeWithParameters(t *testing.T) {
+	raw, _, err := Build(Outgoing{From: "me@example.org", To: []string{"a@example.org"}, Subject: "s", Body: "x\n",
+		Attachments: []OutgoingAttachment{{Filename: "notes.txt", ContentType: "text/plain; charset=utf-8", Data: []byte("hi")}}},
+		time.Now(), fixedRand())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), "Content-Type: text/plain") || strings.Contains(string(raw), "Content-Type: \r\n") {
+		t.Errorf("attachment type lost:\n%s", raw)
+	}
+}

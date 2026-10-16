@@ -25,6 +25,9 @@ import (
 var (
 	ErrTemporary = errors.New("temporary failure") // retry later: network, 4xx
 	ErrPermanent = errors.New("permanent failure") // needs the user: 5xx, refused recipient, too large
+	// ErrUnknown: the connection was lost after the whole message was
+	// handed over, so it may have been delivered. Never retry by itself.
+	ErrUnknown = errors.New("outcome unknown")
 )
 
 // Envelope is who the message is from and to (bare addresses). Bcc
@@ -71,6 +74,9 @@ func Send(ctx context.Context, srv config.Server, base *tls.Config, user, passwo
 		return classify("data", err)
 	}
 	if err := w.Close(); err != nil {
+		if _, ok := errors.AsType[*smtp.SMTPError](err); !ok {
+			return fmt.Errorf("no answer after the message was sent (it may have been delivered): %w: %w", err, ErrUnknown)
+		}
 		return classify("data", err)
 	}
 	_ = c.Quit() // the message is accepted; a failed goodbye changes nothing

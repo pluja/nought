@@ -23,6 +23,7 @@ import (
 	"github.com/pluja/nought/internal/compose"
 	"github.com/pluja/nought/internal/config"
 	"github.com/pluja/nought/internal/imapsync"
+	"github.com/pluja/nought/internal/lock"
 	"github.com/pluja/nought/internal/mailmsg"
 	"github.com/pluja/nought/internal/secret"
 	"github.com/pluja/nought/internal/smtpsend"
@@ -73,9 +74,19 @@ var MsgSend = Op[SendIn, OutboxEntry]{
 }
 
 func runSend(ctx context.Context, env *Env, in SendIn) (OutboxEntry, error) {
+	release, err := lockOutbox(env)
+	if err != nil {
+		return OutboxEntry{}, err
+	}
+	defer release()
 	info, d, err := loadDraft(env, in.DraftID)
 	if err != nil {
 		return OutboxEntry{}, err
+	}
+	// Sending again (a script after exit 3, the TUI and the CLI) must not
+	// queue a second copy.
+	if e, ok, err := queued(env, info.ID); err != nil || ok {
+		return OutboxEntry{}, errors.Join(err, usageError("this draft is already in the outbox (%s): see nou outbox list", e.State))
 	}
 	a, err := account(env, info.Account)
 	if err != nil {
@@ -190,8 +201,11 @@ func bare(s string) string {
 var OutboxCancel = Op[DraftIDIn, DraftOut]{
 	Name: "outbox.cancel", Summary: "Take a message out of the outbox, back to its draft", Perm: Draft,
 	Run: func(ctx context.Context, env *Env, in DraftIDIn) (DraftOut, error) {
-		env.outboxMu.Lock()
-		defer env.outboxMu.Unlock()
+		release, err := lockOutbox(env)
+		if err != nil {
+			return DraftOut{}, err
+		}
+		defer release()
 		e, err := loadEntry(env, in.ID)
 		if err != nil {
 			return DraftOut{}, err
@@ -199,9 +213,7 @@ var OutboxCancel = Op[DraftIDIn, DraftOut]{
 		if e.State == StateSent {
 			return DraftOut{}, usageError("%q was already sent", e.Subject)
 		}
-		if err := removeEntry(env, e.ID); err != nil {
-			return DraftOut{}, err
-		}
+		// The draft first: the message must stay somewhere.
 		info, d, err := loadDraft(env, e.DraftID)
 		if err != nil {
 			return DraftOut{}, err
@@ -212,6 +224,9 @@ var OutboxCancel = Op[DraftIDIn, DraftOut]{
 				return DraftOut{}, err
 			}
 		}
+		if err := removeEntry(env, e.ID); err != nil {
+			return DraftOut{}, err
+		}
 		return draftOut(ctx, env, info, d), nil
 	},
 }
@@ -221,8 +236,11 @@ var OutboxCancel = Op[DraftIDIn, DraftOut]{
 var OutboxRetry = Op[DraftIDIn, OutboxEntry]{
 	Name: "outbox.retry", Summary: "Try sending a message again", Perm: Send,
 	Run: func(_ context.Context, env *Env, in DraftIDIn) (OutboxEntry, error) {
-		env.outboxMu.Lock()
-		defer env.outboxMu.Unlock()
+		release, err := lockOutbox(env)
+		if err != nil {
+			return OutboxEntry{}, err
+		}
+		defer release()
 		e, err := loadEntry(env, in.ID)
 		if err != nil {
 			return e, err
@@ -255,14 +273,21 @@ type FlushOut struct {
 	Failed  int      `json:"failed"`  // refused in this flush
 	Waiting int      `json:"waiting"` // still waiting (undo window, or a retry)
 	Notes   []string `json:"notes,omitempty"`
+	// Results are the entries this flush tried, in their state after it:
+	// sent, failed (refused), sending (may have been sent) or waiting
+	// (to be tried again; LastError says why).
+	Results []OutboxEntry `json:"results,omitempty"`
 }
 
 // OutboxFlush sends the due messages and archives what was sent.
 var OutboxFlush = Op[FlushIn, FlushOut]{
 	Name: "outbox.flush", Summary: "Send the messages that are due", Perm: Send,
 	Run: func(ctx context.Context, env *Env, in FlushIn) (FlushOut, error) {
-		env.outboxMu.Lock()
-		defer env.outboxMu.Unlock()
+		release, err := lockOutbox(env)
+		if err != nil {
+			return FlushOut{}, err
+		}
+		defer release()
 		entries, err := listEntries(env)
 		if err != nil {
 			return FlushOut{}, err
@@ -286,11 +311,14 @@ var OutboxFlush = Op[FlushIn, FlushOut]{
 func flushOne(ctx context.Context, env *Env, e OutboxEntry, out *FlushOut) error {
 	switch e.State {
 	case StateSending:
-		out.Notes = append(out.Notes, fmt.Sprintf("%q may have been sent (nought stopped while sending it): retry or discard it", e.Subject))
+		out.Notes = append(out.Notes, fmt.Sprintf("%q may have been sent (the connection or nought stopped while sending it): "+
+			"nou outbox retry or nou outbox cancel", e.Subject))
 		return nil
 	case StateFailed:
 		return nil
-	case StateSent:
+	}
+	defer func() { out.Results = append(out.Results, e) }()
+	if e.State == StateSent { // sent earlier; its copy is still to be archived
 		return archiveSent(ctx, env, e, out)
 	}
 	e.State, e.Attempts = StateSending, e.Attempts+1
@@ -306,6 +334,11 @@ func flushOne(ctx context.Context, env *Env, e OutboxEntry, out *FlushOut) error
 		}
 		out.Sent++
 		return archiveSent(ctx, env, e, out)
+	case errors.Is(err, smtpsend.ErrUnknown):
+		// It may have been delivered: it stays "sending", for the user.
+		e.LastError = err.Error()
+		out.Failed++
+		out.Notes = append(out.Notes, fmt.Sprintf("%q may have been sent: %v", e.Subject, err))
 	case errors.Is(err, smtpsend.ErrPermanent):
 		e.State, e.LastError = StateFailed, err.Error()
 		out.Failed++
@@ -398,6 +431,38 @@ func appendSent(ctx context.Context, env *Env, a *config.Account, raw []byte) er
 		return errors.New("the server has no Sent folder")
 	}
 	return conn.Append(folders[i].Raw, []string{"Seen"}, env.Now(), raw)
+}
+
+// outboxLock is the lock file that serializes sending, undo and retry
+// across nou processes: a cron sync, the CLI and the TUI.
+func outboxLock(env *Env) string { return env.Paths.OutboxDir + ".lock" }
+
+// lockOutbox takes the outbox, in this process and across processes. It
+// never waits: another nou that is sending answers ErrBusy.
+func lockOutbox(env *Env) (release func(), err error) {
+	env.outboxMu.Lock()
+	l, err := lock.Acquire(outboxLock(env))
+	if err != nil {
+		env.outboxMu.Unlock()
+		if errors.Is(err, lock.ErrLocked) {
+			return nil, fmt.Errorf("another nou is sending mail; try again in a moment: %w", ErrBusy)
+		}
+		return nil, err
+	}
+	return func() { _ = l.Release(); env.outboxMu.Unlock() }, nil
+}
+
+// queued is the outbox entry of a draft, if it has one.
+func queued(env *Env, draftID string) (OutboxEntry, bool, error) {
+	entries, err := listEntries(env)
+	if err != nil {
+		return OutboxEntry{}, false, err
+	}
+	i := slices.IndexFunc(entries, func(e OutboxEntry) bool { return e.DraftID == draftID })
+	if i < 0 {
+		return OutboxEntry{}, false, nil
+	}
+	return entries[i], true, nil
 }
 
 func entryPath(env *Env, id, ext string) string { return filepath.Join(env.Paths.OutboxDir, id+ext) }

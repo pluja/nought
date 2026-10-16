@@ -64,10 +64,10 @@ func Reply(o Original, me Me, all bool) Draft {
 	if len(to) == 0 { // a reply to your own message goes to its recipients
 		to = withoutOwn(o.To, me)
 	}
-	d := Draft{From: sender(o, me), To: dedupe(to, nil), Subject: replySubject(o.Subject),
+	d := Draft{From: sender(o, me), To: recipients(dedupe(to, nil)), Subject: replySubject(o.Subject),
 		InReplyTo: o.MessageID, References: appendRef(o.References, o.MessageID)}
 	if all {
-		d.Cc = dedupe(withoutOwn(slices.Concat(o.To, o.Cc), me), d.To)
+		d.Cc = recipients(dedupe(withoutOwn(slices.Concat(o.To, o.Cc), me), d.To))
 	}
 	d.Body = "\n\n" + attribution(o) + quote(o.Body) + signature(me)
 	return d
@@ -97,14 +97,44 @@ var (
 func replySubject(s string) string   { return "Re: " + replyPrefix.ReplaceAllString(s, "") }
 func forwardSubject(s string) string { return "Fwd: " + fwdPrefix.ReplaceAllString(s, "") }
 
-func (me Me) from(addr string) string {
+func (me Me) from(addr string) string { return format(me.Name, addr) }
+
+// format writes an address for a header line, quoting the name when it
+// needs it: a comma in "Doe, John" must not split the list.
+func format(name, addr string) string {
 	switch {
-	case me.Name == "":
+	case name == "":
 		return addr
-	case plainName.MatchString(me.Name):
-		return me.Name + " <" + addr + ">"
+	case plainName.MatchString(name):
+		return name + " <" + addr + ">"
 	}
-	return (&mail.Address{Name: me.Name, Address: addr}).String() // quoted or encoded
+	return `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(name) + `" <` + addr + ">"
+}
+
+// split reads "Name <addr>". Names from the index are not quoted, so a
+// name with a comma or an @ is read up to the last angle bracket.
+func split(s string) (name, addr string) {
+	if a, err := mail.ParseAddress(s); err == nil {
+		return a.Name, a.Address
+	}
+	i, j := strings.LastIndex(s, "<"), strings.LastIndex(s, ">")
+	if i < 0 || j < i {
+		return "", ""
+	}
+	return strings.Trim(strings.TrimSpace(s[:i]), `"`), strings.TrimSpace(s[i+1 : j])
+}
+
+// recipients formats entries for a header line; one that cannot be read
+// is kept as it is, for the checks to report.
+func recipients(list []string) []string {
+	out := make([]string, 0, len(list))
+	for _, s := range list {
+		if name, addr := split(s); addr != "" {
+			s = format(name, addr)
+		}
+		out = append(out, s)
+	}
+	return out
 }
 
 // plainName is a display name that needs no quoting.
@@ -124,11 +154,8 @@ func sender(o Original, me Me) string {
 // address is the lowercased address of an entry, or "" if it does not
 // parse.
 func address(s string) string {
-	a, err := mail.ParseAddress(s)
-	if err != nil {
-		return ""
-	}
-	return strings.ToLower(a.Address)
+	_, addr := split(s)
+	return strings.ToLower(addr)
 }
 
 func withoutOwn(list []string, me Me) []string {

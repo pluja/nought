@@ -7,7 +7,9 @@ import (
 	"crypto/x509"
 	"errors"
 	"os"
+	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -172,5 +174,47 @@ func TestUntouchedNewMessageIsDropped(t *testing.T) {
 	m = drive(t, m, key("c"))
 	if m.composing != nil || !strings.Contains(m.notice, "discarded") || len(drafts(t, m)) != 0 {
 		t.Errorf("composing %v, notice %q, drafts %d", m.composing != nil, m.notice, len(drafts(t, m)))
+	}
+}
+
+func TestRefusedSendIsReported(t *testing.T) {
+	m, srv := newSendModel(t)
+	srv.SetFailData(550)
+	m.editFile = fakeEditor(func(s string) string { return strings.Replace(s, "To: ", "To: bob@example.org", 1) })
+	m = drive(t, m, key("c"))
+	m = drive(t, m, key("y"))
+	m.env.Now = func() time.Time { return testNow.Add(time.Hour) }
+	m = drive(t, m, flushMsg{})
+	if !m.noticeErr || !strings.Contains(m.notice, "not sent") || m.sendingID != "" {
+		t.Errorf("notice %q (err %v), sending %q", m.notice, m.noticeErr, m.sendingID)
+	}
+}
+
+// Review: mail that went out but could not be archived yet is reported as
+// sent (with the problem), never as "not sent", which would invite a resend.
+func TestSentButNotArchivedSaysSent(t *testing.T) {
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("needs a directory the test cannot write to")
+	}
+	m, srv := newSendModel(t)
+	m.editFile = fakeEditor(func(s string) string { return strings.Replace(s, "To: ", "To: bob@example.org", 1) })
+	m = drive(t, m, key("c"))
+	m = drive(t, m, key("y"))
+	tmp := filepath.Join(m.env.Paths.AccountArchive("personal"), "tmp")
+	if err := os.Chmod(tmp, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(tmp, 0o700) })
+	m.env.Now = func() time.Time { return testNow.Add(time.Hour) }
+	m = drive(t, m, flushMsg{})
+	if len(srv.Messages()) != 1 || !strings.HasPrefix(m.notice, "sent: ") || !m.noticeErr {
+		t.Errorf("notice %q (err %v), %d received", m.notice, m.noticeErr, len(srv.Messages()))
+	}
+}
+
+func TestSyncSummaryMentionsSentMail(t *testing.T) {
+	r := summarize(ops.SyncOut{Outbox: ops.FlushOut{Sent: 2, Failed: 1}}, nil)
+	if s := r.String(); !strings.Contains(s, "sent 2") || r.problems != 1 || !r.worthTelling() {
+		t.Errorf("summary %q, problems %d", s, r.problems)
 	}
 }

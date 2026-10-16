@@ -72,6 +72,22 @@ func printSync(w io.Writer, out ops.SyncOut) error {
 			return err
 		}
 	}
+	return printOutbox(w, out.Outbox)
+}
+
+// printOutbox says what the sync did with mail waiting to be sent.
+func printOutbox(w io.Writer, o ops.FlushOut) error {
+	if o.Sent+o.Failed == 0 && len(o.Notes) == 0 {
+		return nil
+	}
+	if err := printf(w, "outbox: sent %d, failed %d, waiting %d\n", o.Sent, o.Failed, o.Waiting); err != nil {
+		return err
+	}
+	for _, n := range o.Notes {
+		if err := printf(w, "  note: %s\n", sanitize(n)); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

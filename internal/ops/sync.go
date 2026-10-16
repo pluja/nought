@@ -188,6 +188,9 @@ func runSync(ctx context.Context, env *Env, in SyncIn) (SyncOut, error) {
 	if failed > 0 {
 		return out, fmt.Errorf("%d accounts or folders did not finish: %w", failed, ErrPartial)
 	}
+	if out.Outbox.Failed > 0 {
+		return out, fmt.Errorf("%d messages were not sent (see nou outbox list): %w", out.Outbox.Failed, ErrPartial)
+	}
 	return out, nil
 }
 

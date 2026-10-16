@@ -62,6 +62,20 @@ exec nou outbox send
 stdout '^sent 1, failed 0, waiting 0$'
 smtpcount 5
 
+# outbox send: 3 while the server asks to try later, 1 when it refuses.
+smtpfail 451
+code 3 nou compose --to grace@example.org --subject Later2 --body-file body.txt --send
+code 3 nou outbox send
+stdout '^sent 0, failed 0, waiting 1$'
+smtpfail 550
+code 1 nou outbox send
+stdout '^sent 0, failed 1, waiting 0$'
+exec nou outbox list
+capture HELD '^([0-9a-f]{32})'
+exec nou outbox cancel $HELD
+capture HELDDRAFT '^draft ([0-9a-f]{32})'
+exec nou draft discard $HELDDRAFT
+
 # A refusal holds the message: cancel brings it back to its draft.
 smtpfail 550
 code 1 nou compose --to frank@example.org --subject Refused --body-file body.txt --send

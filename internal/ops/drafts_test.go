@@ -181,3 +181,60 @@ func TestDraftUpdateDiscardsUntouchedDraft(t *testing.T) {
 		t.Errorf("drafts = %+v", list)
 	}
 }
+
+// Review: text given up front (a script, --body-file) is never dropped as
+// "untouched".
+func TestDraftWithGivenTextIsKept(t *testing.T) {
+	env := draftEnv(t)
+	inputs := []func() (DraftOut, error){
+		func() (DraftOut, error) {
+			return Call(t.Context(), env, Draft, DraftNew, DraftNewIn{Body: "Dear Bob\n"})
+		},
+		func() (DraftOut, error) {
+			return Call(t.Context(), env, Draft, DraftNew, DraftNewIn{To: []string{"bob@x.org"}})
+		},
+		func() (DraftOut, error) {
+			return Call(t.Context(), env, Draft, DraftReply, DraftReplyIn{ID: idOf(t, env, `subject:"read one"`), Body: "OK"})
+		},
+		func() (DraftOut, error) {
+			return Call(t.Context(), env, Draft, DraftForward, DraftForwardIn{ID: idOf(t, env, `subject:"read one"`), To: []string{"bob@x.org"}})
+		},
+	}
+	for i, start := range inputs {
+		d, err := start()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if out, err := Call(t.Context(), env, Draft, DraftUpdate, DraftIDIn{ID: d.ID}); err != nil || out.Discarded {
+			t.Errorf("input %d: discarded (%v)", i, err)
+		}
+	}
+}
+
+// Review: a line break in a header value would make a header of its own in
+// the editor file (a hidden Bcc).
+func TestDraftInputsRefuseControlCharacters(t *testing.T) {
+	env := draftEnv(t)
+	bad := []DraftNewIn{
+		{Subject: "hi\nBcc: evil@x.org"},
+		{To: []string{"a@x.org\nBcc: evil@x.org"}},
+		{Cc: []string{"a@x.org\r"}},
+		{Attach: []string{"/tmp/a\nBcc: evil@x.org"}},
+	}
+	for _, in := range bad {
+		if _, err := Call(t.Context(), env, Draft, DraftNew, in); !errors.Is(err, ErrUsage) {
+			t.Errorf("%+v: %v", in, err)
+		}
+	}
+	d, err := Call(t.Context(), env, Draft, DraftNew, DraftNewIn{Subject: "ok"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Call(t.Context(), env, Draft, DraftSet, DraftSetIn{ID: d.ID, To: "a@x.org\nBcc: evil@x.org"}); !errors.Is(err, ErrUsage) {
+		t.Errorf("draft.set: %v", err)
+	}
+	id := idOf(t, env, `subject:"read one"`)
+	if _, err := Call(t.Context(), env, Draft, DraftForward, DraftForwardIn{ID: id, To: []string{"b@x.org\nBcc: e@x.org"}}); !errors.Is(err, ErrUsage) {
+		t.Errorf("forward: %v", err)
+	}
+}

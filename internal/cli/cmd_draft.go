@@ -3,6 +3,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -154,13 +155,14 @@ func newOutboxSendCmd(a *app) *cobra.Command {
 		Args:  noArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			out, err := ops.Call(cmd.Context(), a.env, callerPerm, ops.OutboxFlush, ops.FlushIn{})
-			if err == nil && out.Failed > 0 {
-				err = fmt.Errorf("the server refused %d message(s); see nou outbox list: %w", out.Failed, ops.ErrPartial)
-			}
 			a.notes(cmd, out.Notes)
-			return a.result(cmd, out, err, func(w io.Writer) error {
+			if err == nil {
+				err = worstOutcome(out.Results)
+			}
+			// The counts are printed whatever happened: they say what did.
+			return errors.Join(a.emit(cmd, out, func(w io.Writer) error {
 				return printf(w, "sent %d, failed %d, waiting %d\n", out.Sent, out.Failed, out.Waiting)
-			})
+			}), err)
 		},
 	}
 }

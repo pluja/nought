@@ -8,9 +8,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/emersion/go-message/mail"
@@ -157,7 +159,14 @@ func writeBody(w io.Writer, h mail.Header, m Outgoing) error {
 	}
 	for _, a := range m.Attachments {
 		var ah mail.AttachmentHeader
-		ah.SetContentType(a.ContentType, nil)
+		// Parameters are dropped: Go gives "text/plain; charset=utf-8"
+		// for .txt, which go-message would otherwise write as an empty
+		// type. Attachments travel in base64, so a charset changes nothing.
+		ct, _, err := mime.ParseMediaType(a.ContentType)
+		if err != nil {
+			ct = "application/octet-stream"
+		}
+		ah.SetContentType(ct, nil)
 		ah.Set("Content-Transfer-Encoding", "base64")
 		ah.SetFilename(filepath.Base(filepath.Clean("/" + filepath.ToSlash(a.Filename))))
 		aw, err := mw.CreateAttachment(ah)
@@ -196,9 +205,23 @@ func transferEncoding(text string) string {
 // trimmed so they do not read as soft breaks (except the signature
 // separator "-- "); lines starting with a space or "From " are
 // space-stuffed. Quoted lines (">") are kept as they are.
+// lines makes every line end in a bare LF, and drops control characters
+// other than tab: a bare CR (say, in a quoted hostile message) must not
+// reach the wire, where "<CR>.<CR>" may end the message early on some
+// servers.
+func lines(text string) string {
+	text = strings.NewReplacer("\r\n", "\n", "\r", "\n").Replace(text)
+	return strings.Map(func(r rune) rune {
+		if r != '\n' && r != '\t' && unicode.IsControl(r) {
+			return -1
+		}
+		return r
+	}, text)
+}
+
 func flowed(text string) string {
 	var b strings.Builder
-	for _, line := range strings.Split(strings.TrimSuffix(text, "\n"), "\n") {
+	for _, line := range strings.Split(strings.TrimSuffix(lines(text), "\n"), "\n") {
 		if line != "-- " {
 			line = strings.TrimRight(line, " ")
 		}

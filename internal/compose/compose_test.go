@@ -80,3 +80,29 @@ func TestSubjects(t *testing.T) {
 		}
 	}
 }
+
+// Review: a display name with a comma stays one recipient through the
+// editor file, and a name cannot smuggle in another address.
+func TestReplyQuotesDisplayNames(t *testing.T) {
+	me := Me{Addresses: []string{"me@example.org"}}
+	tests := []struct {
+		o    Original
+		want string
+	}{
+		{Original{From: "Doe, John <j@x.org>", To: []string{"me@example.org"}}, `"Doe, John" <j@x.org>`},
+		{Original{From: "a@x.org", ReplyTo: []string{"boss@corp.com, x <attacker@evil.com>"}}, `"boss@corp.com, x" <attacker@evil.com>`},
+		{Original{From: `"Quote \"Q\" Smith" <q@x.org>`}, `"Quote \"Q\" Smith" <q@x.org>`},
+	}
+	for _, tt := range tests {
+		d := Reply(tt.o, me, true)
+		back, err := Parse(Render(d), d)
+		if err != nil || !slices.Equal(back.To, []string{tt.want}) || len(back.Cc) != 0 {
+			t.Errorf("reply to %q: To %q, Cc %q (%v), want %q", tt.o.From, back.To, back.Cc, err, tt.want)
+		}
+	}
+	// Your own address is recognised even behind such a name.
+	d := Reply(Original{From: "a@x.org", To: []string{"Me, Myself <me@example.org>", "b@x.org"}}, me, true)
+	if !slices.Equal(d.Cc, []string{"b@x.org"}) {
+		t.Errorf("cc = %q", d.Cc)
+	}
+}

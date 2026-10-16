@@ -196,8 +196,9 @@ type Model struct {
 	editFile       func(path string) tea.Cmd
 	sendingID      string // the outbox entry in its undo window
 	sendingSubject string
-	quitSending    bool     // quitting waits for the queued mail to go
-	suggestions    []string // addresses for the To input
+	sendingAfter   time.Time // the end of its undo window
+	quitSending    bool      // quitting waits for the queued mail to go
+	suggestions    []string  // addresses for the To input
 	drafts         []ops.DraftInfo
 	outbox         []ops.OutboxEntry
 	draftIdx       int
