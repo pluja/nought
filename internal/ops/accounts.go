@@ -88,7 +88,7 @@ func runAccountAdd(ctx context.Context, env *Env, in AccountIn) (AccountOut, err
 		a.SMTP = server(in.SMTPHost, in.SMTPPort, in.SMTPTLS, 465, 587)
 	}
 
-	next := &config.Config{Accounts: append(slices.Clone(cfg.Accounts), a)}
+	next := withAccounts(cfg, append(slices.Clone(cfg.Accounts), a))
 	if err := next.Validate(); err != nil {
 		return AccountOut{}, usageError("%v", err)
 	}
@@ -117,6 +117,13 @@ func server(host string, port int, tls string, implicitPort, starttlsPort int) c
 		}
 	}
 	return config.Server{Host: host, Port: port, TLS: tls}
+}
+
+// withAccounts is cfg with other accounts, every other setting kept.
+func withAccounts(cfg *config.Config, accounts []config.Account) *config.Config {
+	next := *cfg
+	next.Accounts = accounts
+	return &next
 }
 
 func saveConfig(env *Env, next *config.Config) error {
@@ -225,7 +232,7 @@ var AccountSet = Op[AccountSetIn, AccountOut]{
 		if in.Deletion == "" && in.Label == "" && in.Color == "" {
 			return AccountOut{}, usageError("nothing to change")
 		}
-		next := &config.Config{Accounts: slices.Clone(cfg.Accounts)}
+		next := withAccounts(cfg, slices.Clone(cfg.Accounts))
 		a, _ := next.Account(in.Name)
 		if in.Deletion != "" {
 			a.Deletion = in.Deletion
@@ -268,12 +275,9 @@ var AccountRemove = Op[AccountName, AccountRemoveOut]{
 			return AccountRemoveOut{}, err
 		}
 		usesKeyring := a.PasswordCommand == ""
-		next := &config.Config{}
-		for _, acct := range cfg.Accounts {
-			if acct.Name != in.Name {
-				next.Accounts = append(next.Accounts, acct)
-			}
-		}
+		next := withAccounts(cfg, slices.DeleteFunc(slices.Clone(cfg.Accounts), func(acct config.Account) bool {
+			return acct.Name == in.Name
+		}))
 		if err := saveConfig(env, next); err != nil {
 			return AccountRemoveOut{}, err
 		}

@@ -126,3 +126,43 @@ func TestDefaultFolderRulesIgnoreWorkInProgress(t *testing.T) {
 		}
 	}
 }
+
+func TestAccountChangesKeepTheRestOfTheConfig(t *testing.T) {
+	env := newTestEnv(t)
+	addAccount(t, env, AccountIn{Name: "a", Email: "a@x.org", IMAPHost: "imap.x.org", Password: "p"})
+	cfg, err := env.Config()
+	if err != nil {
+		t.Fatal(err)
+	}
+	next, seven := *cfg, 7
+	next.TrashDays, next.SendDelay, next.PreferBody = &seven, "30s", config.BodyPlain
+	if err := saveConfig(env, &next); err != nil {
+		t.Fatal(err)
+	}
+	steps := map[string]func() error{
+		"add": func() error {
+			_, err := Call(t.Context(), env, Delete, AccountAdd, AccountIn{Name: "b", Email: "b@x.org", IMAPHost: "imap.x.org", Password: "p"})
+			return err
+		},
+		"set": func() error {
+			_, err := Call(t.Context(), env, Delete, AccountSet, AccountSetIn{Name: "a", Label: "A"})
+			return err
+		},
+		"remove": func() error {
+			_, err := Call(t.Context(), env, Delete, AccountRemove, AccountName{Name: "b"})
+			return err
+		},
+	}
+	for _, name := range []string{"add", "set", "remove"} {
+		if err := steps[name](); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		got, err := config.Load(env.Paths.ConfigFile)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.TrashDays == nil || *got.TrashDays != 7 || got.SendDelay != "30s" || got.PreferBody != config.BodyPlain {
+			t.Errorf("account %s dropped settings: %+v", name, got)
+		}
+	}
+}
