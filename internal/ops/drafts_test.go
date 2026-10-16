@@ -238,3 +238,17 @@ func TestDraftInputsRefuseControlCharacters(t *testing.T) {
 		t.Errorf("forward: %v", err)
 	}
 }
+
+// Mail arrives with CRLF line endings: the quote in the editor file must
+// not show them (^M in vim), nor invisible characters from a hostile mail.
+func TestReplyQuoteIsCleanText(t *testing.T) {
+	env := draftEnv(t)
+	out, err := Call(t.Context(), env, Draft, DraftReply, DraftReplyIn{ID: idOf(t, env, `subject:"read one"`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	file, err := os.ReadFile(out.Path)
+	if err != nil || strings.ContainsRune(string(file), '\r') || !strings.Contains(string(file), "> hello read one") {
+		t.Errorf("editor file %q, %v", file, err)
+	}
+}

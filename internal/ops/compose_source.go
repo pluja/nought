@@ -54,8 +54,11 @@ func source(ctx context.Context, env *Env, account, id string) (index.Message, [
 	if body == "" && content.HTML != "" {
 		body = render.HTMLToText(content.HTML)
 	}
+	// Quoted into the editor file and sent on to others: as clean as the
+	// reader shows it (no CR, which editors show as ^M, nor invisible or
+	// bidirectional controls from a hostile sender).
 	o := compose.Original{From: h.From, ReplyTo: h.ReplyTo, To: h.To, Cc: h.Cc, Subject: h.Subject,
-		MessageID: h.MessageID, References: h.References, Body: body}
+		MessageID: h.MessageID, References: h.References, Body: render.Sanitize(body)}
 	if !h.Date.IsZero() {
 		o.Date = h.Date.Local().Format("Mon, 02 Jan 2006 15:04")
 	}
