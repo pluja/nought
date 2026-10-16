@@ -20,6 +20,8 @@ import (
 
 	"github.com/emersion/go-imap/v2"
 	"github.com/emersion/go-imap/v2/imapclient"
+
+	"github.com/pluja/nought/internal/demo"
 )
 
 const (
@@ -29,6 +31,7 @@ const (
 
 func main() {
 	force := flag.Bool("force", false, "seed even if INBOX already has mail")
+	demoUser := flag.String("demo", "", "fill this (fresh) user with the README demo mailbox instead")
 	flag.Parse()
 	if os.Getenv("NOU_DEV") != "1" {
 		log.Fatal("seed: run via 'make testenv-seed' (NOU_DEV=1)")
@@ -36,6 +39,12 @@ func main() {
 	tlsConfig, err := testTLS(os.Getenv("NOU_DEV_CA"))
 	if err != nil {
 		log.Fatal(err)
+	}
+	if *demoUser != "" {
+		if err := seedDemo(*demoUser, tlsConfig); err != nil {
+			log.Fatalf("%s: %v", *demoUser, err)
+		}
+		return
 	}
 	for _, user := range []string{"alice@nought.test", "bob@nought.test"} {
 		n, err := seedUser(user, tlsConfig, *force)
@@ -101,6 +110,38 @@ func seedUser(user string, tlsConfig *tls.Config, force bool) (int, error) {
 		}
 	}
 	return len(msgs), c.Logout().Wait()
+}
+
+// seedDemo fills a user with the made-up demo mailbox (internal/demo).
+func seedDemo(user string, tlsConfig *tls.Config) error {
+	c, err := imapclient.DialTLS(addr, &imapclient.Options{TLSConfig: tlsConfig})
+	if err != nil {
+		return err
+	}
+	defer func() { _ = c.Close() }()
+	if err := c.Login(user, password).Wait(); err != nil {
+		return err
+	}
+	if err := c.Create("Archive", nil).Wait(); err != nil && !strings.Contains(err.Error(), "exists") {
+		return fmt.Errorf("create Archive: %w", err)
+	}
+	for _, m := range demo.Mailbox(time.Now()) {
+		var flags []imap.Flag
+		if m.Read {
+			flags = append(flags, imap.FlagSeen)
+		}
+		cmd := c.Append(m.Folder, int64(len(m.Raw)), &imap.AppendOptions{Flags: flags, Time: m.Date})
+		if _, err := cmd.Write([]byte(m.Raw)); err != nil {
+			return err
+		}
+		if err := cmd.Close(); err != nil {
+			return err
+		}
+		if _, err := cmd.Wait(); err != nil {
+			return fmt.Errorf("append to %s: %w", m.Folder, err)
+		}
+	}
+	return c.Logout().Wait()
 }
 
 const day = 24 * time.Hour

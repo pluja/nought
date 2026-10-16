@@ -11,3 +11,5 @@
 *.md
 !README.md
 /.screens/
+/testenv/demo-home/
+/testenv/demo-bin/

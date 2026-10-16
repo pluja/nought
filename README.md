@@ -7,13 +7,18 @@ It archives your mail locally, in plain files you own, and keeps the server down
 Everything it does is a command with `--json` output and stable exit codes, so shell scripts, cron
 jobs and AI agents can use it as easily as you can. There is also a keyboard-driven TUI.
 
-![The nought TUI: the inbox, with a reply thread open](docs/images/inbox.svg)
+![nought in a terminal: reading, replying with undo send, archiving](docs/images/demo.gif)
 
 > **Status:** early development. Import, archive, search, tags, sync with verified server deletion,
 > mirroring of what your phone does, writing and sending mail, and the TUI work. MCP, PGP and a GUI
 > are planned.
 
 ## A quick tour
+
+**Always know where a message lives:** on the server, leaving it soon, or only in your archive.
+Quotes are colored by level, so a long thread stays easy to follow.
+
+![The inbox, with a reply thread open](docs/images/inbox.svg)
 
 **HTML mail, read as text.** Nothing is rendered or fetched: no tracking pixels, no remote
 images. Links become numbered references, and `o` opens one after showing where it goes.
@@ -33,7 +38,8 @@ recipients, a sender that is not yours, an attachment you mention but forgot, a 
 
 ![The help screen](docs/images/help.svg)
 
-The screenshots show a made-up mailbox; `make screenshots` draws them from the real TUI.
+The screenshots and the demo show a made-up mailbox: `make screenshots` draws them from the real
+TUI, and `make demo` records the demo against the local test environment.
 
 ## Principles
 
@@ -294,6 +300,7 @@ nou sync && restic backup ~/.local/share/nought ~/.config/nought \
 make check     # lint (vet, staticcheck, golangci-lint), tests with coverage floor, govulncheck, build
 make test      # go test -race ./...
 make screenshots  # redraw docs/images from a made-up mailbox
+make demo         # record docs/images/demo.gif (needs make testenv-up and vhs)
 ```
 
 ## License
