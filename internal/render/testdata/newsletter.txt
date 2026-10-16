@@ -11,7 +11,7 @@ welcome & enjoy.
 Visit https://example.org[2] or click here or mail hi@example.org[3].
 
 │ Quoted line one.
-
+│
 │ Quoted line two.
 
   keep

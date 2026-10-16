@@ -46,9 +46,12 @@ const (
 
 // Styler decorates text for display. Every function receives text that is
 // already sanitized and must return it styled (e.g. with terminal escape
-// codes). A nil function leaves text plain.
+// codes). A nil function leaves text plain. Quote styles the bar of one
+// quote level (1 is the outermost), so each level can have its own color;
+// quoted text itself is Dim.
 type Styler struct {
-	Bold, Italic, Heading, Link, Dim, Quote func(string) string
+	Bold, Italic, Heading, Link, Dim func(string) string
+	Quote                            func(level int, bar string) string
 }
 
 func apply(f func(string) string, s string) string {
@@ -56,6 +59,24 @@ func apply(f func(string) string, s string) string {
 		return s
 	}
 	return f(s)
+}
+
+// quoteBars is the prefix of a line quoted depth times: a bar per level,
+// each in its level's style. A blank line gets no trailing space.
+func quoteBars(st Styler, depth int, blank bool) string {
+	depth = min(depth, maxQuoteDepth)
+	var b strings.Builder
+	for level := 1; level <= depth; level++ {
+		bar := "│ "
+		if blank && level == depth {
+			bar = "│"
+		}
+		if st.Quote != nil {
+			bar = st.Quote(level, bar)
+		}
+		b.WriteString(bar)
+	}
+	return b.String()
 }
 
 // Link is a link found in a message: its target and the text it was shown
@@ -254,7 +275,7 @@ func (w *textWriter) start(a atom.Atom, tok html.Token, tt html.TokenType, open 
 	case a == atom.Li:
 		w.line()
 		w.raw("• ")
-	case a == atom.Tr || a == atom.Dt || a == atom.Dd:
+	case a == atom.Tr || a == atom.Dt || a == atom.Dd || a == atom.Div:
 		w.line()
 	case a == atom.Td || a == atom.Th:
 		if w.lineLen > 0 {
@@ -308,12 +329,13 @@ func (w *textWriter) end(a atom.Atom, open *[]int) {
 		w.pre--
 		w.block()
 	case a == atom.Blockquote && w.quote > 0:
-		w.block()
+		w.line()
 		w.quote--
+		w.block()
 	case headings[a]:
 		w.heading = max(w.heading-1, 0)
 		w.block()
-	case a == atom.Li || a == atom.Tr || a == atom.Dt || a == atom.Dd:
+	case a == atom.Li || a == atom.Tr || a == atom.Dt || a == atom.Dd || a == atom.Div:
 		w.line()
 	case blocks[a]:
 		w.block()
@@ -358,6 +380,8 @@ type textWriter struct {
 	lineLen int  // characters on the current line
 	space   bool // a collapsed space is pending
 	breaks  int  // newlines already at the end
+	blank   int  // blank lines not written yet: their quote bars depend on the next line
+	depth   int  // quote depth of the last line written
 	links   []Link
 	look    look            // inherited styles of the element being converted
 	label   strings.Builder // plain text of the link being read
@@ -386,13 +410,23 @@ func (w *textWriter) addLink(u string) int {
 func (w *textWriter) raw(s string) {
 	for _, r := range s {
 		if r == '\n' {
-			w.b.WriteByte('\n')
+			if w.lineLen > 0 {
+				w.b.WriteByte('\n')
+			} else {
+				w.blank++
+			}
 			w.lineLen = 0
 			w.breaks++
 			continue
 		}
-		if w.lineLen == 0 && w.quote > 0 {
-			w.b.WriteString(apply(w.st.Quote, strings.Repeat("│ ", min(w.quote, maxQuoteDepth))))
+		if w.lineLen == 0 {
+			// A blank line takes the depth both its neighbours share, so a
+			// quote never ends on a bar of its own.
+			for ; w.blank > 0; w.blank-- {
+				w.b.WriteString(quoteBars(w.st, min(w.depth, w.quote), true) + "\n")
+			}
+			w.b.WriteString(quoteBars(w.st, w.quote, false))
+			w.depth = w.quote
 		}
 		w.b.WriteRune(r)
 		w.lineLen++
@@ -425,6 +459,8 @@ func (w *textWriter) wordStyle(word string) string {
 		return apply(w.st.Bold, word)
 	case w.italic > 0:
 		return apply(w.st.Italic, word)
+	case w.quote > 0:
+		return apply(w.st.Dim, word)
 	}
 	return word
 }
@@ -455,9 +491,12 @@ func isHTMLSpace(r rune) bool {
 	return r == ' ' || r == '\t' || r == '\n' || r == '\r' || r == '\f' || r == ' '
 }
 
+// newline is a <br>. Runs of them leave one blank line at most.
 func (w *textWriter) newline() {
 	w.space = false
-	w.raw("\n")
+	if w.breaks < 2 {
+		w.raw("\n")
+	}
 }
 
 // block ends the current line and leaves one blank line, at most.

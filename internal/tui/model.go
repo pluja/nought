@@ -96,7 +96,8 @@ type tagReq struct {
 type styles struct {
 	plain, title, accent, dim, bold, warn, errText lipgloss.Style
 	unreadDot, flag, tag, italic, link             lipgloss.Style
-	local, server, leaving                         lipgloss.Style // where a message lives
+	local, server, leaving                         lipgloss.Style   // where a message lives
+	quote                                          []lipgloss.Style // quote bars, one per level, repeating
 	selBG                                          color.Color
 }
 
@@ -119,7 +120,10 @@ func newStyles() styles {
 		local:     s.Foreground(c("2")),
 		server:    s.Foreground(c("4")),
 		leaving:   s.Foreground(c("3")),
-		selBG:     c("8"),
+		// Blue, green, magenta, yellow: neighbouring levels never share a
+		// color, so a level can be followed down the screen.
+		quote: []lipgloss.Style{s.Foreground(c("4")), s.Foreground(c("2")), s.Foreground(c("5")), s.Foreground(c("3"))},
+		selBG: c("8"),
 	}
 }
 

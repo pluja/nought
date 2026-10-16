@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -139,13 +140,13 @@ func TestTextWithLinks(t *testing.T) {
 
 func TestHTMLToStyled(t *testing.T) {
 	mark := func(tag string) func(string) string { return func(s string) string { return "<" + tag + ">" + s } }
-	st := Styler{Bold: mark("b"), Italic: mark("i"), Heading: mark("h"), Link: mark("a"), Dim: mark("d"), Quote: mark("q")}
+	st := Styler{Bold: mark("b"), Italic: mark("i"), Heading: mark("h"), Link: mark("a"), Dim: mark("d"), Quote: quoteMark}
 	text, links := HTMLToStyled(`<h2>News</h2><p><b>big</b> <em>soft</em> <a href="https://x.example">go there</a></p><blockquote>q</blockquote>`, st)
 	got := WithLinkList(text, links, st)
 	if len(links) != 1 || links[0].Label != "go there" {
 		t.Errorf("links = %+v", links)
 	}
-	for _, want := range []string{"<h>News", "<b>big", "<i>soft", "<a>go", "<d>[1]", "<q>│ q", "<h>Links", "<d>[1] https://x.example"} {
+	for _, want := range []string{"<h>News", "<b>big", "<i>soft", "<a>go", "<d>[1]", "<q1>│ <d>q", "<h>Links", "<d>[1] https://x.example"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("styled output lacks %q:\n%s", want, got)
 		}
@@ -363,5 +364,36 @@ func TestEmailBuilderLayout(t *testing.T) {
 		if strings.Contains(got, bad) {
 			t.Errorf("hidden %q shown:\n%s", bad, got)
 		}
+	}
+}
+
+// quoteMark shows each quote level's style as <qN>.
+func quoteMark(level int, s string) string { return "<q" + strconv.Itoa(level) + ">" + s }
+
+// Webmail (Tuta, Gmail, Outlook) puts each line in a <div>: lines, not
+// paragraphs. Quote bars run through blank lines inside a quote, at the
+// depth the lines around them share, and never trail a quote.
+func TestQuotedRepliesReadEasily(t *testing.T) {
+	in := `<div>I always like to test.</div><div><br></div><div><br></div><div><br></div><div>Oct 16 by a:</div>` +
+		`<blockquote><div>nice nice</div><div><br></div><div>On Fri, me wrote:</div>` +
+		`<blockquote><div>Good to know.</div><div>--</div></blockquote></blockquote>`
+	want := "I always like to test.\n\nOct 16 by a:\n\n│ nice nice\n│\n│ On Fri, me wrote:\n│\n│ │ Good to know.\n│ │ --"
+	if got := HTMLToText(in); got != want {
+		t.Errorf("got:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+// Plain-text quotes ("> > ") look the same as HTML ones once styled; with
+// no quote style (the CLI), they are left as written.
+func TestPlainQuotes(t *testing.T) {
+	in := "Thanks!\n\nOn Fri, Bob wrote:\n> Sure.\n>\n> > Lunch?\n>> Pizza http://x.example/a\n"
+	mark := func(tag string) func(string) string { return func(s string) string { return "<" + tag + ">" + s } }
+	got, _ := TextWithLinks(in, Styler{Link: mark("a"), Dim: mark("d"), Quote: quoteMark})
+	want := "Thanks!\n\nOn Fri, Bob wrote:\n<q1>│ <d>Sure.\n<q1>│\n<q1>│ <q2>│ <d>Lunch?\n<q1>│ <q2>│ <d>Pizza <a>http://x.example/a"
+	if got != want {
+		t.Errorf("got:\n%s\nwant:\n%s", got, want)
+	}
+	if plain, _ := TextWithLinks(in, Styler{}); !strings.Contains(plain, "> > Lunch?") {
+		t.Errorf("unstyled quotes changed:\n%s", plain)
 	}
 }

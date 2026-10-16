@@ -1089,3 +1089,18 @@ func TestArchiveView(t *testing.T) {
 		t.Errorf("header:\n%s", s)
 	}
 }
+
+// Each quote level has its own color, so a level can be followed.
+func TestQuoteLevelsHaveTheirOwnColors(t *testing.T) {
+	m := newTestModel(t, 120, 30)
+	for _, o := range []ops.ShowOut{
+		{BodyFrom: "text/plain", Source: "Thanks!\n> Sure.\n> > Lunch?\n"},
+		{BodyFrom: "text/html", Source: "Thanks!<blockquote>Sure.<blockquote>Lunch?</blockquote></blockquote>"},
+	} {
+		body, _ := m.styledBody(&o)
+		one, two := m.st.quote[0].Render("│ "), m.st.quote[1].Render("│ ")
+		if one == two || !strings.Contains(body, one+two) || !strings.Contains(ansi.Strip(body), "│ │ Lunch?") {
+			t.Errorf("%s: levels not told apart: %q", o.BodyFrom, body)
+		}
+	}
+}

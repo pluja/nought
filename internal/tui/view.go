@@ -652,7 +652,7 @@ func (m Model) styledBody(o *ops.ShowOut) (string, []render.Link) {
 		Heading: fn(m.st.title),
 		Link:    fn(m.st.link),
 		Dim:     fn(m.st.dim),
-		Quote:   fn(m.st.accent),
+		Quote:   func(level int, bar string) string { return m.st.quote[(level-1)%len(m.st.quote)].Render(bar) },
 	}
 	switch o.BodyFrom {
 	case "text/html":
