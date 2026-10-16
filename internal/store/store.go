@@ -8,7 +8,8 @@
 // fsynced, renamed into cur/, the directory is fsynced, and the file is read
 // back and hashed before Put reports success.
 //
-// A Maildir is not safe for concurrent use.
+// A Maildir is safe for concurrent use within one process; other
+// processes are tolerated: a file renamed by one is found again by a rescan.
 package store
 
 import (
@@ -24,6 +25,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -46,6 +48,9 @@ type hooks struct {
 
 // Maildir is one account's archive directory.
 type Maildir struct {
+	// mu guards names and the files: one Maildir is shared by concurrent
+	// ops (a background sync while the user tags or reads).
+	mu         sync.Mutex
 	root       *os.Root
 	names      map[string]string // hash -> path relative to root, e.g. "cur/<hash>:2,S"
 	foreign    int
@@ -99,10 +104,16 @@ func (m *Maildir) Foreign() int { return m.foreign }
 func (m *Maildir) Duplicates() int { return m.duplicates }
 
 // Len is the number of stored messages.
-func (m *Maildir) Len() int { return len(m.names) }
+func (m *Maildir) Len() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return len(m.names)
+}
 
 // Has reports whether a message is stored.
 func (m *Maildir) Has(hash string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	_, ok := m.names[hash]
 	return ok
 }
@@ -190,6 +201,8 @@ func (m *Maildir) readDir(sub string) ([]fs.DirEntry, error) {
 // the stored copy is damaged, it is replaced with raw. Put only succeeds once
 // the file on disk has been read back and matches the hash.
 func (m *Maildir) Put(raw []byte, flags string) (Entry, bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	hash := Hash(raw)
 	flags, err := NormalizeFlags(flags)
 	if err != nil {
@@ -292,6 +305,8 @@ func (m *Maildir) syncDir(sub string) error {
 
 // Get returns the raw bytes of a stored message.
 func (m *Maildir) Get(hash string) ([]byte, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	name, err := m.lookup(hash)
 	if err != nil {
 		return nil, err
@@ -312,6 +327,8 @@ func (m *Maildir) readName(name string) ([]byte, error) {
 
 // Verify re-reads a stored message and checks it still matches its hash.
 func (m *Maildir) Verify(hash string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	name, err := m.lookup(hash)
 	if err != nil {
 		return err
@@ -332,6 +349,8 @@ func (m *Maildir) verifyName(name, hash string) error {
 
 // Flags returns the current Maildir flags of a message.
 func (m *Maildir) Flags(hash string) (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	name, err := m.lookup(hash)
 	if err != nil {
 		return "", err
@@ -346,6 +365,8 @@ func (m *Maildir) SetFlags(hash, flags string) error {
 	if err != nil {
 		return err
 	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	name, err := m.lookup(hash)
 	if err != nil {
 		return err
@@ -365,14 +386,17 @@ func (m *Maildir) SetFlags(hash, flags string) error {
 // All yields every stored message in hash order.
 func (m *Maildir) All() iter.Seq[Entry] {
 	return func(yield func(Entry) bool) {
-		hashes := make([]string, 0, len(m.names))
-		for h := range m.names {
-			hashes = append(hashes, h)
+		// A snapshot: the loop body may use the Maildir.
+		m.mu.Lock()
+		entries := make([]Entry, 0, len(m.names))
+		for h, name := range m.names {
+			_, flags, _ := parseName(path.Base(name))
+			entries = append(entries, Entry{Hash: h, Flags: flags})
 		}
-		slices.Sort(hashes)
-		for _, h := range hashes {
-			_, flags, _ := parseName(path.Base(m.names[h]))
-			if !yield(Entry{Hash: h, Flags: flags}) {
+		m.mu.Unlock()
+		slices.SortFunc(entries, func(a, b Entry) int { return strings.Compare(a.Hash, b.Hash) })
+		for _, e := range entries {
+			if !yield(e) {
 				return
 			}
 		}
@@ -440,20 +464,15 @@ func isOurTemp(name string) bool { return strings.HasPrefix(name, tempPrefix) }
 // verified write there (through its os.Root, on any filesystem), then the
 // removal here. A crash in between leaves two copies, never none; moving a
 // message the destination already holds intact just removes it here.
+//
+// It never holds both Maildirs' locks at once, so moves in opposite
+// directions cannot deadlock.
 func (m *Maildir) MoveTo(dst *Maildir, hash string) error {
 	if dst.Verify(hash) != nil {
-		name, err := m.lookup(hash)
+		raw, flags, err := m.readVerified(hash)
 		if err != nil {
 			return err
 		}
-		raw, err := m.readName(name)
-		if err != nil {
-			return err
-		}
-		if Hash(raw) != hash {
-			return fmt.Errorf("%s: %w", hash[:12], ErrCorrupt)
-		}
-		_, flags, _ := parseName(path.Base(name))
 		if _, _, err := dst.Put(raw, flags); err != nil {
 			return fmt.Errorf("move message: %w", err)
 		}
@@ -461,9 +480,30 @@ func (m *Maildir) MoveTo(dst *Maildir, hash string) error {
 	return m.Remove(hash)
 }
 
+// readVerified returns a message that matches its hash, and its flags.
+func (m *Maildir) readVerified(hash string) ([]byte, string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	name, err := m.lookup(hash)
+	if err != nil {
+		return nil, "", err
+	}
+	raw, err := m.readName(name)
+	if err != nil {
+		return nil, "", err
+	}
+	if Hash(raw) != hash {
+		return nil, "", fmt.Errorf("%s: %w", hash[:12], ErrCorrupt)
+	}
+	_, flags, _ := parseName(path.Base(name))
+	return raw, flags, nil
+}
+
 // Remove deletes a stored message for good. It is only used for mail the
 // user deleted.
 func (m *Maildir) Remove(hash string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	name, err := m.lookup(hash)
 	if err != nil {
 		return err

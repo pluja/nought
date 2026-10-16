@@ -4,11 +4,13 @@ package store
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -492,5 +494,45 @@ func TestMoveKeepsADamagedCopy(t *testing.T) {
 	}
 	if !a.Has(e.Hash) || b.Has(e.Hash) {
 		t.Error("a damaged copy must stay where it is")
+	}
+}
+
+// Review: one Maildir is shared by concurrent ops (a background sync in
+// the TUI while the user tags or reads); go test -race guards this.
+func TestConcurrentUse(t *testing.T) {
+	m, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wg sync.WaitGroup
+	for i := range 4 {
+		wg.Go(func() {
+			for j := range 20 {
+				raw := fmt.Appendf(nil, "Subject: %d-%d\r\n\r\nx\r\n", i, j)
+				e, _, err := m.Put(raw, "")
+				if err != nil {
+					t.Error(err)
+					return
+				}
+				_ = m.Has(e.Hash)
+				_, _ = m.Get(e.Hash)
+				_ = m.SetFlags(e.Hash, "S")
+				for range m.All() {
+					break
+				}
+				if j%5 == 0 {
+					_ = m.MoveTo(other, e.Hash)
+					_ = other.MoveTo(m, e.Hash)
+				}
+			}
+		})
+	}
+	wg.Wait()
+	if m.Len() != 80 {
+		t.Errorf("stored %d, want 80", m.Len())
 	}
 }
