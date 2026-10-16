@@ -124,10 +124,7 @@ func (m Model) renderScreen() string {
 }
 
 func (m Model) renderHeader() string {
-	q := m.query
-	if q == "" {
-		q = "all mail"
-	}
+	q := viewName(m.query)
 	n := strconv.Itoa(len(m.msgs))
 	if m.more {
 		n += "+"
@@ -143,6 +140,24 @@ func (m Model) renderHeader() string {
 			m.st.warn.Render("  · deleted for good "+when) + m.st.dim.Render(" · # restores · :empty-trash")
 	}
 	return fit(head, m.width, 1)
+}
+
+// viewName is the header's name for a view: the standard views by name,
+// searches by their query.
+func viewName(query string) string {
+	switch query {
+	case queryInbox:
+		return "Inbox"
+	case queryUnread:
+		return "Unread"
+	case queryFlagged:
+		return "Flagged"
+	case queryArchive:
+		return "Archive"
+	case queryAll:
+		return "All mail"
+	}
+	return query
 }
 
 // countdown is how long until a message is deleted for good (trash or an

@@ -160,6 +160,7 @@ func (m Model) loadSidebar() tea.Cmd {
 			{label: "Inbox", query: queryInbox, count: count(queryInbox)},
 			{label: "Unread", query: queryUnread, count: count(queryUnread)},
 			{label: "Flagged", query: queryFlagged, count: count(queryFlagged)},
+			{label: "Archive", query: queryArchive, count: -1},
 			{label: "All mail", query: queryAll, count: -1},
 		}
 		if n := count(queryTrash); n > 0 { // shown only when there is something in it

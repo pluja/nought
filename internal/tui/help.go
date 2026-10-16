@@ -27,7 +27,8 @@ func (m Model) helpGroups() (left, right []helpGroup) {
 			{"b", "show / hide the sidebar"},
 		}},
 		{"Go to", [][2]string{
-			{"gi gu gf", "inbox, unread, flagged"},
+			{"gi ge", "inbox, archive"},
+			{"gu gf", "unread, flagged"},
 			{"ga gt", "all mail, trash"},
 			{"/", "search"},
 			{":", "command, e.g. :search :tag :sync"},

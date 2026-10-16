@@ -53,6 +53,8 @@ func (m Model) key(k tea.KeyPressMsg) (Model, tea.Cmd) {
 			return m.goTo(queryFlagged)
 		case "t":
 			return m.goTo(queryTrash)
+		case "e":
+			return m.goTo(queryArchive)
 		}
 	}
 

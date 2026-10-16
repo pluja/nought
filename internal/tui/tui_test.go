@@ -167,7 +167,7 @@ func screen(m Model) string { return ansi.Strip(m.render()) }
 func TestOpensOnTheInbox(t *testing.T) {
 	m := newTestModel(t, 120, 30)
 	s := screen(m)
-	for _, want := range []string{"tag:inbox", "3 messages", "Lunch on Friday?", "Invoice 2026-114",
+	for _, want := range []string{"nought  Inbox  3 messages", "Lunch on Friday?", "Invoice 2026-114",
 		"Inbox", "no accounts", "? more"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("screen lacks %q:\n%s", want, s)
@@ -1067,5 +1067,22 @@ func TestSidebarScrollsToTheSelection(t *testing.T) {
 	m.focus, m.sideIdx = focusSidebar, 0
 	if s := screen(m); !strings.Contains(s, "Inbox") {
 		t.Errorf("top of the sidebar not visible:\n%s", s)
+	}
+}
+
+// Archive shows what was dealt with: out of the inbox, not in the trash.
+func TestArchiveView(t *testing.T) {
+	m := newTestModel(t, 120, 30)
+	m = drive(t, m, key("e")) // archive the first message
+	m = drive(t, m, key("j"), key("#"))
+	m = drive(t, m, keys("ge")...)
+	if m.query != queryArchive || len(m.msgs) != 1 || m.msgs[0].Subject != "Lunch on Friday?" {
+		t.Fatalf("archive view: query %q, %+v", m.query, m.msgs)
+	}
+	if !slices.ContainsFunc(m.side, func(it sideItem) bool { return it.label == "Archive" && it.query == queryArchive }) {
+		t.Errorf("no Archive in the sidebar: %+v", m.side)
+	}
+	if s := screen(m); !strings.Contains(s, "nought  Archive  1 messages") {
+		t.Errorf("header:\n%s", s)
 	}
 }

@@ -38,6 +38,7 @@ const (
 	queryFlagged = "is:flagged"
 	queryAll     = ""
 	queryTrash   = "tag:deleted"
+	queryArchive = "-tag:inbox" // dealt with (searches leave the trash out)
 )
 
 type focus int

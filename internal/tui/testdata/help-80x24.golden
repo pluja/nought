@@ -9,7 +9,8 @@ nought  keys  j/k scroll · any other key closes
    b              show / hide the sidebar                                       
                                                                                 
  Go to                                                                          
-   gi gu gf       inbox, unread, flagged                                        
+   gi ge          inbox, archive                                                
+   gu gf          unread, flagged                                               
    ga gt          all mail, trash                                               
    /              search                                                        
    :              command, e.g. :search :tag :sync                              
@@ -21,4 +22,3 @@ nought  keys  j/k scroll · any other key closes
    ?              this help                                                     
    q              quit                                                          
                                                                                 
- Act on a message                                                               
