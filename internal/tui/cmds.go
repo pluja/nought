@@ -6,6 +6,8 @@ import (
 	"cmp"
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -59,6 +61,33 @@ type (
 		err error
 	}
 )
+
+// savedMsg reports attachments written to disk.
+type savedMsg struct {
+	dir   string
+	files []ops.SavedFile
+	err   error
+}
+
+func (m Model) saveAttachments(msg ops.MessageOut, dir string) tea.Cmd {
+	return func() tea.Msg {
+		files, err := ops.Call(m.ctx, m.env, permTag, ops.MsgSave, ops.SaveIn{ID: msg.ID, Account: msg.Account, Dir: dir})
+		return savedMsg{dir: dir, files: files, err: err}
+	}
+}
+
+// defaultSaveDir is where attachments go unless the user says otherwise:
+// Downloads, if there is one, else the home directory.
+func defaultSaveDir() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "."
+	}
+	if info, err := os.Stat(filepath.Join(home, "Downloads")); err == nil && info.IsDir() {
+		return "~/Downloads"
+	}
+	return "~/"
+}
 
 // pageSize is how many messages a view loads.
 const pageSize = 500

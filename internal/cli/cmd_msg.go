@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -79,7 +80,7 @@ func newMsgCmd(a *app) *cobra.Command {
 		RunE:  func(cmd *cobra.Command, _ []string) error { return cmd.Help() },
 	}
 	cmd.AddCommand(newMsgShowCmd(a), newMsgTagCmd(a), newMsgArchiveCmd(a), newMsgDeleteCmd(a), newMsgRestoreCmd(a),
-		newMsgReplyCmd(a), newMsgForwardCmd(a))
+		newMsgReplyCmd(a), newMsgForwardCmd(a), newMsgSaveCmd(a))
 	return cmd
 }
 
@@ -144,8 +145,8 @@ func printMessage(w io.Writer, out ops.ShowOut) error {
 			return err
 		}
 	}
-	for _, att := range out.Attachments {
-		if err := printf(w, "Attach:  %s (%s, %d bytes)\n", sanitize(att.Filename), sanitize(att.ContentType), att.Size); err != nil {
+	for i, att := range out.Attachments {
+		if err := printf(w, "Attach:  %d %s (%s, %d bytes)\n", i+1, sanitize(att.Filename), sanitize(att.ContentType), att.Size); err != nil {
 			return err
 		}
 	}
@@ -160,6 +161,40 @@ func printMessage(w io.Writer, out ops.ShowOut) error {
 		body = render.WithLinkList(text, links, render.Styler{})
 	}
 	return printf(w, "\n%s\n", strings.TrimRight(render.Sanitize(body), "\n"))
+}
+
+func newMsgSaveCmd(a *app) *cobra.Command {
+	in := ops.SaveIn{Dir: "."}
+	cmd := &cobra.Command{
+		Use:   "save <id> [number...]",
+		Short: ops.MsgSave.Summary,
+		Long: ops.MsgSave.Summary + ": all of them, or those numbered as in nou msg show.\n" +
+			"Names are made safe, and an existing file is never overwritten (\"a (1).pdf\").",
+		Example: "  nou msg save a3f9c2e1b0d4 --dir ~/Documents/invoices\n  nou msg save a3f9c2e1b0d4 2",
+		Args:    rangeArgs(1, 100),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			in.ID = args[0]
+			for _, s := range args[1:] {
+				n, err := strconv.Atoi(s)
+				if err != nil {
+					return fmt.Errorf("%q is not an attachment number: %w", s, ops.ErrUsage)
+				}
+				in.Only = append(in.Only, n)
+			}
+			out, err := ops.Call(cmd.Context(), a.env, callerPerm, ops.MsgSave, in)
+			return a.result(cmd, out, err, func(w io.Writer) error {
+				for _, f := range out {
+					if err := printf(w, "saved %s (%d bytes)\n", sanitize(f.Name), f.Size); err != nil {
+						return err
+					}
+				}
+				return nil
+			})
+		},
+	}
+	cmd.Flags().StringVarP(&in.Account, "account", "a", "", "account, if the id exists in several")
+	cmd.Flags().StringVarP(&in.Dir, "dir", "d", ".", "directory to save into (created if missing)")
+	return cmd
 }
 
 func newMsgTagCmd(a *app) *cobra.Command {

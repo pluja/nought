@@ -1153,3 +1153,39 @@ func TestLinksOpenWithTheSystemOpener(t *testing.T) {
 		}
 	}
 }
+
+// w saves the open message's attachments, asking where (Downloads first).
+func TestSaveAttachmentsFromTheReader(t *testing.T) {
+	m := newTestModel(t, 120, 30)
+	export := filepath.Join(t.TempDir(), "export", "Inbox")
+	raw := "From: Hosting <billing@example.org>\r\nTo: me@example.org\r\nMessage-ID: <inv@x>\r\nDate: Thu, 15 Oct 2026 11:00:00 +0000\r\n" +
+		"Subject: Invoice\r\nMIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=b\r\n\r\n--b\r\nContent-Type: text/plain\r\n\r\nattached\r\n" +
+		"--b\r\nContent-Type: application/pdf\r\nContent-Disposition: attachment; filename=invoice.pdf\r\n\r\n%PDF\r\n--b--\r\n"
+	if err := os.MkdirAll(export, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(export, "inv.eml"), []byte(raw), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ops.Call(t.Context(), m.env, ops.Delete, ops.ImportRun, ops.ImportIn{Path: filepath.Dir(export), Account: "personal", Inbox: true}); err != nil {
+		t.Fatal(err)
+	}
+	m = drive(t, m, keys("gi")...) // reload
+	m = drive(t, m, keys("gg")...) // the invoice is the newest
+	m = drive(t, m, key("enter"))
+	m = drive(t, m, key("w"))
+	if m.inputKind != inputSaveDir || !strings.Contains(screen(m), "save 1 attachment to:") {
+		t.Fatalf("no prompt:\n%s", screen(m))
+	}
+	dir := t.TempDir()
+	m.input.SetValue(dir)
+	m = drive(t, m, key("enter"))
+	if b, err := os.ReadFile(filepath.Join(dir, "invoice.pdf")); err != nil || string(b) != "%PDF" || !strings.Contains(m.notice, "saved invoice.pdf") {
+		t.Errorf("notice %q, file %q %v", m.notice, b, err)
+	}
+	m = drive(t, m, key("J")) // the next message, without attachments
+	m = drive(t, m, key("w"))
+	if m.inputKind != inputNone || !strings.Contains(m.notice, "no attachments") {
+		t.Errorf("w without attachments: input %d notice %q", m.inputKind, m.notice)
+	}
+}

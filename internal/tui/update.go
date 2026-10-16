@@ -179,6 +179,16 @@ func (m Model) update(msg tea.Msg) (Model, tea.Cmd) {
 			m.suggestions = msg.list
 		}
 		return m, nil
+	case savedMsg:
+		switch {
+		case msg.err != nil:
+			m.notice, m.noticeErr = "save: "+msg.err.Error(), true
+		case len(msg.files) == 1:
+			m.notice = "saved " + msg.files[0].Name + " in " + msg.dir
+		default:
+			m.notice = "saved " + strconv.Itoa(len(msg.files)) + " attachments in " + msg.dir
+		}
+		return m, nil
 	case draftsDoneMsg:
 		return m.draftsDone(msg), nil
 

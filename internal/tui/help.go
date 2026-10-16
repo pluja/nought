@@ -61,6 +61,7 @@ func (m Model) helpGroups() (left, right []helpGroup) {
 			{"o", "open a link (asks first)"},
 			{"L", "show / hide its links"},
 			{"v", "plain text / HTML version"},
+			{"w", "save its attachments"},
 		}},
 	}
 	return left, right

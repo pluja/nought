@@ -502,6 +502,14 @@ func (m Model) renderPromptLine() string {
 		return fit(line, m.width, 1)
 	case m.inputKind == inputAttach:
 		return pad("attach file: "+m.input.View(), m.width)
+	case m.inputKind == inputSaveDir && m.open != nil:
+		what := "attachment"
+		if n := len(m.open.Attachments); n > 1 {
+			what = strconv.Itoa(n) + " attachments"
+		} else {
+			what = "1 " + what
+		}
+		return pad("save "+what+" to: "+m.input.View(), m.width)
 	case m.sendingID != "":
 		// The undo window stays in sight while you work; news follows it.
 		line := m.st.accent.Render(m.sendingLine())
@@ -541,6 +549,9 @@ func (m Model) renderHints() string {
 		hints = [][2]string{{"enter", "confirm"}, {"esc", "cancel"}}
 	case m.focus == focusReader:
 		hints = [][2]string{{"e", "archive"}, {"o", "link"}, {"J/K", "next"}, {"esc", "back"}}
+		if m.open != nil && len(m.open.Attachments) > 0 {
+			hints = slices.Insert(hints, 2, [2]string{"w", "save files"})
+		}
 	case m.focus == focusSidebar:
 		hints = [][2]string{{"enter", "show"}, {"esc", "back"}}
 	case m.inputKind == inputTo:

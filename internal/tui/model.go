@@ -62,6 +62,7 @@ const (
 	inputTo             // the review screen's To line
 	inputAttach         // a file to attach
 	inputConfirmDiscard // discard the draft under review
+	inputSaveDir        // where to save the open message's attachments
 )
 
 // sideItem is one entry in the sidebar.

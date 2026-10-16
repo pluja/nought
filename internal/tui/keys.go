@@ -183,6 +183,16 @@ func (m Model) messageAction(key string) (Model, tea.Cmd) {
 		m.deleting = sel
 		m.inputKind = inputConfirmDelete
 		return m, nil
+	case "w":
+		switch {
+		case m.open == nil || m.open.Message.ID != sel.ID:
+			m.notice = "open the message first (Enter)"
+		case len(m.open.Attachments) == 0:
+			m.notice = "no attachments in this message"
+		default:
+			return m.startInput(inputSaveDir, defaultSaveDir())
+		}
+		return m, nil
 	}
 	return m, nil
 }
@@ -375,6 +385,10 @@ func (m Model) submit(kind inputKind, value string) (Model, tea.Cmd) {
 		m.suggestions = nil
 		if value = strings.TrimSuffix(value, ","); value != "" {
 			return m, m.setDraft(ops.DraftSetIn{ID: m.composing.ID, To: value})
+		}
+	case inputSaveDir:
+		if sel, ok := m.selected(); ok && value != "" {
+			return m, m.saveAttachments(sel, value)
 		}
 	case inputAttach:
 		if value != "" {

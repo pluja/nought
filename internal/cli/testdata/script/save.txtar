@@ -1,0 +1,42 @@
+# Attachments are numbered in msg show and saved with msg save.
+exec nou import mail --account test
+exec nou search subject:files
+capture ID '^(\S+)'
+exec nou msg show $ID
+stdout '^Attach:  1 ../../.bashrc \(text/plain, 4 bytes\)$'
+stdout '^Attach:  2 report.pdf \(application/pdf, 4 bytes\)$'
+
+exec nou msg save $ID 2 --dir out
+stdout '^saved report.pdf \(4 bytes\)$'
+exists out/report.pdf
+exec nou msg save $ID --dir out
+stdout '^saved bashrc '
+stdout '^saved report \(1\).pdf '
+! exists .bashrc
+
+! exec nou msg save $ID 3 --dir out --json
+stderr '"code":"usage"'
+! stdout .
+
+-- mail/Inbox/cur/1;2,S --
+From: a@example.org
+Message-ID: <files@x>
+Subject: two files
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary=b
+
+--b
+Content-Type: text/plain
+
+see files
+--b
+Content-Type: text/plain
+Content-Disposition: attachment; filename="../../.bashrc"
+
+evil
+--b
+Content-Type: application/pdf
+Content-Disposition: attachment; filename=report.pdf
+
+%PDF
+--b--
