@@ -172,25 +172,25 @@ func TestResolve(t *testing.T) {
 	}
 }
 
-func TestHasHashAndMessageID(t *testing.T) {
+// Candidates finds an account's copies of a message by content or by
+// Message-ID (the importer's duplicate check), never another account's.
+func TestCandidates(t *testing.T) {
 	ix, _ := openIndex(t)
 	sample(t, ix)
 	ctx := t.Context()
 	for _, tt := range []struct {
-		fn   func(context.Context, string, string) (bool, error)
-		acct string
-		arg  string
-		want bool
+		acct, hash, id string
+		want           int
 	}{
-		{ix.HasHash, "personal", hash(1), true},
-		{ix.HasHash, "work", hash(1), false},
-		{ix.HasMessageID, "personal", "two@x", true},
-		{ix.HasMessageID, "work", "two@x", false},
-		{ix.HasMessageID, "work", "", false},
+		{"personal", hash(1), "", 1},
+		{"work", hash(1), "", 0},
+		{"personal", hash(15), "two@x", 1},
+		{"work", hash(15), "two@x", 0},
+		{"personal", hash(15), "", 0}, // an empty Message-ID matches nothing
 	} {
-		got, err := tt.fn(ctx, tt.acct, tt.arg)
-		if err != nil || got != tt.want {
-			t.Errorf("(%s, %s) = %v, %v; want %v", tt.acct, tt.arg, got, err, tt.want)
+		got, err := ix.Candidates(ctx, tt.acct, tt.hash, tt.id)
+		if err != nil || len(got) != tt.want {
+			t.Errorf("Candidates(%s, %.6s, %q) = %d, %v; want %d", tt.acct, tt.hash, tt.id, len(got), err, tt.want)
 		}
 	}
 }

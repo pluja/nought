@@ -82,8 +82,8 @@ func TestReopenFindsMessages(t *testing.T) {
 	}
 
 	again := open(t, dir)
-	if !again.Has(e.Hash) || again.Foreign() != 1 {
-		t.Errorf("Has = %v, Foreign = %d", again.Has(e.Hash), again.Foreign())
+	if !again.Has(e.Hash) || again.Len() != 1 {
+		t.Errorf("Has = %v, Len = %d", again.Has(e.Hash), again.Len())
 	}
 	flags, err := again.Flags(e.Hash)
 	if err != nil || flags != "S" {
@@ -300,8 +300,8 @@ func TestDuplicatesAreDeterministic(t *testing.T) {
 	}
 	for range 3 {
 		again := open(t, dir)
-		if again.Duplicates() != 1 || again.Len() != 1 {
-			t.Fatalf("Duplicates = %d, Len = %d", again.Duplicates(), again.Len())
+		if again.Len() != 1 {
+			t.Fatalf("Len = %d", again.Len())
 		}
 		if flags, _ := again.Flags(e.Hash); flags != "FS" { // "FS" sorts before "S"
 			t.Errorf("flags = %q, want FS", flags)
@@ -326,8 +326,8 @@ func TestSymlinksAreNotFollowed(t *testing.T) {
 		t.Fatal(err)
 	}
 	m := open(t, dir)
-	if m.Has(Hash([]byte(msg))) || m.Foreign() != 1 {
-		t.Errorf("symlink treated as a message: Has=%v Foreign=%d", m.Has(Hash([]byte(msg))), m.Foreign())
+	if m.Has(Hash([]byte(msg))) || m.Len() != 0 {
+		t.Errorf("symlink treated as a message: Has=%v Len=%d", m.Has(Hash([]byte(msg))), m.Len())
 	}
 }
 

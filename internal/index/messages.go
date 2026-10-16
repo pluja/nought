@@ -108,31 +108,6 @@ func unix(t time.Time) int64 {
 	return t.Unix()
 }
 
-// HasHash reports whether the account already has a message with this hash.
-func (ix *Index) HasHash(ctx context.Context, account, hash string) (bool, error) {
-	return ix.exists(ctx, `SELECT 1 FROM messages m JOIN accounts a ON a.id = m.account_id
-		WHERE a.name = ? AND m.hash = ?`, account, hash)
-}
-
-// HasMessageID reports whether the account already has a message with this
-// Message-ID. Empty IDs never match.
-func (ix *Index) HasMessageID(ctx context.Context, account, messageID string) (bool, error) {
-	if messageID == "" {
-		return false, nil
-	}
-	return ix.exists(ctx, `SELECT 1 FROM messages m JOIN accounts a ON a.id = m.account_id
-		WHERE a.name = ? AND m.message_id = ?`, account, messageID)
-}
-
-func (ix *Index) exists(ctx context.Context, query string, args ...any) (bool, error) {
-	var one int
-	err := ix.db.QueryRowContext(ctx, query+" LIMIT 1", args...).Scan(&one)
-	if errors.Is(err, sql.ErrNoRows) {
-		return false, nil
-	}
-	return err == nil, err
-}
-
 // Candidates returns the account's messages that have this hash or, if
 // messageID is not empty, this Message-ID.
 func (ix *Index) Candidates(ctx context.Context, account, hash, messageID string) ([]Message, error) {

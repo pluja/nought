@@ -220,7 +220,7 @@ func TestDeletionBookkeeping(t *testing.T) {
 	if err := ix.DeleteMessage(ctx, due[0]); err != nil {
 		t.Fatal(err)
 	}
-	if ok, _ := ix.HasHash(ctx, "a", hash(3)); ok {
+	if left, _ := ix.Candidates(ctx, "a", hash(3), ""); len(left) != 0 {
 		t.Error("message still indexed")
 	}
 	if on, _ := ix.OnServer(ctx, "a", []string{hash(3)}); len(on[hash(3)]) != 0 {

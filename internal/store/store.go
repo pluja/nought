@@ -50,13 +50,11 @@ type hooks struct {
 type Maildir struct {
 	// mu guards names and the files: one Maildir is shared by concurrent
 	// ops (a background sync while the user tags or reads).
-	mu         sync.Mutex
-	root       *os.Root
-	names      map[string]string // hash -> path relative to root, e.g. "cur/<hash>:2,S"
-	foreign    int
-	duplicates int
-	hooks      hooks
-	now        func() time.Time
+	mu    sync.Mutex
+	root  *os.Root
+	names map[string]string // hash -> path relative to root, e.g. "cur/<hash>:2,S"
+	hooks hooks
+	now   func() time.Time
 }
 
 // staleTemp is how old a temp file must be before Open removes it, so a
@@ -94,15 +92,6 @@ func Open(dir string) (*Maildir, error) {
 // Close releases the directory handle.
 func (m *Maildir) Close() error { return m.root.Close() }
 
-// Foreign is the number of files in cur/ and new/ that nought did not write.
-// They are left alone.
-func (m *Maildir) Foreign() int { return m.foreign }
-
-// Duplicates is the number of extra files holding an already seen hash
-// (e.g. the same message with different flags, left by another program).
-// The lexicographically smallest name wins; the others are left alone.
-func (m *Maildir) Duplicates() int { return m.duplicates }
-
 // Len is the number of stored messages.
 func (m *Maildir) Len() int {
 	m.mu.Lock()
@@ -121,7 +110,6 @@ func (m *Maildir) Has(hash string) bool {
 // scan rebuilds the hash -> name map from cur/ and new/.
 func (m *Maildir) scan() error {
 	names := make(map[string]string)
-	foreign, duplicates := 0, 0
 	for _, sub := range []string{"new", "cur"} {
 		entries, err := m.readDir(sub)
 		if err != nil {
@@ -130,20 +118,18 @@ func (m *Maildir) scan() error {
 		for _, e := range entries {
 			hash, _, ok := parseName(e.Name())
 			if !ok || !e.Type().IsRegular() {
-				foreign++
-				continue
+				continue // not nought's: left alone
 			}
 			name := sub + "/" + e.Name()
-			if prev, seen := names[hash]; seen {
-				duplicates++
-				if prev < name {
-					continue
-				}
+			// The same message twice (copied by another program): one is
+			// chosen the same way every time.
+			if prev, seen := names[hash]; seen && prev < name {
+				continue
 			}
 			names[hash] = name
 		}
 	}
-	m.names, m.foreign, m.duplicates = names, foreign, duplicates
+	m.names = names
 	return nil
 }
 
