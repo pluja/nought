@@ -17,6 +17,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/pluja/nought/internal/config"
@@ -1099,6 +1100,9 @@ func TestQuoteLevelsHaveTheirOwnColors(t *testing.T) {
 	} {
 		body, _ := m.styledBody(&o)
 		one, two := m.st.quote[0].Render("│ "), m.st.quote[1].Render("│ ")
+		if m.st.quote[1].GetForeground() != lipgloss.Color("5") {
+			t.Error("level 2 is not magenta: yellow is for warnings")
+		}
 		if one == two || !strings.Contains(body, one+two) || !strings.Contains(ansi.Strip(body), "│ │ Lunch?") {
 			t.Errorf("%s: levels not told apart: %q", o.BodyFrom, body)
 		}

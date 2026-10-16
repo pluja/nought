@@ -3,6 +3,7 @@
 package render
 
 import (
+	"bytes"
 	"net/url"
 	"regexp"
 	"strconv"
@@ -46,12 +47,13 @@ const (
 
 // Styler decorates text for display. Every function receives text that is
 // already sanitized and must return it styled (e.g. with terminal escape
-// codes). A nil function leaves text plain. Quote styles the bar of one
-// quote level (1 is the outermost), so each level can have its own color;
-// quoted text itself is Dim.
+// codes). A nil function leaves text plain. Quote styles one quote level
+// (1 is the outermost): its bars, and the attribution line that introduces
+// it ("On Fri, Bob wrote:"), so each level can have its own color; quoted
+// text itself is Dim.
 type Styler struct {
 	Bold, Italic, Heading, Link, Dim func(string) string
-	Quote                            func(level int, bar string) string
+	Quote                            func(level int, s string) string
 }
 
 func apply(f func(string) string, s string) string {
@@ -298,7 +300,11 @@ func (w *textWriter) start(a atom.Atom, tok html.Token, tt html.TokenType, open 
 		w.block()
 		w.pre++
 	case a == atom.Blockquote:
-		w.block()
+		if w.attribution() {
+			w.line() // the attribution stays right above its quote
+		} else {
+			w.block()
+		}
 		w.quote++
 	case headings[a]:
 		w.block()
@@ -320,6 +326,7 @@ func (w *textWriter) end(a atom.Atom, open *[]int) {
 			}
 			w.space = false
 			w.raw(apply(w.st.Dim, "["+strconv.Itoa(n)+"]"))
+			w.linked = true
 		}
 	case a == atom.B || a == atom.Strong:
 		w.bold = max(w.bold-1, 0)
@@ -369,7 +376,7 @@ func safeURL(raw string) string {
 // textWriter accumulates text, collapsing whitespace outside <pre>,
 // prefixing quoted lines, and collecting links.
 type textWriter struct {
-	b       strings.Builder
+	b       bytes.Buffer // a buffer: an attribution line is rewritten in its quote's style
 	st      Styler
 	pre     int
 	quote   int
@@ -382,6 +389,8 @@ type textWriter struct {
 	breaks  int  // newlines already at the end
 	blank   int  // blank lines not written yet: their quote bars depend on the next line
 	depth   int  // quote depth of the last line written
+	lineAt  int  // where the text of the last line starts in b (after its bars)
+	linked  bool // the last line has a link
 	links   []Link
 	look    look            // inherited styles of the element being converted
 	label   strings.Builder // plain text of the link being read
@@ -426,7 +435,7 @@ func (w *textWriter) raw(s string) {
 				w.b.WriteString(quoteBars(w.st, min(w.depth, w.quote), true) + "\n")
 			}
 			w.b.WriteString(quoteBars(w.st, w.quote, false))
-			w.depth = w.quote
+			w.depth, w.lineAt, w.linked = w.quote, w.b.Len(), false
 		}
 		w.b.WriteRune(r)
 		w.lineLen++
@@ -489,6 +498,31 @@ func (w *textWriter) text(s string) {
 
 func isHTMLSpace(r rune) bool {
 	return r == ' ' || r == '\t' || r == '\n' || r == '\r' || r == '\f' || r == ' '
+}
+
+// attribution reports whether the last line introduces the quote about to
+// open ("On Fri, Bob wrote:", in any language a line ending in a colon,
+// right before the quote). It is then shown in that quote's style, unless
+// it has a link, whose styling would be lost.
+func (w *textWriter) attribution() bool {
+	if w.blank > 0 || w.breaks > 1 || w.depth != w.quote || w.b.Len() == 0 {
+		return false
+	}
+	line := w.b.Bytes()[w.lineAt:]
+	ended := len(line) > 0 && line[len(line)-1] == '\n'
+	text := strings.TrimSuffix(string(line), "\n")
+	plain := strings.TrimSpace(ansiCSI.ReplaceAllString(text, ""))
+	if !strings.HasSuffix(plain, ":") {
+		return false
+	}
+	if w.st.Quote != nil && !w.linked {
+		w.b.Truncate(w.lineAt)
+		w.b.WriteString(w.st.Quote(w.quote+1, plain))
+		if ended {
+			w.b.WriteByte('\n')
+		}
+	}
+	return true
 }
 
 // newline is a <br>. Runs of them leave one blank line at most.

@@ -62,7 +62,8 @@ func TextWithLinks(s string, st Styler) (string, []Link) {
 		return apply(st.Link, host+"/…") + apply(st.Dim, "["+n+"]")
 	}
 	var b strings.Builder
-	for i, line := range strings.Split(s, "\n") {
+	lines := strings.Split(s, "\n")
+	for i, line := range lines {
 		if i > 0 {
 			b.WriteByte('\n')
 		}
@@ -72,6 +73,14 @@ func TextWithLinks(s string, st Styler) (string, []Link) {
 			if depth > 0 {
 				b.WriteString(quoteBars(st, depth, rest == ""))
 				line, text = rest, func(s string) string { return apply(st.Dim, s) }
+			}
+			// An attribution ("On Fri, Bob wrote:") right above a deeper
+			// quote is shown in that quote's style.
+			if i+1 < len(lines) && strings.HasSuffix(strings.TrimSpace(line), ":") && !anyURL.MatchString(line) {
+				if next, _ := quoteDepth(lines[i+1]); next > depth {
+					b.WriteString(st.Quote(depth+1, line))
+					continue
+				}
 			}
 		}
 		last := 0

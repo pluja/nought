@@ -377,7 +377,7 @@ func TestQuotedRepliesReadEasily(t *testing.T) {
 	in := `<div>I always like to test.</div><div><br></div><div><br></div><div><br></div><div>Oct 16 by a:</div>` +
 		`<blockquote><div>nice nice</div><div><br></div><div>On Fri, me wrote:</div>` +
 		`<blockquote><div>Good to know.</div><div>--</div></blockquote></blockquote>`
-	want := "I always like to test.\n\nOct 16 by a:\n\n│ nice nice\n│\n│ On Fri, me wrote:\n│\n│ │ Good to know.\n│ │ --"
+	want := "I always like to test.\n\nOct 16 by a:\n│ nice nice\n│\n│ On Fri, me wrote:\n│ │ Good to know.\n│ │ --"
 	if got := HTMLToText(in); got != want {
 		t.Errorf("got:\n%s\nwant:\n%s", got, want)
 	}
@@ -389,11 +389,38 @@ func TestPlainQuotes(t *testing.T) {
 	in := "Thanks!\n\nOn Fri, Bob wrote:\n> Sure.\n>\n> > Lunch?\n>> Pizza http://x.example/a\n"
 	mark := func(tag string) func(string) string { return func(s string) string { return "<" + tag + ">" + s } }
 	got, _ := TextWithLinks(in, Styler{Link: mark("a"), Dim: mark("d"), Quote: quoteMark})
-	want := "Thanks!\n\nOn Fri, Bob wrote:\n<q1>│ <d>Sure.\n<q1>│\n<q1>│ <q2>│ <d>Lunch?\n<q1>│ <q2>│ <d>Pizza <a>http://x.example/a"
+	want := "Thanks!\n\n<q1>On Fri, Bob wrote:\n<q1>│ <d>Sure.\n<q1>│\n<q1>│ <q2>│ <d>Lunch?\n<q1>│ <q2>│ <d>Pizza <a>http://x.example/a"
 	if got != want {
 		t.Errorf("got:\n%s\nwant:\n%s", got, want)
 	}
 	if plain, _ := TextWithLinks(in, Styler{}); !strings.Contains(plain, "> > Lunch?") {
 		t.Errorf("unstyled quotes changed:\n%s", plain)
+	}
+}
+
+// An attribution ("On Fri, Bob wrote:", any language: a line ending in a
+// colon) sits right above the quote it introduces, in that quote's color.
+func TestAttributionIntroducesItsQuote(t *testing.T) {
+	st := Styler{Quote: quoteMark}
+	tests := []struct{ in, want string }{
+		{`<div>Oct 16 by a:<br></div><blockquote><div>nice</div><div>On Fri, me wrote:</div><blockquote><div>Good</div></blockquote></blockquote>`,
+			"<q1>Oct 16 by a:\n<q1>│ nice\n<q1>│ <q2>On Fri, me wrote:\n<q1>│ <q2>│ Good"},
+		// A linked attribution keeps its own styling, but still attaches.
+		{`<div><a href="mailto:a@x.org">Ann</a> a écrit :</div><blockquote>salut</blockquote>`,
+			"Ann[1] a écrit :\n<q1>│ salut"},
+		// Any other paragraph keeps its distance.
+		{`<p>Hello</p><blockquote>q</blockquote>`, "Hello\n\n<q1>│ q"},
+	}
+	for _, tt := range tests {
+		if got, _ := HTMLToStyled(tt.in, st); got != tt.want {
+			t.Errorf("%s:\ngot:\n%s\nwant:\n%s", tt.in, got, tt.want)
+		}
+	}
+	if got := HTMLToText(tests[0].in); !strings.HasPrefix(got, "Oct 16 by a:\n│ nice\n│ On Fri, me wrote:\n│ │ Good") {
+		t.Errorf("unstyled:\n%s", got)
+	}
+	plain, _ := TextWithLinks("> Bob wrote:\n> > hi\n", st)
+	if plain != "<q1>│ <q2>Bob wrote:\n<q1>│ <q2>│ hi" {
+		t.Errorf("plain:\n%s", plain)
 	}
 }
