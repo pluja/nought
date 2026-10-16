@@ -8,7 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"nought/internal/ops"
+	"github.com/pluja/nought/internal/ops"
 )
 
 func newMsgDeleteCmd(a *app) *cobra.Command {

@@ -12,8 +12,8 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
-	"nought/internal/ops"
-	"nought/internal/render"
+	"github.com/pluja/nought/internal/ops"
+	"github.com/pluja/nought/internal/render"
 )
 
 const queryHelp = `

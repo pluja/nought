@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"nought/internal/query"
+	"github.com/pluja/nought/internal/query"
 )
 
 func TestSyncState(t *testing.T) {

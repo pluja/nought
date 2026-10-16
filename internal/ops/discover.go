@@ -7,9 +7,9 @@ import (
 	"errors"
 	"fmt"
 
-	"nought/internal/autoconfig"
-	"nought/internal/config"
-	"nought/internal/secret"
+	"github.com/pluja/nought/internal/autoconfig"
+	"github.com/pluja/nought/internal/config"
+	"github.com/pluja/nought/internal/secret"
 )
 
 // DiscoverIn asks for an email address's server settings.

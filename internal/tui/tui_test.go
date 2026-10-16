@@ -18,9 +18,9 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"nought/internal/config"
-	"nought/internal/ops"
-	"nought/internal/secret"
+	"github.com/pluja/nought/internal/config"
+	"github.com/pluja/nought/internal/ops"
+	"github.com/pluja/nought/internal/secret"
 )
 
 var update = flag.Bool("update", false, "update golden files")

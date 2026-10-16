@@ -8,7 +8,7 @@ import (
 	"slices"
 	"strings"
 
-	"nought/internal/query"
+	"github.com/pluja/nought/internal/query"
 )
 
 // MaxLimit caps how many messages one search returns.

@@ -16,7 +16,7 @@ import (
 	"slices"
 	"strings"
 
-	"nought/internal/autoconfig"
+	"github.com/pluja/nought/internal/autoconfig"
 )
 
 func main() {

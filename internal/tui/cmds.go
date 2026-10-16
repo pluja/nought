@@ -12,7 +12,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"nought/internal/ops"
+	"github.com/pluja/nought/internal/ops"
 )
 
 // Messages produced by background work.

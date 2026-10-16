@@ -7,8 +7,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"nought/internal/ops"
-	"nought/internal/tui"
+	"github.com/pluja/nought/internal/ops"
+	"github.com/pluja/nought/internal/tui"
 )
 
 func newTUICmd(a *app) *cobra.Command {

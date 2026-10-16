@@ -18,9 +18,9 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
-	"nought/internal/config"
-	"nought/internal/ops"
-	"nought/internal/render"
+	"github.com/pluja/nought/internal/config"
+	"github.com/pluja/nought/internal/ops"
+	"github.com/pluja/nought/internal/render"
 )
 
 // Permissions: the TUI acts for the local user. Everyday actions use the

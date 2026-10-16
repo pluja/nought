@@ -10,10 +10,10 @@ import (
 	"strings"
 	"sync"
 
-	"nought/internal/config"
-	"nought/internal/imapsync"
-	"nought/internal/lock"
-	"nought/internal/secret"
+	"github.com/pluja/nought/internal/config"
+	"github.com/pluja/nought/internal/imapsync"
+	"github.com/pluja/nought/internal/lock"
+	"github.com/pluja/nought/internal/secret"
 )
 
 // SyncIn selects accounts to sync. No accounts means all of them.

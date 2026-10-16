@@ -11,7 +11,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"nought/internal/ops"
+	"github.com/pluja/nought/internal/ops"
 )
 
 // maxUndo bounds the undo history.

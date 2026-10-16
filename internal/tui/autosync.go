@@ -10,7 +10,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"nought/internal/ops"
+	"github.com/pluja/nought/internal/ops"
 )
 
 // The TUI syncs on start and then every tui.sync_every (default 10m), so

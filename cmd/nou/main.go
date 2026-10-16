@@ -9,7 +9,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"nought/internal/cli"
+	"github.com/pluja/nought/internal/cli"
 )
 
 // version is set at release time with -ldflags "-X main.version=...".

@@ -11,11 +11,11 @@ import (
 	"strings"
 	"time"
 
-	"nought/internal/config"
-	"nought/internal/imapsync"
-	"nought/internal/index"
-	"nought/internal/journal"
-	"nought/internal/store"
+	"github.com/pluja/nought/internal/config"
+	"github.com/pluja/nought/internal/imapsync"
+	"github.com/pluja/nought/internal/index"
+	"github.com/pluja/nought/internal/journal"
+	"github.com/pluja/nought/internal/store"
 )
 
 // expungeDue deletes from the server the folder's messages that are due:

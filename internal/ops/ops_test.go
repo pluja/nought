@@ -13,9 +13,9 @@ import (
 	"testing"
 	"time"
 
-	"nought/internal/config"
-	"nought/internal/secret"
-	"nought/internal/store"
+	"github.com/pluja/nought/internal/config"
+	"github.com/pluja/nought/internal/secret"
+	"github.com/pluja/nought/internal/store"
 )
 
 // newTestEnv returns an Env rooted in a temporary directory.

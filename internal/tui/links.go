@@ -14,7 +14,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"nought/internal/render"
+	"github.com/pluja/nought/internal/render"
 )
 
 // openInBrowser hands a link to the system's default handler. The URL is

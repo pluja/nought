@@ -39,4 +39,4 @@ formatters:
     - goimports
   settings:
     goimports:
-      local-prefixes: [nought]
+      local-prefixes: [github.com/pluja/nought]

@@ -9,7 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"nought/internal/ops"
+	"github.com/pluja/nought/internal/ops"
 )
 
 func newSyncCmd(a *app) *cobra.Command {

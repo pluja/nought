@@ -28,7 +28,7 @@ import (
 	"github.com/emersion/go-imap/v2"
 	"github.com/emersion/go-imap/v2/imapclient"
 
-	"nought/internal/config"
+	"github.com/pluja/nought/internal/config"
 )
 
 // Timeouts. defaultIOTimeout bounds every single read or write, so a server

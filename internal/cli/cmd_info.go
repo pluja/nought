@@ -8,7 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"nought/internal/ops"
+	"github.com/pluja/nought/internal/ops"
 )
 
 func newPathsCmd(a *app) *cobra.Command {

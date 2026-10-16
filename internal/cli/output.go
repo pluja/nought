@@ -10,8 +10,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"nought/internal/ops"
-	"nought/internal/render"
+	"github.com/pluja/nought/internal/ops"
+	"github.com/pluja/nought/internal/render"
 )
 
 // emit prints an op's output: JSON with --json, otherwise the human form.

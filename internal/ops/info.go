@@ -5,7 +5,7 @@ package ops
 import (
 	"context"
 
-	"nought/internal/config"
+	"github.com/pluja/nought/internal/config"
 )
 
 // PathsOut lists data locations and what to back up.

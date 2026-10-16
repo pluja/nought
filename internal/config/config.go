@@ -18,8 +18,8 @@ import (
 
 	"github.com/pelletier/go-toml/v2"
 
-	"nought/internal/atomicfile"
-	"nought/internal/query"
+	"github.com/pluja/nought/internal/atomicfile"
+	"github.com/pluja/nought/internal/query"
 )
 
 // TLS modes. Plaintext connections are deliberately not representable.

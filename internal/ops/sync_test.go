@@ -16,13 +16,13 @@ import (
 
 	"github.com/emersion/go-imap/v2"
 
-	"nought/internal/config"
-	"nought/internal/imapsync"
-	"nought/internal/imaptest"
-	"nought/internal/index"
-	"nought/internal/journal"
-	"nought/internal/lock"
-	"nought/internal/store"
+	"github.com/pluja/nought/internal/config"
+	"github.com/pluja/nought/internal/imapsync"
+	"github.com/pluja/nought/internal/imaptest"
+	"github.com/pluja/nought/internal/index"
+	"github.com/pluja/nought/internal/journal"
+	"github.com/pluja/nought/internal/lock"
+	"github.com/pluja/nought/internal/store"
 )
 
 // syncEnv returns an Env with one account pointing at a fresh test server.

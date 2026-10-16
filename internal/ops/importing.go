@@ -10,10 +10,10 @@ import (
 	"os"
 	"path/filepath"
 
-	"nought/internal/importer"
-	"nought/internal/index"
-	"nought/internal/mailmsg"
-	"nought/internal/store"
+	"github.com/pluja/nought/internal/importer"
+	"github.com/pluja/nought/internal/index"
+	"github.com/pluja/nought/internal/mailmsg"
+	"github.com/pluja/nought/internal/store"
 )
 
 // ImportIn selects what to import.

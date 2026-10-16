@@ -10,12 +10,12 @@ import (
 	"strings"
 	"time"
 
-	"nought/internal/config"
-	"nought/internal/index"
-	"nought/internal/mailmsg"
-	"nought/internal/query"
-	"nought/internal/render"
-	"nought/internal/store"
+	"github.com/pluja/nought/internal/config"
+	"github.com/pluja/nought/internal/index"
+	"github.com/pluja/nought/internal/mailmsg"
+	"github.com/pluja/nought/internal/query"
+	"github.com/pluja/nought/internal/render"
+	"github.com/pluja/nought/internal/store"
 )
 
 // IDLen is how many hex characters of the content hash nou shows as a

@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"nought/internal/config"
-	"nought/internal/imapsync"
-	"nought/internal/imaptest"
+	"github.com/pluja/nought/internal/config"
+	"github.com/pluja/nought/internal/imapsync"
+	"github.com/pluja/nought/internal/imaptest"
 )
 
 func TestPhoneArchiveLeavesTheInbox(t *testing.T) {

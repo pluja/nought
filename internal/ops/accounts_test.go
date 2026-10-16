@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"nought/internal/config"
-	"nought/internal/secret"
+	"github.com/pluja/nought/internal/config"
+	"github.com/pluja/nought/internal/secret"
 )
 
 func addAccount(t *testing.T, env *Env, in AccountIn) AccountOut {

@@ -10,9 +10,9 @@ import (
 	"slices"
 	"strings"
 
-	"nought/internal/imapsync"
-	"nought/internal/index"
-	"nought/internal/store"
+	"github.com/pluja/nought/internal/imapsync"
+	"github.com/pluja/nought/internal/index"
+	"github.com/pluja/nought/internal/store"
 )
 
 // fetchNew archives the given new UIDs, in chunks, recording progress after

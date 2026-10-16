@@ -12,7 +12,7 @@ import (
 	"strings"
 	"testing"
 
-	"nought/internal/query"
+	"github.com/pluja/nought/internal/query"
 )
 
 func writeFile(t *testing.T, path, content string) {

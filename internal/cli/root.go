@@ -7,7 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"nought/internal/ops"
+	"github.com/pluja/nought/internal/ops"
 )
 
 func newRootCmd(a *app) *cobra.Command {

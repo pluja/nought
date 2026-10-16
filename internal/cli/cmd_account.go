@@ -13,9 +13,9 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
-	"nought/internal/config"
-	"nought/internal/ops"
-	"nought/internal/render"
+	"github.com/pluja/nought/internal/config"
+	"github.com/pluja/nought/internal/ops"
+	"github.com/pluja/nought/internal/render"
 )
 
 func newAccountCmd(a *app) *cobra.Command {

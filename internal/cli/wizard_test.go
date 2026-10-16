@@ -15,10 +15,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"nought/internal/autoconfig"
-	"nought/internal/config"
-	"nought/internal/ops"
-	"nought/internal/secret"
+	"github.com/pluja/nought/internal/autoconfig"
+	"github.com/pluja/nought/internal/config"
+	"github.com/pluja/nought/internal/ops"
+	"github.com/pluja/nought/internal/secret"
 )
 
 // The online branch of the wizard, with a fake network.

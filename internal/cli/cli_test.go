@@ -21,9 +21,9 @@ import (
 
 	"github.com/rogpeppe/go-internal/testscript"
 
-	"nought/internal/imaptest"
-	"nought/internal/ops"
-	"nought/internal/secret"
+	"github.com/pluja/nought/internal/imaptest"
+	"github.com/pluja/nought/internal/ops"
+	"github.com/pluja/nought/internal/secret"
 )
 
 var update = flag.Bool("update", false, "update testscript golden output")

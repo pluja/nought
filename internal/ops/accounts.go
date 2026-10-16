@@ -9,8 +9,8 @@ import (
 	"slices"
 	"time"
 
-	"nought/internal/config"
-	"nought/internal/secret"
+	"github.com/pluja/nought/internal/config"
+	"github.com/pluja/nought/internal/secret"
 )
 
 // AccountIn describes a new account.

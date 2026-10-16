@@ -8,8 +8,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"nought/internal/autoconfig"
-	"nought/internal/ops"
+	"github.com/pluja/nought/internal/autoconfig"
+	"github.com/pluja/nought/internal/ops"
 )
 
 func newAccountDiscoverCmd(a *app) *cobra.Command {

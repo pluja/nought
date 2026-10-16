@@ -12,11 +12,11 @@ import (
 	"path/filepath"
 	"slices"
 
-	"nought/internal/atomicfile"
-	"nought/internal/config"
-	"nought/internal/index"
-	"nought/internal/query"
-	"nought/internal/store"
+	"github.com/pluja/nought/internal/atomicfile"
+	"github.com/pluja/nought/internal/config"
+	"github.com/pluja/nought/internal/index"
+	"github.com/pluja/nought/internal/query"
+	"github.com/pluja/nought/internal/store"
 )
 
 // TagsList lists every tag and how many messages carry it.

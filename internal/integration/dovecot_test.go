@@ -22,10 +22,10 @@ import (
 	"github.com/emersion/go-imap/v2"
 	"github.com/emersion/go-imap/v2/imapclient"
 
-	"nought/internal/config"
-	"nought/internal/ops"
-	"nought/internal/query"
-	"nought/internal/secret"
+	"github.com/pluja/nought/internal/config"
+	"github.com/pluja/nought/internal/ops"
+	"github.com/pluja/nought/internal/query"
+	"github.com/pluja/nought/internal/secret"
 )
 
 const password = "nought-test-password"

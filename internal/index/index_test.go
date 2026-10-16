@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"nought/internal/query"
+	"github.com/pluja/nought/internal/query"
 )
 
 var now = time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)

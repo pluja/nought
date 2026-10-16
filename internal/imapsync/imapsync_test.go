@@ -17,8 +17,8 @@ import (
 
 	"github.com/emersion/go-imap/v2"
 
-	"nought/internal/config"
-	"nought/internal/imaptest"
+	"github.com/pluja/nought/internal/config"
+	"github.com/pluja/nought/internal/imaptest"
 )
 
 const raw = "From: a@example.org\r\nMessage-ID: <1@x>\r\nSubject: hi\r\n\r\nbody\r\n"

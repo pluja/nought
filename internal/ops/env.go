@@ -10,11 +10,11 @@ import (
 	"sync"
 	"time"
 
-	"nought/internal/autoconfig"
-	"nought/internal/config"
-	"nought/internal/index"
-	"nought/internal/secret"
-	"nought/internal/store"
+	"github.com/pluja/nought/internal/autoconfig"
+	"github.com/pluja/nought/internal/config"
+	"github.com/pluja/nought/internal/index"
+	"github.com/pluja/nought/internal/secret"
+	"github.com/pluja/nought/internal/store"
 )
 
 // BuildInfo describes the running binary.

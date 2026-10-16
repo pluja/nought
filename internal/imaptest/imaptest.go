@@ -26,7 +26,7 @@ import (
 	"github.com/emersion/go-imap/v2/imapserver"
 	"github.com/emersion/go-imap/v2/imapserver/imapmemserver"
 
-	"nought/internal/config"
+	"github.com/pluja/nought/internal/config"
 )
 
 // Test credentials.

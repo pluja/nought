@@ -14,8 +14,8 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"nought/internal/ops"
-	"nought/internal/render"
+	"github.com/pluja/nought/internal/ops"
+	"github.com/pluja/nought/internal/render"
 )
 
 // Layout constants.

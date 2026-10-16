@@ -8,9 +8,9 @@ import (
 	"slices"
 	"strings"
 
-	"nought/internal/imapsync"
-	"nought/internal/index"
-	"nought/internal/query"
+	"github.com/pluja/nought/internal/imapsync"
+	"github.com/pluja/nought/internal/index"
+	"github.com/pluja/nought/internal/query"
 )
 
 // The server's INBOX mirrors nought's inbox: what another client (a phone)

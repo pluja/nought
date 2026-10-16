@@ -7,8 +7,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"nought/internal/index"
-	"nought/internal/ops"
+	"github.com/pluja/nought/internal/index"
+	"github.com/pluja/nought/internal/ops"
 )
 
 func newImportCmd(a *app) *cobra.Command {

@@ -16,9 +16,9 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
-	"nought/internal/autoconfig"
-	"nought/internal/config"
-	"nought/internal/ops"
+	"github.com/pluja/nought/internal/autoconfig"
+	"github.com/pluja/nought/internal/config"
+	"github.com/pluja/nought/internal/ops"
 )
 
 // errQuit ends the wizard without saving.

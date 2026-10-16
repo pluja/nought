@@ -14,7 +14,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"nought/internal/atomicfile"
+	"github.com/pluja/nought/internal/atomicfile"
 )
 
 // Phases of a deletion.

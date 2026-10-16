@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"nought/internal/index"
-	"nought/internal/query"
-	"nought/internal/store"
+	"github.com/pluja/nought/internal/index"
+	"github.com/pluja/nought/internal/query"
+	"github.com/pluja/nought/internal/store"
 )
 
 // TagDeleted marks mail in the trash.

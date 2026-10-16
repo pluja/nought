@@ -8,8 +8,8 @@ import (
 	"net"
 	"testing"
 
-	"nought/internal/autoconfig"
-	"nought/internal/imaptest"
+	"github.com/pluja/nought/internal/autoconfig"
+	"github.com/pluja/nought/internal/imaptest"
 )
 
 func TestAccountDiscover(t *testing.T) {

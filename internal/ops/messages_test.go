@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"nought/internal/index"
+	"github.com/pluja/nought/internal/index"
 )
 
 func importSample(t *testing.T, env *Env) {

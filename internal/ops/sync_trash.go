@@ -8,11 +8,11 @@ import (
 	"slices"
 	"strings"
 
-	"nought/internal/config"
-	"nought/internal/imapsync"
-	"nought/internal/index"
-	"nought/internal/mailmsg"
-	"nought/internal/query"
+	"github.com/pluja/nought/internal/config"
+	"github.com/pluja/nought/internal/imapsync"
+	"github.com/pluja/nought/internal/index"
+	"github.com/pluja/nought/internal/mailmsg"
+	"github.com/pluja/nought/internal/query"
 )
 
 // serverTrash finds the server's trash folder: the one marked \Trash, or

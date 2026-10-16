@@ -13,7 +13,7 @@ import (
 	"strings"
 	"testing"
 
-	"nought/internal/config"
+	"github.com/pluja/nought/internal/config"
 )
 
 // offline is a Network that fails the test if anything is contacted.

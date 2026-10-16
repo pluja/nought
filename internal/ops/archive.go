@@ -10,11 +10,11 @@ import (
 	"strings"
 	"unicode"
 
-	"nought/internal/atomicfile"
-	"nought/internal/index"
-	"nought/internal/mailmsg"
-	"nought/internal/render"
-	"nought/internal/store"
+	"github.com/pluja/nought/internal/atomicfile"
+	"github.com/pluja/nought/internal/index"
+	"github.com/pluja/nought/internal/mailmsg"
+	"github.com/pluja/nought/internal/render"
+	"github.com/pluja/nought/internal/store"
 )
 
 // Well-known tags.

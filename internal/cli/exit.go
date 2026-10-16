@@ -6,7 +6,7 @@ import (
 	"context"
 	"errors"
 
-	"nought/internal/ops"
+	"github.com/pluja/nought/internal/ops"
 )
 
 // Exit codes. They are part of the CLI's stable interface; see the spec.

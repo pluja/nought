@@ -12,9 +12,9 @@ import (
 
 	"github.com/emersion/go-imap/v2"
 
-	"nought/internal/config"
-	"nought/internal/imaptest"
-	"nought/internal/query"
+	"github.com/pluja/nought/internal/config"
+	"github.com/pluja/nought/internal/imaptest"
+	"github.com/pluja/nought/internal/query"
 )
 
 func files(t *testing.T, dir string) int {

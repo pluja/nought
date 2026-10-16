@@ -22,7 +22,7 @@ import (
 	"strings"
 	"time"
 
-	"nought/internal/config"
+	"github.com/pluja/nought/internal/config"
 )
 
 //go:embed ispdb.json.gz

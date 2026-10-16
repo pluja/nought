@@ -9,8 +9,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"nought/internal/ops"
-	"nought/internal/render"
+	"github.com/pluja/nought/internal/ops"
+	"github.com/pluja/nought/internal/render"
 )
 
 func (m Model) key(k tea.KeyPressMsg) (Model, tea.Cmd) {

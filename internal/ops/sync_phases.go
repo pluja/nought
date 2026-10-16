@@ -8,9 +8,9 @@ import (
 	"errors"
 	"slices"
 
-	"nought/internal/config"
-	"nought/internal/imapsync"
-	"nought/internal/index"
+	"github.com/pluja/nought/internal/config"
+	"github.com/pluja/nought/internal/imapsync"
+	"github.com/pluja/nought/internal/index"
 )
 
 // folderScan is what the first phase learned about one folder.

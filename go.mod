@@ -1,4 +1,4 @@
-module nought
+module github.com/pluja/nought
 
 go 1.26.0
 
