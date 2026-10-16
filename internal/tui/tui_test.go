@@ -1010,3 +1010,23 @@ func TestSidebarFolders(t *testing.T) {
 		t.Errorf("sidebar:\n%s", s)
 	}
 }
+
+// Archiving where deletion is off says once that the mail stays on the
+// server (and so on a phone).
+func TestArchiveNotesDeletionOffOnce(t *testing.T) {
+	m := newTestModel(t, 120, 30)
+	m.status = []ops.AccountStatusOut{{Account: "personal", Deletion: false}}
+	m = drive(t, m, key("e"))
+	if !strings.Contains(m.notice, "deletion is off") || !strings.Contains(m.notice, "stays on the server") {
+		t.Fatalf("first archive: %q", m.notice)
+	}
+	m = drive(t, m, key("e"))
+	if m.notice != "archived" {
+		t.Errorf("second archive: %q (the note is said once)", m.notice)
+	}
+	m.status, m.deletionNoted = []ops.AccountStatusOut{{Account: "personal", Deletion: true}}, false
+	m = drive(t, m, key("e"))
+	if m.notice != "archived" {
+		t.Errorf("deletion on: %q", m.notice)
+	}
+}

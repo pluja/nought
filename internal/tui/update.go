@@ -72,6 +72,9 @@ func (m Model) update(msg tea.Msg) (Model, tea.Cmd) {
 			m.notice, m.noticeErr = msg.err.Error(), true
 		case msg.req.what != "":
 			m.notice = msg.req.what
+			if msg.req.note != "" {
+				m.notice += "; " + msg.req.note
+			}
 			if msg.req.undo != nil && msg.out.Changed > 0 {
 				m.undo = append(m.undo, *msg.req.undo)
 				if len(m.undo) > maxUndo {

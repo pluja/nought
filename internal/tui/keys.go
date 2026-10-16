@@ -144,7 +144,12 @@ func (m Model) messageAction(key string) (Model, tea.Cmd) {
 			m.notice = "not in the inbox"
 			return m, nil
 		}
-		return m.enqueue(newTagReq(sel, nil, []string{ops.TagInbox}, "archived"))
+		req := newTagReq(sel, nil, []string{ops.TagInbox}, "archived")
+		if !m.deletionNoted && !m.deletes(sel.Account) {
+			m.deletionNoted = true
+			req.note = "deletion is off for " + sel.Account + ", so it stays on the server (and on your phone)"
+		}
+		return m.enqueue(req)
 	case "u":
 		if slices.Contains(sel.Tags, ops.TagUnread) {
 			return m.enqueue(newTagReq(sel, nil, []string{ops.TagUnread}, "marked read"))
@@ -390,4 +395,10 @@ func (m Model) switchBody() (Model, tea.Cmd) {
 	}
 	m.showGen++
 	return m, m.showVersion(sel, m.showGen, prefer)
+}
+
+// deletes reports whether sync deletes handled mail from an account's
+// server (as far as the status shows).
+func (m Model) deletes(account string) bool {
+	return slices.ContainsFunc(m.status, func(s ops.AccountStatusOut) bool { return s.Account == account && s.Deletion })
 }
