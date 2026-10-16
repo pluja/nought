@@ -8,6 +8,7 @@ package index
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"embed"
 	"errors"
 	"fmt"
@@ -16,6 +17,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"modernc.org/sqlite" // also registers the "sqlite" driver
@@ -34,8 +36,26 @@ type Index struct {
 const pragmas = "?_pragma=busy_timeout(10000)&_pragma=journal_mode(WAL)" +
 	"&_pragma=foreign_keys(1)&_pragma=synchronous(NORMAL)&_txlock=immediate"
 
+// registerFold gives SQLite fold(), lower() for every script: SQLite's
+// own folds ASCII only, so subject:ärger missed "ÄRGER". SQLite's function
+// registry belongs to the process, hence one registration.
+var registerFold = sync.OnceValue(func() error {
+	return sqlite.RegisterDeterministicScalarFunction("fold", 1, func(_ *sqlite.FunctionContext, args []driver.Value) (driver.Value, error) {
+		switch v := args[0].(type) {
+		case string:
+			return strings.ToLower(v), nil
+		case []byte:
+			return strings.ToLower(string(v)), nil
+		}
+		return args[0], nil
+	})
+})
+
 // Open opens (creating if needed) the index at path and applies migrations.
 func Open(ctx context.Context, path string) (*Index, error) {
+	if err := registerFold(); err != nil {
+		return nil, err
+	}
 	// The path becomes a file: URI, where these characters are special.
 	if strings.ContainsAny(path, "?#%") {
 		return nil, fmt.Errorf("index path must not contain '?', '#' or '%%': %s", path)

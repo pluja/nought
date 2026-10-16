@@ -69,11 +69,11 @@ func compileTerm(t query.Term) (string, []any, error) {
 	case query.Is:
 		return hasTag, []any{query.IsValues[t.Value]}, nil
 	case query.From:
-		return "instr(lower(m.from_addr), lower(?)) > 0", []any{t.Value}, nil
+		return "instr(fold(m.from_addr), ?) > 0", []any{strings.ToLower(t.Value)}, nil
 	case query.To:
-		return "instr(lower(m.to_addrs), lower(?)) > 0", []any{t.Value}, nil
+		return "instr(fold(m.to_addrs), ?) > 0", []any{strings.ToLower(t.Value)}, nil
 	case query.Subject:
-		return "instr(lower(m.subject), lower(?)) > 0", []any{t.Value}, nil
+		return "instr(fold(m.subject), ?) > 0", []any{strings.ToLower(t.Value)}, nil
 	case query.Account:
 		return "a.name = ?", []any{t.Value}, nil
 	case query.ID:

@@ -499,3 +499,20 @@ func FuzzRestoreLine(f *testing.F) {
 		}
 	})
 }
+
+// Review: SQLite's lower() folds ASCII only, so subject:ärger missed
+// "ÄRGER im Büro" and from:MÜLLER missed Müller.
+func TestSearchFoldsEveryScript(t *testing.T) {
+	ix, _ := openIndex(t)
+	add(t, ix, Message{Account: "personal", Hash: hash(5), MessageID: "u@x", Subject: "ÄRGER im Büro",
+		From: "Jürgen Müller <j@example.de>", To: []string{"Σοφία <s@example.gr>"}}, "x")
+	for _, q := range []string{"subject:ärger", "subject:BÜRO", "from:MÜLLER", "from:jürgen", "to:σοφία"} {
+		parsed, err := query.Parse(q)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if n, err := ix.Count(t.Context(), parsed); err != nil || n != 1 {
+			t.Errorf("%s: %d, %v", q, n, err)
+		}
+	}
+}
