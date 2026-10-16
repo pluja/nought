@@ -101,8 +101,9 @@ at any time.
 
 ## Writing mail
 
-You write in your own editor (`$VISUAL`, then `$EDITOR`, else `vi`). Mail is plain text, sent
-over TLS only, with no `User-Agent` or other fingerprint.
+You write in your own editor (`$VISUAL`, then `$EDITOR`, else `vi`). A graphical editor needs its
+wait flag (`EDITOR="code --wait"`), or nou takes the message as abandoned. Mail is plain text,
+sent over TLS only, with no `User-Agent` or other fingerprint.
 
 In the TUI, `r` replies, `R` replies to all, `f` forwards (with the attachments) and `c` starts a
 new message. Your editor opens on a file like this:
