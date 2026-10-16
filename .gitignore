@@ -5,3 +5,6 @@
 /testenv/home/
 /testenv/certs/
 /testenv/nou
+
+# Local environment (paths on the developer's machine)
+.envrc
