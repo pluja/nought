@@ -443,6 +443,7 @@ func TestReindexSeesMailArchivedElsewhere(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = other.Close() })
 	if _, _, err := other.Put([]byte("From: a@x.org\r\nMessage-ID: <late@x>\r\nSubject: late\r\n\r\nx\r\n"), "S"); err != nil {
 		t.Fatal(err)
 	}
@@ -457,7 +458,11 @@ func TestReindexSeesMailArchivedElsewhere(t *testing.T) {
 // A new account with no mail yet does not rebuild the index every time.
 func TestEmptyArchiveIsNotRebuilt(t *testing.T) {
 	env := newTestEnv(t)
-	if _, err := store.Open(env.Paths.AccountArchive("personal")); err != nil {
+	st, err := store.Open(env.Paths.AccountArchive("personal"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Close(); err != nil {
 		t.Fatal(err)
 	}
 	var log strings.Builder

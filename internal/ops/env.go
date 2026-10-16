@@ -104,13 +104,6 @@ func (e *Env) Index(ctx context.Context) (*index.Index, error) {
 	return ix, nil
 }
 
-// dropStores forgets the opened Maildirs, so the next use scans them again.
-func (e *Env) dropStores() {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	clear(e.stores)
-}
-
 // closeIndex closes the index so it can be replaced (see reindex).
 func (e *Env) closeIndex() error {
 	e.mu.Lock()

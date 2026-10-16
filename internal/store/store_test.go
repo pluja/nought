@@ -504,10 +504,12 @@ func TestConcurrentUse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = m.Close() })
 	other, err := Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = other.Close() })
 	var wg sync.WaitGroup
 	for i := range 4 {
 		wg.Go(func() {
@@ -544,6 +546,7 @@ func TestGetVerified(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = m.Close() })
 	raw := []byte("Subject: x\r\n\r\nkeep me\r\n")
 	e, _, err := m.Put(raw, "")
 	if err != nil {

@@ -76,7 +76,6 @@ func runReindex(ctx context.Context, env *Env, _ struct{}) (ReindexOut, error) {
 // file in the store its tags say (an interrupted move can leave mail in the
 // wrong one), and a fresh dump.
 func settle(ctx context.Context, env *Env) error {
-	env.dropStores() // the archive is scanned again, as the index just was
 	if err := syncFlagsFromTags(ctx, env); err != nil {
 		return err
 	}
@@ -129,11 +128,12 @@ func buildIndex(ctx context.Context, env *Env, path string) (out ReindexOut, err
 
 // indexStore indexes every message of one Maildir; a message that cannot be
 // read is counted and listed, not fatal.
-func indexStore(ctx context.Context, env *Env, ix *index.Index, account, dir string, out *ReindexOut) error {
+func indexStore(ctx context.Context, env *Env, ix *index.Index, account, dir string, out *ReindexOut) (err error) {
 	st, err := store.Open(dir)
 	if err != nil {
 		return err
 	}
+	defer func() { err = errors.Join(err, st.Close()) }()
 	for entry := range st.All() {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -223,8 +223,9 @@ func hasArchive(env *Env) (bool, error) {
 			if err != nil {
 				return false, err
 			}
-			for range st.All() {
-				return true, nil
+			n := st.Len()
+			if err := st.Close(); err != nil || n > 0 {
+				return n > 0, err
 			}
 		}
 	}
