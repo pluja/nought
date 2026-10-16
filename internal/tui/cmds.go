@@ -166,6 +166,9 @@ func (m Model) loadSidebar() tea.Cmd {
 		if n := count(queryTrash); n > 0 { // shown only when there is something in it
 			items = append(items, sideItem{label: "Trash", query: queryTrash, count: n})
 		}
+		if drafts, err := ops.Call(m.ctx, m.env, permTag, ops.DraftList, struct{}{}); err == nil && len(drafts) > 0 {
+			items = append(items, sideItem{label: "Drafts", query: queryDrafts, count: len(drafts)})
+		}
 		if accounts, err := ops.Call(m.ctx, m.env, permTag, ops.AccountList, struct{}{}); err == nil && len(accounts) > 1 {
 			for _, a := range accounts {
 				items = append(items, sideItem{label: "@" + a.Name, query: "account:" + a.Name, count: -1})

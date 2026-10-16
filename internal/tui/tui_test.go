@@ -312,10 +312,6 @@ func TestPaletteAndHelp(t *testing.T) {
 	if m.help {
 		t.Error("help not closed")
 	}
-	m = drive(t, m, key("r"))
-	if !strings.Contains(m.notice, "sub-project 4") {
-		t.Errorf("reply notice = %q", m.notice)
-	}
 }
 
 func TestLocationLinesAndMarkers(t *testing.T) {
@@ -362,6 +358,13 @@ func TestGoldenScreens(t *testing.T) {
 		},
 		"list-80x24": func(t *testing.T) Model { return newTestModel(t, 80, 24) },
 		"help-80x24": func(t *testing.T) Model { return drive(t, newTestModel(t, 80, 24), key("?")) },
+		"review-120x30": func(t *testing.T) Model {
+			m, _ := newSendModel(t)
+			m.editFile = fakeEditor(func(s string) string {
+				return strings.Replace(s, "\n\n", "\n\nSounds good, see you there.\n\nAttached is the menu.", 1)
+			})
+			return drive(t, m, key("r"))
+		},
 	}
 	for name, build := range cases {
 		t.Run(name, func(t *testing.T) {

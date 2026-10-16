@@ -26,5 +26,6 @@ func newTUICmd(a *app) *cobra.Command {
 }
 
 func (a *app) runTUI(cmd *cobra.Command) error {
-	return tui.Run(cmd.Context(), a.env, tui.Options{Input: a.opts.Stdin, Output: a.opts.Stdout})
+	return tui.Run(cmd.Context(), a.env, tui.Options{Input: a.opts.Stdin, Output: a.opts.Stdout,
+		Editor: a.editorCommand()})
 }

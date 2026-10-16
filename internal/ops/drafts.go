@@ -171,6 +171,37 @@ var DraftUpdate = Op[DraftIDIn, DraftOut]{
 	},
 }
 
+// DraftSetIn changes a draft from a frontend's own inputs.
+type DraftSetIn struct {
+	ID     string   `json:"id"`
+	To     string   `json:"to,omitempty"`     // the To line as typed; replaces the recipients, when given
+	Attach []string `json:"attach,omitempty"` // files to add
+}
+
+// DraftSet changes a draft's recipients or adds attachments, rewriting its
+// editor file.
+var DraftSet = Op[DraftSetIn, DraftOut]{
+	Name: "draft.set", Summary: "Change a draft's recipients or add attachments", Perm: Draft,
+	Run: func(ctx context.Context, env *Env, in DraftSetIn) (DraftOut, error) {
+		info, d, err := loadDraft(env, in.ID)
+		if err != nil {
+			return DraftOut{}, err
+		}
+		if in.To != "" {
+			d.To = compose.SplitAddresses(in.To)
+		}
+		d.Attach = append(d.Attach, in.Attach...)
+		if err := writeDraftFile(info.Path, d); err != nil {
+			return DraftOut{}, err
+		}
+		info.Subject, info.To, info.Updated = d.Subject, d.To, env.Now().UTC()
+		if err := saveDraftInfo(env, info); err != nil {
+			return DraftOut{}, err
+		}
+		return draftOut(ctx, env, info, d), nil
+	},
+}
+
 // DraftShow shows a draft and its problems.
 var DraftShow = Op[DraftIDIn, DraftOut]{
 	Name: "draft.show", Summary: "Show a draft", Perm: Read,
@@ -325,16 +356,23 @@ func createDraft(ctx context.Context, env *Env, info DraftInfo, d compose.Draft)
 	info.ID, info.Created, info.Updated = id, now, now
 	info.Subject, info.To, info.InReplyTo, info.References = d.Subject, d.To, d.InReplyTo, d.References
 	info.Path = draftPath(env, id, ".txt")
-	if err := atomicfile.Write(info.Path, 0o600, func(w io.Writer) error {
-		_, err := io.WriteString(w, compose.Render(d))
-		return err
-	}); err != nil {
-		return DraftOut{}, fmt.Errorf("write draft: %w", err)
+	if err := writeDraftFile(info.Path, d); err != nil {
+		return DraftOut{}, err
 	}
 	if err := saveDraftInfo(env, info); err != nil {
 		return DraftOut{}, err
 	}
 	return draftOut(ctx, env, info, d), nil
+}
+
+func writeDraftFile(path string, d compose.Draft) error {
+	if err := atomicfile.Write(path, 0o600, func(w io.Writer) error {
+		_, err := io.WriteString(w, compose.Render(d))
+		return err
+	}); err != nil {
+		return fmt.Errorf("write draft: %w", err)
+	}
+	return nil
 }
 
 func saveDraftInfo(env *Env, info DraftInfo) error {

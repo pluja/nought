@@ -153,6 +153,33 @@ func (m Model) update(msg tea.Msg) (Model, tea.Cmd) {
 		}
 		return m.refresh()
 
+	case draftMsg:
+		return m.draftReady(msg)
+	case editorDoneMsg:
+		return m.editorDone(msg)
+	case queuedMsg:
+		return m.queued(msg)
+	case cancelDoneMsg:
+		return m.cancelDone(msg)
+	case flushMsg:
+		return m, m.flush(false)
+	case flushDoneMsg:
+		return m.flushDone(msg)
+	case discardDoneMsg:
+		if msg.err != nil {
+			m.notice, m.noticeErr = "discard: "+msg.err.Error(), true
+			return m, nil
+		}
+		m.composing, m.notice = nil, "discarded"
+		return m.refresh()
+	case suggestDoneMsg:
+		if m.inputKind == inputTo && msg.token == lastAddress(m.input.Value()) {
+			m.suggestions = msg.list
+		}
+		return m, nil
+	case draftsDoneMsg:
+		return m.draftsDone(msg), nil
+
 	case tea.KeyPressMsg:
 		return m.key(msg)
 	}
@@ -211,7 +238,15 @@ func (m Model) searchDone(msg searchDoneMsg) (Model, tea.Cmd) {
 // refresh reloads the current view, the sidebar and the status bar.
 func (m Model) refresh() (Model, tea.Cmd) {
 	m.searchGen++
-	return m, tea.Batch(m.search(m.query, m.searchGen), m.loadSidebar(), m.loadStatus())
+	return m, tea.Batch(m.load(), m.loadSidebar(), m.loadStatus())
+}
+
+// load fetches the current view: the drafts, or a search.
+func (m Model) load() tea.Cmd {
+	if m.query == queryDrafts {
+		return m.loadDrafts()
+	}
+	return m.search(m.query, m.searchGen)
 }
 
 // enqueue applies a tag change to the shown message at once (so quick
@@ -331,7 +366,10 @@ func (m Model) openSelected() (Model, tea.Cmd) {
 func (m Model) goTo(query string) (Model, tea.Cmd) {
 	m.query, m.cursor, m.offset, m.open, m.focus = query, 0, 0, nil, focusList
 	m.searchGen++
-	return m, m.search(query, m.searchGen)
+	if query == queryDrafts {
+		m.msgs, m.more, m.draftIdx = nil, false, 0
+	}
+	return m, m.load()
 }
 
 // startSync runs a sync in the background; auto syncs report only news.
@@ -348,6 +386,13 @@ func (m Model) startSync(auto bool) (Model, tea.Cmd) {
 // requestQuit leaves at once, unless a sync is running: then it is stopped
 // at a safe point first (a second request forces the exit).
 func (m Model) requestQuit() (Model, tea.Cmd) {
+	// Quitting ends the undo window: queued mail goes first. Asking again
+	// leaves at once; the message then goes at the next sync.
+	if m.sendingID != "" && !m.quitSending {
+		m.quitSending = true
+		m.notice, m.noticeErr = "sending queued mail… (q again leaves; it then goes at the next sync)", false
+		return m, m.flush(true)
+	}
 	if !m.syncing || m.quitting {
 		return m, tea.Quit
 	}

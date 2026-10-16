@@ -72,7 +72,8 @@ func (m Model) bodyHeight() int {
 }
 
 // hintsShown: the key hints line needs a little room.
-func (m Model) hintsShown() bool { return m.prefs.ShowHints() && m.height >= 10 }
+// While composing, the review screen shows its own keys.
+func (m Model) hintsShown() bool { return m.prefs.ShowHints() && m.height >= 10 && m.composing == nil }
 
 func (m Model) listHeight() int { return m.bodyHeight() }
 
@@ -101,6 +102,8 @@ func (m Model) renderScreen() string {
 	header := m.renderHeader()
 	var main string
 	switch {
+	case m.composing != nil:
+		main = m.renderReview()
 	case m.focus == focusReader && !m.wide():
 		main = m.renderReader(m.width)
 	case m.wide():
@@ -130,7 +133,12 @@ func (m Model) renderHeader() string {
 		n += "+"
 	}
 	head := m.st.title.Render("nought") + "  " + m.st.bold.Render(render.SanitizeLine(q)) + m.st.dim.Render("  "+n+" messages")
-	if m.query == queryTrash {
+	switch {
+	case m.composing != nil:
+		head = m.st.title.Render("nought") + "  " + m.st.bold.Render(kindTitle(m.composing.Kind)) + m.st.dim.Render("  review before sending")
+	case m.query == queryDrafts:
+		head = m.st.title.Render("nought") + "  " + m.st.bold.Render("Drafts") + m.st.dim.Render("  "+strconv.Itoa(len(m.drafts))+" drafts")
+	case m.query == queryTrash:
 		// The trash explains itself: when its mail goes, and how to act.
 		when := "at the next sync"
 		if m.trashDays > 0 {
@@ -156,6 +164,8 @@ func viewName(query string) string {
 		return "Archive"
 	case queryAll:
 		return "All mail"
+	case queryDrafts:
+		return "Drafts"
 	}
 	return query
 }
@@ -225,6 +235,9 @@ func (m Model) renderSidebar() string {
 
 func (m Model) renderList() string {
 	w, h := m.listW(), m.listHeight()
+	if m.query == queryDrafts {
+		return m.renderDrafts(w, h)
+	}
 	if len(m.msgs) == 0 {
 		return fit(m.st.dim.Render(" Nothing here. Inbox Zero!"), w, h)
 	}
@@ -450,6 +463,16 @@ func (m Model) renderPromptLine() string {
 	case m.inputKind == inputConfirmDelete:
 		q := "Delete permanently, here and on the server? (y/N) "
 		return fit(m.st.errText.Render(q)+render.SanitizeLine(m.deleting.Subject), m.width, 1)
+	case m.inputKind == inputConfirmDiscard:
+		return fit(m.st.errText.Render("Discard this draft? (y/N)"), m.width, 1)
+	case m.inputKind == inputTo:
+		line := "to: " + m.input.View()
+		if len(m.suggestions) > 0 {
+			line += m.st.dim.Render("  tab: ") + render.SanitizeLine(strings.Join(m.suggestions, "  "))
+		}
+		return fit(line, m.width, 1)
+	case m.inputKind == inputAttach:
+		return pad("attach file: "+m.input.View(), m.width)
 	case m.syncing:
 		line := "syncing…"
 		if len(m.syncLines) > 0 {
@@ -462,6 +485,8 @@ func (m Model) renderPromptLine() string {
 			style = m.st.errText
 		}
 		return fit(style.Render(render.SanitizeLine(m.notice)), m.width, 1)
+	case m.sendingID != "":
+		return fit(m.st.dim.Render("sending “"+render.SanitizeLine(m.sendingSubject)+"”… z undoes"), m.width, 1)
 	}
 	return ""
 }
@@ -472,7 +497,7 @@ func (m Model) renderHints() string {
 	switch {
 	case m.inputKind == inputLinkNumber:
 		hints = [][2]string{{"1-" + strconv.Itoa(len(m.links)), "link"}, {"enter", "confirm"}, {"esc", "cancel"}}
-	case m.inputKind == inputConfirmDelete || m.inputKind == inputConfirmEmptyTrash:
+	case m.inputKind == inputConfirmDelete || m.inputKind == inputConfirmEmptyTrash || m.inputKind == inputConfirmDiscard:
 		hints = [][2]string{{"y", "yes"}, {"any other key", "no"}}
 	case m.inputKind != inputNone:
 		hints = [][2]string{{"enter", "confirm"}, {"esc", "cancel"}}
@@ -480,8 +505,12 @@ func (m Model) renderHints() string {
 		hints = [][2]string{{"e", "archive"}, {"o", "link"}, {"J/K", "next"}, {"esc", "back"}}
 	case m.focus == focusSidebar:
 		hints = [][2]string{{"enter", "show"}, {"esc", "back"}}
+	case m.inputKind == inputTo:
+		hints = [][2]string{{"tab", "complete"}, {"enter", "confirm"}, {"esc", "cancel"}}
 	case m.query == queryTrash:
 		hints = [][2]string{{"enter", "open"}, {"#", "restore"}, {"D", "delete now"}, {"z", "undo"}}
+	case m.query == queryDrafts:
+		hints = [][2]string{{"enter", "review"}, {"c", "new message"}}
 	default:
 		hints = [][2]string{{"enter", "open"}, {"e", "archive"}, {"/", "search"}, {"z", "undo"}}
 	}

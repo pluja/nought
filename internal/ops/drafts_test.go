@@ -129,3 +129,28 @@ func TestDraftsFromScripts(t *testing.T) {
 		t.Errorf("forward recipients not saved: %+v, %v", got.Draft, err)
 	}
 }
+
+// Frontends change recipients and attachments without editing the file.
+func TestDraftSet(t *testing.T) {
+	env := draftEnv(t)
+	d, err := Call(t.Context(), env, Draft, DraftNew, DraftNewIn{Subject: "s", Body: "Hello\n"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(t.TempDir(), "a.txt")
+	if err := os.WriteFile(file, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out, err := Call(t.Context(), env, Draft, DraftSet, DraftSetIn{ID: d.ID, To: `bob@x.org, "Doe, Jane" <jane@x.org>`, Attach: []string{file}})
+	if err != nil || !slices.Equal(out.Draft.To, []string{"bob@x.org", `"Doe, Jane" <jane@x.org>`}) || !slices.Equal(out.Draft.Attach, []string{file}) ||
+		!strings.HasPrefix(out.Draft.Body, "Hello\n") || len(out.To) != 2 {
+		t.Fatalf("set = %+v, %v", out, err)
+	}
+	again, err := Call(t.Context(), env, Read, DraftShow, DraftIDIn{ID: d.ID})
+	if err != nil || !slices.Equal(again.Draft.Attach, []string{file}) || again.Draft.Body != out.Draft.Body {
+		t.Errorf("not saved: %+v, %v", again.Draft, err)
+	}
+	if _, err := Call(t.Context(), env, Tag, DraftSet, DraftSetIn{ID: d.ID}); !errors.Is(err, ErrPermission) {
+		t.Errorf("tag-level set = %v", err)
+	}
+}

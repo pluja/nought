@@ -30,10 +30,12 @@ func (m Model) helpGroups() (left, right []helpGroup) {
 			{"gi ge", "inbox, archive"},
 			{"gu gf", "unread, flagged"},
 			{"ga gt", "all mail, trash"},
+			{"gd", "drafts"},
 			{"/", "search"},
 			{":", "command, e.g. :search :tag :sync"},
 		}},
 		{"Anywhere", [][2]string{
+			{"c", "write a new message"},
 			{"S", "sync now"},
 			{":empty-trash", "empty the trash (asks)"},
 			{":reindex", "rebuild the index"},
@@ -49,7 +51,9 @@ func (m Model) helpGroups() (left, right []helpGroup) {
 			{"u", "read / unread"},
 			{"s", "flag / unflag"},
 			{"t", "tags: +add -remove"},
-			{"z", "undo"},
+			{"r R", "reply, reply to all"},
+			{"f", "forward"},
+			{"z", "undo (also a send, for a few seconds)"},
 		}},
 		{"Read", [][2]string{
 			{"Enter", "open (marks it read)"},

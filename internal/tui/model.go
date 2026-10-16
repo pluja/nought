@@ -59,6 +59,9 @@ const (
 	inputLinkNumber
 	inputConfirmDelete
 	inputConfirmEmptyTrash
+	inputTo             // the review screen's To line
+	inputAttach         // a file to attach
+	inputConfirmDiscard // discard the draft under review
 )
 
 // sideItem is one entry in the sidebar.
@@ -186,6 +189,20 @@ type Model struct {
 	helpTop      int // first help line shown
 	pendingG     bool
 	undo         []undoEntry
+
+	// Writing mail.
+	composing      *ops.DraftOut // the review screen shows while set
+	editing        string        // the draft open in the editor
+	editFile       func(path string) tea.Cmd
+	sendingID      string // the outbox entry in its undo window
+	sendingSubject string
+	quitSending    bool     // quitting waits for the queued mail to go
+	suggestions    []string // addresses for the To input
+	drafts         []ops.DraftInfo
+	outbox         []ops.OutboxEntry
+	draftIdx       int
+	// after runs a timer (tea.Tick); tests replace it.
+	after func(time.Duration, func(time.Time) tea.Msg) tea.Cmd
 }
 
 // Options configure Run.
@@ -195,6 +212,8 @@ type Options struct {
 	// OpenURL opens a link in the user's browser; nil uses the system's
 	// default handler.
 	OpenURL func(string) error
+	// Editor is the command that edits drafts, e.g. ["vim"]; nil uses vi.
+	Editor []string
 }
 
 // Run starts the TUI and returns when the user quits.
@@ -210,6 +229,7 @@ func Run(ctx context.Context, env *ops.Env, opts Options) error {
 	if opts.OpenURL != nil {
 		m.openURL = opts.OpenURL
 	}
+	m.editFile = execEditor(opts.Editor)
 	sender := &sendBox{}
 	m.send = sender.send
 	p := tea.NewProgram(m, progOpts...)
@@ -245,6 +265,8 @@ func newModel(ctx context.Context, env *ops.Env) Model {
 		sidebar:     true,
 		input:       in,
 		reader:      viewport.New(),
+		editFile:    execEditor(nil),
+		after:       tea.Tick,
 	}
 	if cfg, err := env.Config(); err == nil {
 		m.prefs = cfg.TUI

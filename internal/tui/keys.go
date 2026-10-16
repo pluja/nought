@@ -30,6 +30,9 @@ func (m Model) key(k tea.KeyPressMsg) (Model, tea.Cmd) {
 	if !m.quitting {
 		m.notice, m.noticeErr = "", false
 	}
+	if m.composing != nil {
+		return m.reviewKey(key)
+	}
 
 	// Two-key sequences starting with g. An unknown second key is handled
 	// as if g had not been pressed.
@@ -55,6 +58,8 @@ func (m Model) key(k tea.KeyPressMsg) (Model, tea.Cmd) {
 			return m.goTo(queryTrash)
 		case "e":
 			return m.goTo(queryArchive)
+		case "d":
+			return m.goTo(queryDrafts)
 		}
 	}
 
@@ -86,6 +91,9 @@ func (m Model) key(k tea.KeyPressMsg) (Model, tea.Cmd) {
 	case "S":
 		return m.startSync(false)
 	case "z":
+		if m.sendingID != "" {
+			return m, m.cancelSend(m.sendingID)
+		}
 		return m.undoLast()
 	case "o":
 		return m.startLinkPick()
@@ -98,9 +106,8 @@ func (m Model) key(k tea.KeyPressMsg) (Model, tea.Cmd) {
 		}
 		m.showLinks = !m.showLinks
 		return m, nil
-	case "r", "R", "a", "f", "c":
-		m.notice = "reply and compose arrive with sub-project 4"
-		return m, nil
+	case "r", "R", "f", "c":
+		return m.startDraft(key)
 	}
 
 	switch m.focus {
@@ -108,9 +115,11 @@ func (m Model) key(k tea.KeyPressMsg) (Model, tea.Cmd) {
 		return m.sidebarKey(key)
 	case focusReader:
 		return m.readerKey(key)
-	default:
-		return m.listKey(key)
 	}
+	if m.query == queryDrafts {
+		return m.draftsKey(key)
+	}
+	return m.listKey(key)
 }
 
 func (m Model) listKey(key string) (Model, tea.Cmd) {
@@ -270,6 +279,9 @@ func (m Model) startInput(kind inputKind, value string) (Model, tea.Cmd) {
 	m.input.SetValue(value)
 	m.input.CursorEnd()
 	m.input.SetWidth(max(m.width-25, 5))
+	if kind == inputTo { // room for the suggestions
+		m.input.SetWidth(max(m.width/2, 10))
+	}
 	return m, m.input.Focus()
 }
 
@@ -282,6 +294,14 @@ func (m Model) inputKey(k tea.KeyPressMsg) (Model, tea.Cmd) {
 		}
 		m.notice = "emptying the trash…"
 		return m, m.emptyTrash()
+	}
+	if m.inputKind == inputConfirmDiscard {
+		m.inputKind = inputNone
+		if k.String() != "y" && k.String() != "Y" {
+			m.notice = "draft kept"
+			return m, nil
+		}
+		return m, m.discard(m.composing.ID)
 	}
 	if m.inputKind == inputConfirmDelete {
 		m.inputKind = inputNone
@@ -297,7 +317,12 @@ func (m Model) inputKey(k tea.KeyPressMsg) (Model, tea.Cmd) {
 	case "esc":
 		m.inputKind = inputNone
 		m.input.Blur()
+		m.suggestions = nil
 		return m, nil
+	case "tab":
+		if m.inputKind == inputTo {
+			return m.complete(), nil
+		}
 	case "enter":
 		kind, value := m.inputKind, strings.TrimSpace(m.input.Value())
 		m.inputKind = inputNone
@@ -306,6 +331,12 @@ func (m Model) inputKey(k tea.KeyPressMsg) (Model, tea.Cmd) {
 	}
 	var cmd tea.Cmd
 	m.input, cmd = m.input.Update(k)
+	if m.inputKind == inputTo {
+		m.suggestions = nil
+		if token := lastAddress(m.input.Value()); token != "" {
+			cmd = tea.Batch(cmd, m.suggest(m.composing.Account, token))
+		}
+	}
 	if m.inputKind == inputLinkNumber && linkNumberComplete(m.input.Value(), len(m.links)) {
 		value := m.input.Value()
 		m.inputKind = inputNone
@@ -340,6 +371,15 @@ func (m Model) submit(kind inputKind, value string) (Model, tea.Cmd) {
 		return m.command(value)
 	case inputLinkNumber:
 		return m.pickLink(value)
+	case inputTo:
+		m.suggestions = nil
+		if value = strings.TrimSuffix(value, ","); value != "" {
+			return m, m.setDraft(ops.DraftSetIn{ID: m.composing.ID, To: value})
+		}
+	case inputAttach:
+		if value != "" {
+			return m, m.setDraft(ops.DraftSetIn{ID: m.composing.ID, Attach: []string{value}})
+		}
 	}
 	return m, nil
 }
@@ -364,6 +404,10 @@ func (m Model) command(line string) (Model, tea.Cmd) {
 		return m.messageAction("e")
 	case "trash":
 		return m.goTo(queryTrash)
+	case "drafts":
+		return m.goTo(queryDrafts)
+	case "compose":
+		return m.startDraft("c")
 	case "empty-trash":
 		m.inputKind = inputConfirmEmptyTrash
 		return m, nil

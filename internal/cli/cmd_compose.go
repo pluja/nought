@@ -281,17 +281,22 @@ func (a *app) choose(cmd *cobra.Command, p *prompter, out ops.DraftOut) (again b
 	}
 }
 
+// editorCommand is the user's editor: $VISUAL, then $EDITOR, else vi
+// (notepad on Windows). Like git, it may carry arguments ("code --wait").
+func (a *app) editorCommand() []string {
+	fallback := "vi"
+	if runtime.GOOS == "windows" {
+		fallback = "notepad"
+	}
+	return strings.Fields(cmp.Or(strings.TrimSpace(a.opts.Getenv("VISUAL")), strings.TrimSpace(a.opts.Getenv("EDITOR")), fallback))
+}
+
 // edit opens the user's editor on a file and waits for it to close.
 func (a *app) edit(ctx context.Context, path string) error {
 	if a.editor != nil {
 		return a.editor(ctx, path)
 	}
-	fallback := "vi"
-	if runtime.GOOS == "windows" {
-		fallback = "notepad"
-	}
-	// Like git, the command may carry arguments ("code --wait").
-	args := strings.Fields(cmp.Or(a.opts.Getenv("VISUAL"), a.opts.Getenv("EDITOR"), fallback))
+	args := a.editorCommand()
 	c := exec.CommandContext(ctx, args[0], append(args[1:], path)...) //nolint:gosec // G204: the user's own editor
 	c.Stdin, c.Stdout, c.Stderr = a.opts.Stdin, a.opts.Stdout, a.opts.Stderr
 	if err := c.Run(); err != nil {

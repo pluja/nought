@@ -9,6 +9,8 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -98,5 +100,28 @@ func TestComposeInTerminal(t *testing.T) {
 				t.Errorf("edited %d, sent %d, drafts %d, output:\n%s", len(*edited), len(srv.Messages()), len(drafts), out)
 			}
 		})
+	}
+}
+
+func TestEditorCommand(t *testing.T) {
+	fallback := "vi"
+	if runtime.GOOS == "windows" {
+		fallback = "notepad"
+	}
+	tests := []struct {
+		visual, editor string
+		want           []string
+	}{
+		{"", "", []string{fallback}},
+		{"", "nano", []string{"nano"}},
+		{"code --wait", "nano", []string{"code", "--wait"}},
+		{"  ", "nano", []string{"nano"}},
+	}
+	for _, tt := range tests {
+		env := map[string]string{"VISUAL": tt.visual, "EDITOR": tt.editor}
+		a := &app{opts: Options{Getenv: func(k string) string { return env[k] }}}
+		if got := a.editorCommand(); !slices.Equal(got, tt.want) {
+			t.Errorf("VISUAL=%q EDITOR=%q: %q, want %q", tt.visual, tt.editor, got, tt.want)
+		}
 	}
 }

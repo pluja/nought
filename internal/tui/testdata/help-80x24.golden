@@ -12,13 +12,13 @@ nought  keys  j/k scroll · any other key closes
    gi ge          inbox, archive                                                
    gu gf          unread, flagged                                               
    ga gt          all mail, trash                                               
+   gd             drafts                                                        
    /              search                                                        
    :              command, e.g. :search :tag :sync                              
                                                                                 
  Anywhere                                                                       
+   c              write a new message                                           
    S              sync now                                                      
    :empty-trash   empty the trash (asks)                                        
    :reindex       rebuild the index                                             
    ?              this help                                                     
-   q              quit                                                          
-                                                                                

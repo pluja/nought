@@ -42,11 +42,11 @@ func Parse(text string, base Draft) (Draft, error) {
 		case "from":
 			d.From = value
 		case "to":
-			d.To = append(d.To, splitAddresses(value)...)
+			d.To = append(d.To, SplitAddresses(value)...)
 		case "cc":
-			d.Cc = append(d.Cc, splitAddresses(value)...)
+			d.Cc = append(d.Cc, SplitAddresses(value)...)
 		case "bcc":
-			d.Bcc = append(d.Bcc, splitAddresses(value)...)
+			d.Bcc = append(d.Bcc, SplitAddresses(value)...)
 		case "subject":
 			d.Subject = value
 		case "attach":
@@ -60,9 +60,9 @@ func Parse(text string, base Draft) (Draft, error) {
 	return d, nil
 }
 
-// splitAddresses splits a comma-separated list, keeping commas inside
+// SplitAddresses splits a comma-separated list, keeping commas inside
 // quoted display names and angle brackets.
-func splitAddresses(s string) []string {
+func SplitAddresses(s string) []string {
 	var out []string
 	var cur strings.Builder
 	quoted, angle := false, false
