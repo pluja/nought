@@ -421,3 +421,67 @@ func TestSyncReportsRefusedMail(t *testing.T) {
 		t.Errorf("sync: %v, outbox %+v", err, out.Outbox)
 	}
 }
+
+// Deferred (a): mail queued for an account that was removed fails with a
+// reason, instead of waiting forever.
+func TestRemovedAccountFailsItsMail(t *testing.T) {
+	env, _ := sendEnv(t, smtptest.Options{})
+	d := newDraft(t, env, "alice@example.org", "Orphan", "x\n")
+	if _, err := Call(t.Context(), env, Send, MsgSend, SendIn{DraftID: d.ID}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Call(t.Context(), env, Delete, AccountRemove, AccountName{Name: "personal"}); err != nil {
+		t.Fatal(err)
+	}
+	out := flushNow(t, env)
+	if len(out.Results) != 1 || out.Results[0].State != StateFailed || !strings.Contains(out.Results[0].LastError, "personal") {
+		t.Errorf("results = %+v", out.Results)
+	}
+}
+
+// Deferred (b): the bytes of an entry whose .json is gone (a crash while
+// removing it) are cleaned up; they may hold Bcc recipients.
+func TestFlushSweepsLeftoverFiles(t *testing.T) {
+	env, _ := sendEnv(t, smtptest.Options{})
+	id := strings.Repeat("ab", 16)
+	writeFile(t, entryPath(env, id, ".eml"), "x")
+	writeFile(t, entryPath(env, id, ".stored.eml"), "Bcc: secret@x.org\r\n")
+	flushNow(t, env)
+	for _, ext := range []string{".eml", ".stored.eml"} {
+		if _, err := os.Stat(entryPath(env, id, ext)); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("%s left: %v", ext, err)
+		}
+	}
+}
+
+// Deferred (c): the copy for the server's Sent folder is recorded once
+// made, so finishing an interrupted send does not append it again.
+func TestSentCopyAppendedOnce(t *testing.T) {
+	env, srv := sendEnv(t, smtptest.Options{})
+	imapSrv := attachIMAP(t, env, srv, config.SaveSentServer)
+	for _, appended := range []bool{true, false} {
+		d := newDraft(t, env, "alice@example.org", "Once", "x\n")
+		e, err := Call(t.Context(), env, Send, MsgSend, SendIn{DraftID: d.ID})
+		if err != nil {
+			t.Fatal(err)
+		}
+		e.State, e.Appended = StateSent, appended // SMTP done; the copy maybe too
+		if err := saveEntry(env, e); err != nil {
+			t.Fatal(err)
+		}
+		flushNow(t, env)
+	}
+	if n := len(imapSrv.UIDs(t, "Sent")); n != 1 {
+		t.Errorf("Sent has %d copies, want 1 (only the one not yet appended)", n)
+	}
+}
+
+// Deferred (g): a large message gets the time a slow uplink needs.
+func TestSMTPTimeoutGrowsWithSize(t *testing.T) {
+	if got := smtpTimeout(2*time.Minute, 1000); got != 2*time.Minute {
+		t.Errorf("small: %v", got)
+	}
+	if got := smtpTimeout(2*time.Minute, 25<<20); got != 2*time.Minute+400*time.Second {
+		t.Errorf("25 MB: %v", got)
+	}
+}

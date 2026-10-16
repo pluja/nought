@@ -480,9 +480,11 @@ func loadDraft(env *Env, id string) (DraftInfo, compose.Draft, error) {
 	return info, d, nil
 }
 
+// removeDraft removes the metadata first: a crash in between leaves an
+// unlisted file, never a draft that cannot be opened.
 func removeDraft(env *Env, id string) error {
 	var errs []error
-	for _, ext := range []string{".txt", ".json"} {
+	for _, ext := range []string{".json", ".txt"} {
 		if err := os.Remove(draftPath(env, id, ext)); err != nil && !errors.Is(err, os.ErrNotExist) {
 			errs = append(errs, err)
 		}

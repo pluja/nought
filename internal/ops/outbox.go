@@ -59,6 +59,9 @@ type OutboxEntry struct {
 	State     string    `json:"state"`
 	Attempts  int       `json:"attempts"`
 	LastError string    `json:"last_error,omitempty"`
+	// Appended: the copy is in the server's Sent folder (save_sent =
+	// "server"), so finishing an interrupted send does not add another.
+	Appended bool `json:"appended,omitempty"`
 }
 
 // SendIn sends a draft. Now skips the undo window (the CLI).
@@ -288,6 +291,9 @@ var OutboxFlush = Op[FlushIn, FlushOut]{
 			return FlushOut{}, err
 		}
 		defer release()
+		if err := sweepLeftovers(env); err != nil {
+			return FlushOut{}, err
+		}
 		entries, err := listEntries(env)
 		if err != nil {
 			return FlushOut{}, err
@@ -351,6 +357,9 @@ func flushOne(ctx context.Context, env *Env, e OutboxEntry, out *FlushOut) error
 
 func deliver(ctx context.Context, env *Env, e OutboxEntry) error {
 	a, err := account(env, e.Account)
+	if errors.Is(err, ErrNotFound) {
+		return fmt.Errorf("the account %s was removed: %w", e.Account, smtpsend.ErrPermanent)
+	}
 	if err != nil {
 		return err
 	}
@@ -362,9 +371,15 @@ func deliver(ctx context.Context, env *Env, e OutboxEntry) error {
 	if err != nil {
 		return err
 	}
-	timeout := cmpOr(env.SMTPTimeout, defaultSMTPTimeout)
+	timeout := smtpTimeout(cmpOr(env.SMTPTimeout, defaultSMTPTimeout), len(raw))
 	return smtpsend.Send(ctx, a.SMTP, env.TLS, a.Login(), password,
 		smtpsend.Envelope{From: e.From, To: e.To}, raw, timeout)
+}
+
+// smtpTimeout gives a message the time a slow uplink (64 KB/s) needs on
+// top of base, so a large attachment is not cut off and retried forever.
+func smtpTimeout(base time.Duration, size int) time.Duration {
+	return base + time.Duration(size/(64<<10))*time.Second
 }
 
 func cmpOr(d, def time.Duration) time.Duration {
@@ -390,9 +405,14 @@ func archiveSent(ctx context.Context, env *Env, e OutboxEntry, out *FlushOut) er
 			out.Notes = append(out.Notes, "could not mark the original replied: "+err.Error())
 		}
 	}
-	if a, err := account(env, e.Account); err == nil && a.SaveSent == config.SaveSentServer {
+	if a, err := account(env, e.Account); err == nil && a.SaveSent == config.SaveSentServer && !e.Appended {
 		if err := appendSent(ctx, env, a, stored); err != nil {
 			out.Notes = append(out.Notes, fmt.Sprintf("%q was sent, but not copied to the server's Sent folder: %v", e.Subject, err))
+		} else {
+			e.Appended = true
+			if err := saveEntry(env, e); err != nil {
+				return err
+			}
 		}
 	}
 	if err := writeTagsDump(ctx, env); err != nil {
@@ -514,6 +534,33 @@ func listEntries(env *Env) ([]OutboxEntry, error) {
 	}
 	slices.SortFunc(out, func(x, y OutboxEntry) int { return x.SendAfter.Compare(y.SendAfter) })
 	return out, nil
+}
+
+// sweepLeftovers removes the message files of entries whose .json is gone
+// (a crash while removing one); they may hold Bcc recipients. It runs with
+// the outbox locked, so no entry is being written meanwhile.
+func sweepLeftovers(env *Env) error {
+	files, err := os.ReadDir(env.Paths.OutboxDir)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	var errs []error
+	for _, f := range files {
+		id, ok := strings.CutSuffix(f.Name(), ".stored.eml")
+		if !ok {
+			id, ok = strings.CutSuffix(f.Name(), ".eml")
+		}
+		if !ok || !validID(id) {
+			continue
+		}
+		if _, err := os.Stat(entryPath(env, id, ".json")); errors.Is(err, os.ErrNotExist) {
+			errs = append(errs, os.Remove(filepath.Join(env.Paths.OutboxDir, f.Name())))
+		}
+	}
+	return errors.Join(errs...)
 }
 
 func removeEntry(env *Env, id string) error {
