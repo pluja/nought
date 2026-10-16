@@ -1,13 +1,14 @@
 # nought
 
-**nought** (command: `nou`) is a privacy-first, AI-first **Inbox Zero** mail client.
+**nought** (command: `nou`) is a privacy-first **Inbox Zero** mail client you can drive entirely
+from the command line.
 
-It archives your mail locally, in plain files you own, and keeps the server empty. Every
-feature is a command with `--json` output and stable exit codes, so scripts and AI agents can
-use it as easily as you can.
+It archives your mail locally, in plain files you own, and keeps the server down to your inbox.
+Everything it does is a command with `--json` output and stable exit codes, so shell scripts, cron
+jobs and AI agents can use it as easily as you can. There is also a keyboard-driven TUI.
 
-> **Status:** early development. The core works: import, archive, search, tag, sync, and
-> verified server deletion. Sending, AI triage, MCP, PGP, a TUI and a GUI are planned (see
+> **Status:** early development. Import, archive, search, tags, sync with verified server deletion,
+> mirroring of what your phone does, and the TUI work. Sending, MCP, PGP and a GUI are planned (see
 > `docs/superpowers/specs/`).
 
 ## Principles
