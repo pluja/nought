@@ -48,12 +48,20 @@ const MaxKeepDays = 36500
 // Policy returns the policy of the first rule matching folder, or the default.
 // Folder names use "/" as the hierarchy separator.
 func (a *Account) Policy(folder string) Policy {
-	for _, r := range a.Folders {
-		if re, err := compileGlob(r.Match); err == nil && re.MatchString(folder) {
-			return r.Policy()
-		}
+	if p, ok := a.Rule(folder); ok {
+		return p
 	}
 	return FolderRule{}.Policy()
+}
+
+// Rule is the policy of the first folder rule matching folder, if any.
+func (a *Account) Rule(folder string) (Policy, bool) {
+	for _, r := range a.Folders {
+		if re, err := compileGlob(r.Match); err == nil && re.MatchString(folder) {
+			return r.Policy(), true
+		}
+	}
+	return Policy{}, false
 }
 
 // Policy is the rule's policy, with defaults for what it leaves out.

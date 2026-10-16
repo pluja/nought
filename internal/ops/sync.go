@@ -296,7 +296,7 @@ func testServer(ctx context.Context, env *Env, a *config.Account, password strin
 	out := AccountTestOut{Account: a.Name, Capabilities: conn.Capabilities(), UIDPlus: conn.HasUIDPlus(),
 		Folders: []FolderPolicyOut{}}
 	for _, f := range folders {
-		out.Folders = append(out.Folders, FolderPolicyOut{Folder: f.Name, Policy: a.Policy(f.Name)})
+		out.Folders = append(out.Folders, FolderPolicyOut{Folder: f.Name, Policy: folderPolicy(a, f)})
 	}
 	return out, nil
 }

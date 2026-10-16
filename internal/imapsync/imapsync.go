@@ -166,6 +166,10 @@ type Folder struct {
 	// and sent mail (RFC 6154 SPECIAL-USE); servers without SPECIAL-USE mark
 	// none.
 	Trash, Sent bool
+	// Special is set for the folders the server marks as drafts, junk, all
+	// mail or flagged: not mail of their own to archive (all mail and
+	// flagged show messages that live elsewhere).
+	Special bool
 }
 
 // Folders lists selectable folders.
@@ -201,7 +205,10 @@ func (c *Conn) Folders() ([]Folder, error) {
 			return r
 		}, name)
 		out = append(out, Folder{Name: name, Raw: l.Mailbox,
-			Trash: slices.Contains(l.Attrs, imap.MailboxAttrTrash), Sent: slices.Contains(l.Attrs, imap.MailboxAttrSent)})
+			Trash: slices.Contains(l.Attrs, imap.MailboxAttrTrash), Sent: slices.Contains(l.Attrs, imap.MailboxAttrSent),
+			Special: slices.ContainsFunc(l.Attrs, func(a imap.MailboxAttr) bool {
+				return a == imap.MailboxAttrDrafts || a == imap.MailboxAttrJunk || a == imap.MailboxAttrAll || a == imap.MailboxAttrFlagged
+			})})
 	}
 	slices.SortFunc(out, func(a, b Folder) int { return strings.Compare(a.Name, b.Name) })
 	return out, nil

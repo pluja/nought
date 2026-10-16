@@ -21,10 +21,24 @@ func serverTrash(a *config.Account, folders []imapsync.Folder) (imapsync.Folder,
 	if i < 0 {
 		i = slices.IndexFunc(folders, func(f imapsync.Folder) bool { return trashName(f.Name) })
 	}
-	if i < 0 || a.Policy(folders[i].Name).Action != config.ActionIgnore {
+	if i < 0 || folderPolicy(a, folders[i]).Action != config.ActionIgnore {
 		return imapsync.Folder{}, false
 	}
 	return folders[i], true
+}
+
+// folderPolicy is what sync does with a folder: its rule, if one names it;
+// else nothing for the folders the server marks as trash, drafts, junk, all
+// mail or flagged, whatever their name in the server's language; else the
+// default (archive).
+func folderPolicy(a *config.Account, f imapsync.Folder) config.Policy {
+	if p, ok := a.Rule(f.Name); ok {
+		return p
+	}
+	if f.Trash || f.Special {
+		return config.FolderRule{Action: config.ActionIgnore}.Policy()
+	}
+	return a.Policy(f.Name)
 }
 
 // trashName reports names (the last path element, any case) taken for the

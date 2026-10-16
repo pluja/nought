@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/pluja/nought/internal/config"
+	"github.com/pluja/nought/internal/imapsync"
 	"github.com/pluja/nought/internal/secret"
 )
 
@@ -185,5 +186,30 @@ func TestAccountSetSMTP(t *testing.T) {
 	}
 	if _, err := Call(t.Context(), env, Delete, AccountSet, AccountSetIn{Name: "a", SaveSent: "cloud"}); !errors.Is(err, ErrUsage) {
 		t.Errorf("bad save_sent = %v", err)
+	}
+}
+
+// Review: folder names are localized (Entwürfe, Papierkorb, Corbeille...),
+// so the folders a server marks as drafts, junk, trash, all mail or flagged
+// are left alone unless a rule names them. Gmail's All Mail holds the inbox
+// too: archiving it, then deleting there, would delete the inbox.
+func TestSpecialFoldersAreIgnoredWhateverTheirName(t *testing.T) {
+	a := &config.Account{Folders: append(DefaultFolderRules(), config.FolderRule{Match: "Archivo", Action: config.ActionArchive})}
+	tests := []struct {
+		f    imapsync.Folder
+		want string
+	}{
+		{imapsync.Folder{Name: "Entwürfe", Special: true}, config.ActionIgnore},
+		{imapsync.Folder{Name: "Papierkorb", Trash: true}, config.ActionIgnore},
+		{imapsync.Folder{Name: "[Gmail]/Alle Nachrichten", Special: true}, config.ActionIgnore},
+		{imapsync.Folder{Name: "Gesendet", Sent: true}, config.ActionArchive},
+		{imapsync.Folder{Name: "Rechnungen"}, config.ActionArchive},
+		// A rule that names the folder wins.
+		{imapsync.Folder{Name: "Archivo", Special: true}, config.ActionArchive},
+	}
+	for _, tt := range tests {
+		if got := folderPolicy(a, tt.f).Action; got != tt.want {
+			t.Errorf("%+v: %s, want %s", tt.f, got, tt.want)
+		}
 	}
 }

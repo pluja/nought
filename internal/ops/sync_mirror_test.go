@@ -246,7 +246,8 @@ func TestServerTrashUntouchedWithDeletionOff(t *testing.T) {
 }
 
 func TestServerTrashFolder(t *testing.T) {
-	a := &config.Account{Folders: append(DefaultFolderRules(), config.FolderRule{Match: "Papierkorb", Action: config.ActionIgnore})}
+	a := &config.Account{Folders: append(DefaultFolderRules(), config.FolderRule{Match: "Papierkorb", Action: config.ActionIgnore},
+		config.FolderRule{Match: "Kept", Action: config.ActionArchive})}
 	for _, c := range []struct {
 		folders []imapsync.Folder
 		want    string
@@ -254,8 +255,10 @@ func TestServerTrashFolder(t *testing.T) {
 		{[]imapsync.Folder{{Name: "INBOX"}, {Name: "Papierkorb", Raw: "P", Trash: true}, {Name: "Trash"}}, "Papierkorb"},
 		{[]imapsync.Folder{{Name: "INBOX"}, {Name: "INBOX/Deleted Items"}}, "INBOX/Deleted Items"},
 		{[]imapsync.Folder{{Name: "INBOX"}, {Name: "Archive"}}, ""},
-		// A trash the rules archive is handled like any folder.
-		{[]imapsync.Folder{{Name: "INBOX"}, {Name: "Bin", Trash: true}}, ""},
+		// A trash marked by the server is ignored whatever its name...
+		{[]imapsync.Folder{{Name: "INBOX"}, {Name: "Bin", Trash: true}}, "Bin"},
+		// ...unless a rule archives it: then it is handled like any folder.
+		{[]imapsync.Folder{{Name: "INBOX"}, {Name: "Kept", Trash: true}}, ""},
 	} {
 		f, ok := serverTrash(a, c.folders)
 		if f.Name != c.want || ok != (c.want != "") {

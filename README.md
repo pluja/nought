@@ -113,7 +113,9 @@ nou sync --dry-run && nou sync
 **The server's inbox is your inbox.** Mail stays on the server until you deal with it. Once you
 archive or delete it, here or on another device, it leaves the server at the next sync (with
 deletion enabled; it is always archived first). Mail in other folders (Sent, Archive...) counts as
-dealt with once it is archived. Drafts, templates, junk, spam and trash are never archived.
+dealt with once it is archived. Drafts, templates, junk, spam and trash are never archived: the
+folders your server marks as such (whatever their name in its language), and folders named like
+them; so is Gmail's All Mail, which holds your inbox too.
 
 Each account's folder rules are in the config file; `nou account show <name>` lists them:
 

@@ -77,7 +77,7 @@ func scanFolders(ctx context.Context, env *Env, ix *index.Index, conn *imapsync.
 	listed := map[string]bool{}
 	for _, f := range folders {
 		listed[f.Raw] = true
-		policy := a.Policy(f.Name)
+		policy := folderPolicy(a, f)
 		fo := FolderSyncOut{Folder: f.Name, Action: policy.Action, KeepDays: policy.KeepDays, MaxDays: policy.MaxDays}
 		scan := folderScan{trusted: true}
 		if policy.Action != config.ActionIgnore {
@@ -244,7 +244,7 @@ func expungeFolder(ctx context.Context, env *Env, ix *index.Index, conn *imapsyn
 	if err != nil {
 		return err
 	}
-	if err := expungeDue(ctx, env, ix, conn, a, f.Raw, mb.UIDValidity, a.Policy(f.Name), dryRun, out); err != nil {
+	if err := expungeDue(ctx, env, ix, conn, a, f.Raw, mb.UIDValidity, folderPolicy(a, f), dryRun, out); err != nil {
 		return err
 	}
 	if dryRun {
