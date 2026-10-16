@@ -29,7 +29,7 @@ func TestParseEditedFile(t *testing.T) {
 		d.Body != "Body line\n# not a comment in the body\n" {
 		t.Errorf("parsed = %+v", d)
 	}
-	if _, err := Parse("To: a@b.c\nSubject: x\r\nBcc: e@x\n\nbody", Draft{}); err == nil {
+	if _, err := Parse("To: a@b.c\nSubject: x\rBcc: e@x\n\nbody", Draft{}); err == nil {
 		t.Error("a CR in the header block was accepted")
 	}
 }
@@ -50,4 +50,15 @@ func FuzzParse(f *testing.F) {
 			t.Fatalf("round trip changed it:\n%+v\n%+v", d, again)
 		}
 	})
+}
+
+// Windows editors save CRLF line endings.
+func TestParseCRLF(t *testing.T) {
+	d, err := Parse("From: me@example.org\r\nTo: a@x.org\r\nSubject: s\r\n\r\nHi\r\nthere\r\n", Draft{})
+	if err != nil || d.Subject != "s" || d.Body != "Hi\nthere\n" || len(d.To) != 1 {
+		t.Errorf("Parse(CRLF) = %+v, %v", d, err)
+	}
+	if _, err := Parse("Subject: a\rBcc: x@y.org\n\nbody", Draft{}); err == nil {
+		t.Error("a lone CR in the headers was accepted")
+	}
 }

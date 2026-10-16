@@ -21,9 +21,10 @@ func Render(d Draft) string {
 
 // Parse reads an edited file. Headers run to the first blank line; lines
 // starting with # and unknown headers are dropped. The hidden fields
-// (threading) are kept from base.
+// (threading) are kept from base. CRLF line endings (Windows editors) are
+// read as LF.
 func Parse(text string, base Draft) (Draft, error) {
-	head, body, _ := strings.Cut(text, "\n\n")
+	head, body, _ := strings.Cut(strings.ReplaceAll(text, "\r\n", "\n"), "\n\n")
 	if strings.ContainsRune(head, '\r') {
 		return Draft{}, errors.New("the header lines contain a carriage return")
 	}
