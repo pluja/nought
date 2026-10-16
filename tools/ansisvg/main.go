@@ -87,8 +87,8 @@ func draw(screen, title string) string {
 		top := titleH + pad + float64(i)*lineH
 		for _, r := range row {
 			fg, bg := colors(r.st)
-			x, w := pad+float64(r.col)*cellW, float64(r.width)*cellW
 			if bg != "" {
+				x, w := pad+float64(r.col)*cellW, float64(r.width)*cellW
 				fmt.Fprintf(&b, `<rect x="%.2f" y="%.2f" width="%.2f" height="%.2f" fill="%s"/>`+"\n", x, top, w, lineH, bg)
 			}
 			if strings.TrimSpace(r.text) == "" && !r.st.underline {
@@ -107,13 +107,43 @@ func draw(screen, title string) string {
 			if r.st.underline {
 				attrs += ` text-decoration="underline"`
 			}
-			// textLength pins every run to its cells, whatever the font.
-			fmt.Fprintf(&b, `<text x="%.2f" y="%.2f" textLength="%.2f" lengthAdjust="spacingAndGlyphs" %s>%s</text>`+"\n",
-				x, top+lineH-5, w, attrs, html.EscapeString(r.text))
+			// Browsers collapse spaces in SVG text whatever xml:space says,
+			// so each word is placed at its own column, and textLength pins
+			// it to its cells whatever the font.
+			for _, wd := range words(r) {
+				fmt.Fprintf(&b, `<text x="%.2f" y="%.2f" textLength="%.2f" lengthAdjust="spacingAndGlyphs" %s>%s</text>`+"\n",
+					pad+float64(wd.col)*cellW, top+lineH-5, float64(wd.width)*cellW, attrs, html.EscapeString(wd.text))
+			}
 		}
 	}
 	b.WriteString("</g>\n</svg>\n")
 	return b.String()
+}
+
+// words splits a run at its spaces, each word with its column and width.
+func words(r run) []run {
+	var out []run
+	col, cur := r.col, run{}
+	for _, c := range r.text {
+		w := ansi.StringWidth(string(c))
+		if c == ' ' {
+			if cur.text != "" {
+				out = append(out, cur)
+				cur = run{}
+			}
+		} else {
+			if cur.text == "" {
+				cur.col = col
+			}
+			cur.text += string(c)
+			cur.width += w
+		}
+		col += w
+	}
+	if cur.text != "" {
+		out = append(out, cur)
+	}
+	return out
 }
 
 // colors resolves a style to fill colors ("" bg: none).

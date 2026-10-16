@@ -32,3 +32,15 @@ func TestDrawEscapesText(t *testing.T) {
 		t.Errorf("svg:\n%s", svg)
 	}
 }
+
+// Browsers collapse spaces in SVG text whatever xml:space says, which
+// stretched padded runs: every word is placed on its own, at its column.
+func TestWordsArePlacedOneByOne(t *testing.T) {
+	svg := draw("ab  cd │", "nou")
+	if strings.Contains(svg, "ab  cd") || strings.Count(svg, "<text x=") != 4 { // the title, ab, cd, │
+		t.Errorf("svg:\n%s", svg)
+	}
+	if !strings.Contains(svg, `x="51.72"`) { // cd at column 4: 18 + 4*8.43
+		t.Errorf("cd misplaced:\n%s", svg)
+	}
+}

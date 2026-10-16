@@ -7,85 +7,246 @@
 <g font-family="'JetBrains Mono','Fira Code','SF Mono',Menlo,Consolas,'DejaVu Sans Mono',monospace" font-size="14" xml:space="preserve">
 <text x="18.00" y="66.00" textLength="50.58" lengthAdjust="spacingAndGlyphs" fill="#7dcfff" font-weight="bold">nought</text>
 <text x="85.44" y="66.00" textLength="33.72" lengthAdjust="spacingAndGlyphs" fill="#c0caf5" font-weight="bold">keys</text>
-<text x="119.16" y="66.00" textLength="295.05" lengthAdjust="spacingAndGlyphs" fill="#c0caf5" fill-opacity="0.55">  j/k scroll · any other key closes</text>
+<text x="136.02" y="66.00" textLength="25.29" lengthAdjust="spacingAndGlyphs" fill="#c0caf5" fill-opacity="0.55">j/k</text>
+<text x="169.74" y="66.00" textLength="50.58" lengthAdjust="spacingAndGlyphs" fill="#c0caf5" fill-opacity="0.55">scroll</text>
+<text x="228.75" y="66.00" textLength="8.43" lengthAdjust="spacingAndGlyphs" fill="#c0caf5" fill-opacity="0.55">·</text>
+<text x="245.61" y="66.00" textLength="25.29" lengthAdjust="spacingAndGlyphs" fill="#c0caf5" fill-opacity="0.55">any</text>
+<text x="279.33" y="66.00" textLength="42.15" lengthAdjust="spacingAndGlyphs" fill="#c0caf5" fill-opacity="0.55">other</text>
+<text x="329.91" y="66.00" textLength="25.29" lengthAdjust="spacingAndGlyphs" fill="#c0caf5" fill-opacity="0.55">key</text>
+<text x="363.63" y="66.00" textLength="50.58" lengthAdjust="spacingAndGlyphs" fill="#c0caf5" fill-opacity="0.55">closes</text>
 <text x="26.43" y="104.00" textLength="33.72" lengthAdjust="spacingAndGlyphs" fill="#7dcfff" font-weight="bold">Move</text>
-<text x="473.22" y="104.00" textLength="134.88" lengthAdjust="spacingAndGlyphs" fill="#7dcfff" font-weight="bold">Act on a message</text>
-<text x="43.29" y="123.00" textLength="109.59" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">j k ↓ ↑      </text>
-<text x="152.88" y="123.00" textLength="337.20" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">  move                                  </text>
-<text x="490.08" y="123.00" textLength="42.15" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">e    </text>
-<text x="532.23" y="123.00" textLength="531.09" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">  archive: out of the inbox                                    </text>
-<text x="43.29" y="142.00" textLength="109.59" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">gg G         </text>
-<text x="152.88" y="142.00" textLength="337.20" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">  first, last                           </text>
-<text x="490.08" y="142.00" textLength="42.15" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">#    </text>
-<text x="532.23" y="142.00" textLength="531.09" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">  trash / restore                                              </text>
-<text x="43.29" y="161.00" textLength="109.59" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">Ctrl-d Ctrl-u</text>
-<text x="152.88" y="161.00" textLength="337.20" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">  half a page                           </text>
-<text x="490.08" y="161.00" textLength="42.15" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">D    </text>
-<text x="532.23" y="161.00" textLength="531.09" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">  delete for good (asks)                                       </text>
-<text x="43.29" y="180.00" textLength="109.59" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">J K          </text>
-<text x="152.88" y="180.00" textLength="337.20" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">  next, previous message                </text>
-<text x="490.08" y="180.00" textLength="42.15" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">u    </text>
-<text x="532.23" y="180.00" textLength="531.09" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">  read / unread                                                </text>
-<text x="43.29" y="199.00" textLength="109.59" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">Tab          </text>
-<text x="152.88" y="199.00" textLength="337.20" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">  switch pane                           </text>
-<text x="490.08" y="199.00" textLength="42.15" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">s    </text>
-<text x="532.23" y="199.00" textLength="531.09" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">  flag / unflag                                                </text>
-<text x="43.29" y="218.00" textLength="109.59" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">b            </text>
-<text x="152.88" y="218.00" textLength="337.20" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">  show / hide the sidebar               </text>
-<text x="490.08" y="218.00" textLength="42.15" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">t    </text>
-<text x="532.23" y="218.00" textLength="531.09" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">  tags: +add -remove                                           </text>
-<text x="490.08" y="237.00" textLength="42.15" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">r R  </text>
-<text x="532.23" y="237.00" textLength="531.09" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">  reply, reply to all                                          </text>
-<text x="26.43" y="256.00" textLength="42.15" lengthAdjust="spacingAndGlyphs" fill="#7dcfff" font-weight="bold">Go to</text>
-<text x="490.08" y="256.00" textLength="42.15" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">f    </text>
-<text x="532.23" y="256.00" textLength="531.09" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">  forward                                                      </text>
-<text x="43.29" y="275.00" textLength="109.59" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">gi ge        </text>
-<text x="152.88" y="275.00" textLength="337.20" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">  inbox, archive                        </text>
-<text x="490.08" y="275.00" textLength="42.15" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">z    </text>
-<text x="532.23" y="275.00" textLength="531.09" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">  undo (also a send, for a few seconds)                        </text>
-<text x="43.29" y="294.00" textLength="109.59" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">gu gf        </text>
-<text x="152.88" y="294.00" textLength="910.44" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">  unread, flagged                                                                                           </text>
-<text x="43.29" y="313.00" textLength="109.59" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">ga gt        </text>
-<text x="152.88" y="313.00" textLength="320.34" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">  all mail, trash                     </text>
+<text x="473.22" y="104.00" textLength="25.29" lengthAdjust="spacingAndGlyphs" fill="#7dcfff" font-weight="bold">Act</text>
+<text x="506.94" y="104.00" textLength="16.86" lengthAdjust="spacingAndGlyphs" fill="#7dcfff" font-weight="bold">on</text>
+<text x="532.23" y="104.00" textLength="8.43" lengthAdjust="spacingAndGlyphs" fill="#7dcfff" font-weight="bold">a</text>
+<text x="549.09" y="104.00" textLength="59.01" lengthAdjust="spacingAndGlyphs" fill="#7dcfff" font-weight="bold">message</text>
+<text x="43.29" y="123.00" textLength="8.43" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">j</text>
+<text x="60.15" y="123.00" textLength="8.43" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">k</text>
+<text x="77.01" y="123.00" textLength="8.43" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">↓</text>
+<text x="93.87" y="123.00" textLength="8.43" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">↑</text>
+<text x="169.74" y="123.00" textLength="33.72" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">move</text>
+<text x="490.08" y="123.00" textLength="8.43" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">e</text>
+<text x="549.09" y="123.00" textLength="67.44" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">archive:</text>
+<text x="624.96" y="123.00" textLength="25.29" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">out</text>
+<text x="658.68" y="123.00" textLength="16.86" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">of</text>
+<text x="683.97" y="123.00" textLength="25.29" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">the</text>
+<text x="717.69" y="123.00" textLength="42.15" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">inbox</text>
+<text x="43.29" y="142.00" textLength="16.86" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">gg</text>
+<text x="68.58" y="142.00" textLength="8.43" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">G</text>
+<text x="169.74" y="142.00" textLength="50.58" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">first,</text>
+<text x="228.75" y="142.00" textLength="33.72" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">last</text>
+<text x="490.08" y="142.00" textLength="8.43" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">#</text>
+<text x="549.09" y="142.00" textLength="42.15" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">trash</text>
+<text x="599.67" y="142.00" textLength="8.43" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">/</text>
+<text x="616.53" y="142.00" textLength="59.01" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">restore</text>
+<text x="43.29" y="161.00" textLength="50.58" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">Ctrl-d</text>
+<text x="102.30" y="161.00" textLength="50.58" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">Ctrl-u</text>
+<text x="169.74" y="161.00" textLength="33.72" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">half</text>
+<text x="211.89" y="161.00" textLength="8.43" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">a</text>
+<text x="228.75" y="161.00" textLength="33.72" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">page</text>
+<text x="490.08" y="161.00" textLength="8.43" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">D</text>
+<text x="549.09" y="161.00" textLength="50.58" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">delete</text>
+<text x="608.10" y="161.00" textLength="25.29" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">for</text>
+<text x="641.82" y="161.00" textLength="33.72" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">good</text>
+<text x="683.97" y="161.00" textLength="50.58" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">(asks)</text>
+<text x="43.29" y="180.00" textLength="8.43" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">J</text>
+<text x="60.15" y="180.00" textLength="8.43" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">K</text>
+<text x="169.74" y="180.00" textLength="42.15" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">next,</text>
+<text x="220.32" y="180.00" textLength="67.44" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">previous</text>
+<text x="296.19" y="180.00" textLength="59.01" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">message</text>
+<text x="490.08" y="180.00" textLength="8.43" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">u</text>
+<text x="549.09" y="180.00" textLength="33.72" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">read</text>
+<text x="591.24" y="180.00" textLength="8.43" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">/</text>
+<text x="608.10" y="180.00" textLength="50.58" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">unread</text>
+<text x="43.29" y="199.00" textLength="25.29" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">Tab</text>
+<text x="169.74" y="199.00" textLength="50.58" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">switch</text>
+<text x="228.75" y="199.00" textLength="33.72" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">pane</text>
+<text x="490.08" y="199.00" textLength="8.43" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">s</text>
+<text x="549.09" y="199.00" textLength="33.72" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">flag</text>
+<text x="591.24" y="199.00" textLength="8.43" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">/</text>
+<text x="608.10" y="199.00" textLength="50.58" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">unflag</text>
+<text x="43.29" y="218.00" textLength="8.43" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">b</text>
+<text x="169.74" y="218.00" textLength="33.72" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">show</text>
+<text x="211.89" y="218.00" textLength="8.43" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">/</text>
+<text x="228.75" y="218.00" textLength="33.72" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">hide</text>
+<text x="270.90" y="218.00" textLength="25.29" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">the</text>
+<text x="304.62" y="218.00" textLength="59.01" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">sidebar</text>
+<text x="490.08" y="218.00" textLength="8.43" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">t</text>
+<text x="549.09" y="218.00" textLength="42.15" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">tags:</text>
+<text x="599.67" y="218.00" textLength="33.72" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">+add</text>
+<text x="641.82" y="218.00" textLength="59.01" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">-remove</text>
+<text x="490.08" y="237.00" textLength="8.43" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">r</text>
+<text x="506.94" y="237.00" textLength="8.43" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">R</text>
+<text x="549.09" y="237.00" textLength="50.58" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">reply,</text>
+<text x="608.10" y="237.00" textLength="42.15" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">reply</text>
+<text x="658.68" y="237.00" textLength="16.86" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">to</text>
+<text x="683.97" y="237.00" textLength="25.29" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">all</text>
+<text x="26.43" y="256.00" textLength="16.86" lengthAdjust="spacingAndGlyphs" fill="#7dcfff" font-weight="bold">Go</text>
+<text x="51.72" y="256.00" textLength="16.86" lengthAdjust="spacingAndGlyphs" fill="#7dcfff" font-weight="bold">to</text>
+<text x="490.08" y="256.00" textLength="8.43" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">f</text>
+<text x="549.09" y="256.00" textLength="59.01" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">forward</text>
+<text x="43.29" y="275.00" textLength="16.86" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">gi</text>
+<text x="68.58" y="275.00" textLength="16.86" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">ge</text>
+<text x="169.74" y="275.00" textLength="50.58" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">inbox,</text>
+<text x="228.75" y="275.00" textLength="59.01" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">archive</text>
+<text x="490.08" y="275.00" textLength="8.43" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">z</text>
+<text x="549.09" y="275.00" textLength="33.72" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">undo</text>
+<text x="591.24" y="275.00" textLength="42.15" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">(also</text>
+<text x="641.82" y="275.00" textLength="8.43" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">a</text>
+<text x="658.68" y="275.00" textLength="42.15" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">send,</text>
+<text x="709.26" y="275.00" textLength="25.29" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">for</text>
+<text x="742.98" y="275.00" textLength="8.43" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">a</text>
+<text x="759.84" y="275.00" textLength="25.29" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">few</text>
+<text x="793.56" y="275.00" textLength="67.44" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">seconds)</text>
+<text x="43.29" y="294.00" textLength="16.86" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">gu</text>
+<text x="68.58" y="294.00" textLength="16.86" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">gf</text>
+<text x="169.74" y="294.00" textLength="59.01" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">unread,</text>
+<text x="237.18" y="294.00" textLength="59.01" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">flagged</text>
+<text x="43.29" y="313.00" textLength="16.86" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">ga</text>
+<text x="68.58" y="313.00" textLength="16.86" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">gt</text>
+<text x="169.74" y="313.00" textLength="25.29" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">all</text>
+<text x="203.46" y="313.00" textLength="42.15" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">mail,</text>
+<text x="254.04" y="313.00" textLength="42.15" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">trash</text>
 <text x="473.22" y="313.00" textLength="33.72" lengthAdjust="spacingAndGlyphs" fill="#7dcfff" font-weight="bold">Read</text>
-<text x="43.29" y="332.00" textLength="109.59" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">gd           </text>
-<text x="152.88" y="332.00" textLength="337.20" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">  drafts                                </text>
+<text x="43.29" y="332.00" textLength="16.86" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">gd</text>
+<text x="169.74" y="332.00" textLength="50.58" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">drafts</text>
 <text x="490.08" y="332.00" textLength="42.15" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">Enter</text>
-<text x="532.23" y="332.00" textLength="531.09" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">  open (marks it read)                                         </text>
-<text x="43.29" y="351.00" textLength="109.59" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">/            </text>
-<text x="152.88" y="351.00" textLength="337.20" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">  search                                </text>
-<text x="490.08" y="351.00" textLength="42.15" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">Esc  </text>
-<text x="532.23" y="351.00" textLength="531.09" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">  back to the list                                             </text>
-<text x="43.29" y="370.00" textLength="109.59" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">:            </text>
-<text x="152.88" y="370.00" textLength="337.20" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">  command, e.g. :search :tag :sync      </text>
-<text x="490.08" y="370.00" textLength="42.15" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">o    </text>
-<text x="532.23" y="370.00" textLength="531.09" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">  open a link (asks first)                                     </text>
-<text x="490.08" y="389.00" textLength="42.15" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">L    </text>
-<text x="532.23" y="389.00" textLength="531.09" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">  show / hide its links                                        </text>
+<text x="549.09" y="332.00" textLength="33.72" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">open</text>
+<text x="591.24" y="332.00" textLength="50.58" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">(marks</text>
+<text x="650.25" y="332.00" textLength="16.86" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">it</text>
+<text x="675.54" y="332.00" textLength="42.15" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">read)</text>
+<text x="43.29" y="351.00" textLength="8.43" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">/</text>
+<text x="169.74" y="351.00" textLength="50.58" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">search</text>
+<text x="490.08" y="351.00" textLength="25.29" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">Esc</text>
+<text x="549.09" y="351.00" textLength="33.72" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">back</text>
+<text x="591.24" y="351.00" textLength="16.86" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">to</text>
+<text x="616.53" y="351.00" textLength="25.29" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">the</text>
+<text x="650.25" y="351.00" textLength="33.72" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">list</text>
+<text x="43.29" y="370.00" textLength="8.43" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">:</text>
+<text x="169.74" y="370.00" textLength="67.44" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">command,</text>
+<text x="245.61" y="370.00" textLength="33.72" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">e.g.</text>
+<text x="287.76" y="370.00" textLength="59.01" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">:search</text>
+<text x="355.20" y="370.00" textLength="33.72" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">:tag</text>
+<text x="397.35" y="370.00" textLength="42.15" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">:sync</text>
+<text x="490.08" y="370.00" textLength="8.43" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">o</text>
+<text x="549.09" y="370.00" textLength="33.72" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">open</text>
+<text x="591.24" y="370.00" textLength="8.43" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">a</text>
+<text x="608.10" y="370.00" textLength="33.72" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">link</text>
+<text x="650.25" y="370.00" textLength="42.15" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">(asks</text>
+<text x="700.83" y="370.00" textLength="50.58" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">first)</text>
+<text x="490.08" y="389.00" textLength="8.43" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">L</text>
+<text x="549.09" y="389.00" textLength="33.72" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">show</text>
+<text x="591.24" y="389.00" textLength="8.43" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">/</text>
+<text x="608.10" y="389.00" textLength="33.72" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">hide</text>
+<text x="650.25" y="389.00" textLength="25.29" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">its</text>
+<text x="683.97" y="389.00" textLength="42.15" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">links</text>
 <text x="26.43" y="408.00" textLength="67.44" lengthAdjust="spacingAndGlyphs" fill="#7dcfff" font-weight="bold">Anywhere</text>
-<text x="490.08" y="408.00" textLength="42.15" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">v    </text>
-<text x="532.23" y="408.00" textLength="531.09" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">  plain text / HTML version                                    </text>
-<text x="43.29" y="427.00" textLength="109.59" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">c            </text>
-<text x="152.88" y="427.00" textLength="910.44" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">  write a new message                                                                                       </text>
-<text x="43.29" y="446.00" textLength="109.59" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">S            </text>
-<text x="152.88" y="446.00" textLength="910.44" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">  sync now                                                                                                  </text>
-<text x="43.29" y="465.00" textLength="109.59" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">:empty-trash </text>
-<text x="152.88" y="465.00" textLength="910.44" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">  empty the trash (asks)                                                                                    </text>
-<text x="43.29" y="484.00" textLength="109.59" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">:reindex     </text>
-<text x="152.88" y="484.00" textLength="910.44" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">  rebuild the index                                                                                         </text>
-<text x="43.29" y="503.00" textLength="109.59" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">?            </text>
-<text x="152.88" y="503.00" textLength="910.44" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">  this help                                                                                                 </text>
-<text x="43.29" y="522.00" textLength="109.59" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">q            </text>
-<text x="152.88" y="522.00" textLength="910.44" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">  quit                                                                                                      </text>
-<text x="26.43" y="560.00" textLength="151.74" lengthAdjust="spacingAndGlyphs" fill="#7dcfff" font-weight="bold">What happens where</text>
-<text x="43.29" y="579.00" textLength="75.87" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">e archive</text>
-<text x="119.16" y="579.00" textLength="944.16" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">  out of the inbox; it leaves the server at the next sync (or after keep_days).                                 </text>
-<text x="43.29" y="598.00" textLength="75.87" lengthAdjust="spacingAndGlyphs" fill="#7dcfff"># trash  </text>
-<text x="119.16" y="598.00" textLength="944.16" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">  the server copy is deleted at the next sync; here it is kept for 30 days.                                     </text>
-<text x="43.29" y="617.00" textLength="75.87" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">D delete </text>
-<text x="119.16" y="617.00" textLength="944.16" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">  deleted from the server at the next sync, then from here.                                                     </text>
-<text x="43.29" y="636.00" textLength="75.87" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">t tags   </text>
-<text x="119.16" y="636.00" textLength="944.16" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">  here only, like read and flagged: never sent to a server.                                                     </text>
-<text x="18.00" y="655.00" textLength="1045.32" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">   On your phone: archive or delete, and nought does the same here at the next sync.                                        </text>
+<text x="490.08" y="408.00" textLength="8.43" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">v</text>
+<text x="549.09" y="408.00" textLength="42.15" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">plain</text>
+<text x="599.67" y="408.00" textLength="33.72" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">text</text>
+<text x="641.82" y="408.00" textLength="8.43" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">/</text>
+<text x="658.68" y="408.00" textLength="33.72" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">HTML</text>
+<text x="700.83" y="408.00" textLength="59.01" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">version</text>
+<text x="43.29" y="427.00" textLength="8.43" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">c</text>
+<text x="169.74" y="427.00" textLength="42.15" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">write</text>
+<text x="220.32" y="427.00" textLength="8.43" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">a</text>
+<text x="237.18" y="427.00" textLength="25.29" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">new</text>
+<text x="270.90" y="427.00" textLength="59.01" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">message</text>
+<text x="43.29" y="446.00" textLength="8.43" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">S</text>
+<text x="169.74" y="446.00" textLength="33.72" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">sync</text>
+<text x="211.89" y="446.00" textLength="25.29" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">now</text>
+<text x="43.29" y="465.00" textLength="101.16" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">:empty-trash</text>
+<text x="169.74" y="465.00" textLength="42.15" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">empty</text>
+<text x="220.32" y="465.00" textLength="25.29" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">the</text>
+<text x="254.04" y="465.00" textLength="42.15" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">trash</text>
+<text x="304.62" y="465.00" textLength="50.58" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">(asks)</text>
+<text x="43.29" y="484.00" textLength="67.44" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">:reindex</text>
+<text x="169.74" y="484.00" textLength="59.01" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">rebuild</text>
+<text x="237.18" y="484.00" textLength="25.29" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">the</text>
+<text x="270.90" y="484.00" textLength="42.15" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">index</text>
+<text x="43.29" y="503.00" textLength="8.43" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">?</text>
+<text x="169.74" y="503.00" textLength="33.72" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">this</text>
+<text x="211.89" y="503.00" textLength="33.72" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">help</text>
+<text x="43.29" y="522.00" textLength="8.43" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">q</text>
+<text x="169.74" y="522.00" textLength="33.72" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">quit</text>
+<text x="26.43" y="560.00" textLength="33.72" lengthAdjust="spacingAndGlyphs" fill="#7dcfff" font-weight="bold">What</text>
+<text x="68.58" y="560.00" textLength="59.01" lengthAdjust="spacingAndGlyphs" fill="#7dcfff" font-weight="bold">happens</text>
+<text x="136.02" y="560.00" textLength="42.15" lengthAdjust="spacingAndGlyphs" fill="#7dcfff" font-weight="bold">where</text>
+<text x="43.29" y="579.00" textLength="8.43" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">e</text>
+<text x="60.15" y="579.00" textLength="59.01" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">archive</text>
+<text x="136.02" y="579.00" textLength="25.29" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">out</text>
+<text x="169.74" y="579.00" textLength="16.86" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">of</text>
+<text x="195.03" y="579.00" textLength="25.29" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">the</text>
+<text x="228.75" y="579.00" textLength="50.58" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">inbox;</text>
+<text x="287.76" y="579.00" textLength="16.86" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">it</text>
+<text x="313.05" y="579.00" textLength="50.58" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">leaves</text>
+<text x="372.06" y="579.00" textLength="25.29" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">the</text>
+<text x="405.78" y="579.00" textLength="50.58" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">server</text>
+<text x="464.79" y="579.00" textLength="16.86" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">at</text>
+<text x="490.08" y="579.00" textLength="25.29" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">the</text>
+<text x="523.80" y="579.00" textLength="33.72" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">next</text>
+<text x="565.95" y="579.00" textLength="33.72" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">sync</text>
+<text x="608.10" y="579.00" textLength="25.29" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">(or</text>
+<text x="641.82" y="579.00" textLength="42.15" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">after</text>
+<text x="692.40" y="579.00" textLength="92.73" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">keep_days).</text>
+<text x="43.29" y="598.00" textLength="8.43" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">#</text>
+<text x="60.15" y="598.00" textLength="42.15" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">trash</text>
+<text x="136.02" y="598.00" textLength="25.29" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">the</text>
+<text x="169.74" y="598.00" textLength="50.58" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">server</text>
+<text x="228.75" y="598.00" textLength="33.72" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">copy</text>
+<text x="270.90" y="598.00" textLength="16.86" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">is</text>
+<text x="296.19" y="598.00" textLength="59.01" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">deleted</text>
+<text x="363.63" y="598.00" textLength="16.86" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">at</text>
+<text x="388.92" y="598.00" textLength="25.29" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">the</text>
+<text x="422.64" y="598.00" textLength="33.72" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">next</text>
+<text x="464.79" y="598.00" textLength="42.15" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">sync;</text>
+<text x="515.37" y="598.00" textLength="33.72" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">here</text>
+<text x="557.52" y="598.00" textLength="16.86" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">it</text>
+<text x="582.81" y="598.00" textLength="16.86" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">is</text>
+<text x="608.10" y="598.00" textLength="33.72" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">kept</text>
+<text x="650.25" y="598.00" textLength="25.29" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">for</text>
+<text x="683.97" y="598.00" textLength="16.86" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">30</text>
+<text x="709.26" y="598.00" textLength="42.15" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">days.</text>
+<text x="43.29" y="617.00" textLength="8.43" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">D</text>
+<text x="60.15" y="617.00" textLength="50.58" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">delete</text>
+<text x="136.02" y="617.00" textLength="59.01" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">deleted</text>
+<text x="203.46" y="617.00" textLength="33.72" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">from</text>
+<text x="245.61" y="617.00" textLength="25.29" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">the</text>
+<text x="279.33" y="617.00" textLength="50.58" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">server</text>
+<text x="338.34" y="617.00" textLength="16.86" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">at</text>
+<text x="363.63" y="617.00" textLength="25.29" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">the</text>
+<text x="397.35" y="617.00" textLength="33.72" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">next</text>
+<text x="439.50" y="617.00" textLength="42.15" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">sync,</text>
+<text x="490.08" y="617.00" textLength="33.72" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">then</text>
+<text x="532.23" y="617.00" textLength="33.72" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">from</text>
+<text x="574.38" y="617.00" textLength="42.15" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">here.</text>
+<text x="43.29" y="636.00" textLength="8.43" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">t</text>
+<text x="60.15" y="636.00" textLength="33.72" lengthAdjust="spacingAndGlyphs" fill="#7dcfff">tags</text>
+<text x="136.02" y="636.00" textLength="33.72" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">here</text>
+<text x="178.17" y="636.00" textLength="42.15" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">only,</text>
+<text x="228.75" y="636.00" textLength="33.72" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">like</text>
+<text x="270.90" y="636.00" textLength="33.72" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">read</text>
+<text x="313.05" y="636.00" textLength="25.29" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">and</text>
+<text x="346.77" y="636.00" textLength="67.44" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">flagged:</text>
+<text x="422.64" y="636.00" textLength="42.15" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">never</text>
+<text x="473.22" y="636.00" textLength="33.72" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">sent</text>
+<text x="515.37" y="636.00" textLength="16.86" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">to</text>
+<text x="540.66" y="636.00" textLength="8.43" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">a</text>
+<text x="557.52" y="636.00" textLength="59.01" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">server.</text>
+<text x="43.29" y="655.00" textLength="16.86" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">On</text>
+<text x="68.58" y="655.00" textLength="33.72" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">your</text>
+<text x="110.73" y="655.00" textLength="50.58" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">phone:</text>
+<text x="169.74" y="655.00" textLength="59.01" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">archive</text>
+<text x="237.18" y="655.00" textLength="16.86" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">or</text>
+<text x="262.47" y="655.00" textLength="59.01" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">delete,</text>
+<text x="329.91" y="655.00" textLength="25.29" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">and</text>
+<text x="363.63" y="655.00" textLength="50.58" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">nought</text>
+<text x="422.64" y="655.00" textLength="33.72" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">does</text>
+<text x="464.79" y="655.00" textLength="25.29" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">the</text>
+<text x="498.51" y="655.00" textLength="33.72" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">same</text>
+<text x="540.66" y="655.00" textLength="33.72" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">here</text>
+<text x="582.81" y="655.00" textLength="16.86" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">at</text>
+<text x="608.10" y="655.00" textLength="25.29" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">the</text>
+<text x="641.82" y="655.00" textLength="33.72" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">next</text>
+<text x="683.97" y="655.00" textLength="42.15" lengthAdjust="spacingAndGlyphs" fill="#c0caf5">sync.</text>
 </g>
 </svg>
