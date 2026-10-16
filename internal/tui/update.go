@@ -74,6 +74,10 @@ func (m Model) update(msg tea.Msg) (Model, tea.Cmd) {
 			m.notice = msg.req.what
 			if msg.req.note != "" {
 				m.notice += "; " + msg.req.note
+				if m.deletionNoted == nil {
+					m.deletionNoted = map[string]bool{}
+				}
+				m.deletionNoted[msg.req.msg.Account] = true
 			}
 			if msg.req.undo != nil && msg.out.Changed > 0 {
 				m.undo = append(m.undo, *msg.req.undo)

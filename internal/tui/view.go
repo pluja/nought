@@ -165,6 +165,7 @@ func (m Model) renderSidebar() string {
 		return ""
 	}
 	var lines []string
+	selected := 0 // line of the selected item
 	for i, it := range m.side {
 		label := ansi.Truncate(render.SanitizeLine(it.label), sidebarWidth-6, "…")
 		count := ""
@@ -195,7 +196,14 @@ func (m Model) renderSidebar() string {
 		if it.heading != "" {
 			lines = append(lines, "", m.st.dim.Render(" "+it.heading))
 		}
+		if i == m.sideIdx {
+			selected = len(lines)
+		}
 		lines = append(lines, line)
+	}
+	// Scroll so the selection is visible while the sidebar has the focus.
+	if h := m.bodyHeight(); m.focus == focusSidebar && selected >= h {
+		lines = lines[selected-h+1:]
 	}
 	return fit(strings.Join(lines, "\n"), sidebarWidth, m.bodyHeight())
 }

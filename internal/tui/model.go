@@ -167,9 +167,9 @@ type Model struct {
 	deleting    ops.MessageOut // the message D asks about
 	trashDays   int            // how long the trash keeps mail (for its header)
 	deletionOn  bool           // some account deletes handled mail from its server (for the help)
-	// deletionNoted: the user was told once this session that archiving
-	// leaves mail on the server where deletion is off.
-	deletionNoted bool
+	// deletionNoted: accounts for which the user was told this session that
+	// archiving leaves mail on the server (deletion is off).
+	deletionNoted map[string]bool
 	syncing       bool
 	syncAuto      bool // the running sync was started by the schedule
 	syncAccept    bool // the running sync applies held mass removals

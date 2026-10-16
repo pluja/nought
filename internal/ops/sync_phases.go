@@ -156,10 +156,10 @@ func fetchFolder(ctx context.Context, env *Env, ix *index.Index, conn *imapsync.
 		"server_uidvalidity", mb.UIDValidity, "server_messages", mb.Messages,
 		"new_uids", len(uids), "first_new_uid", firstOr(uids, 0), "last_new_uid", lastOr(uids, 0))
 	if in.DryRun {
-		// Nothing is fetched, but a message another client moved here is
-		// recognised by its header, so the preview tells moves from deletes.
-		scan.seen, err = knownMessages(ctx, env, ix, conn, a.Name, f, mb.UIDValidity, uids)
-		return scan, mb.UIDValidity, err
+		if scan.trusted {
+			scan.seen = previewMoves(ctx, env, ix, conn, a.Name, f, mb.UIDValidity, uids, out)
+		}
+		return scan, mb.UIDValidity, nil
 	}
 	// New UIDs after a completed sync are moves and deliveries; a fetch
 	// from the start (new folder, reset) only finds known mail again.
@@ -172,6 +172,27 @@ func fetchFolder(ctx context.Context, env *Env, ix *index.Index, conn *imapsync.
 		return folderScan{refetch: true}, mb.UIDValidity, ix.ForgetFolder(ctx, a.Name, f.Raw, st.UIDValidity)
 	}
 	return scan, mb.UIDValidity, err
+}
+
+// previewMoves is for dry runs, which fetch nothing: it recognises mail
+// another client moved into the folder by its header, so the preview tells
+// moves from deletes. With no server copies recorded yet (a first sync),
+// nothing can have moved. A failure only makes the preview less precise.
+func previewMoves(ctx context.Context, env *Env, ix *index.Index, conn *imapsync.Conn, account string,
+	f imapsync.Folder, uidValidity uint32, uids []uint32, out *FolderSyncOut) []index.ServerCopy {
+	if st, err := ix.ServerStatus(ctx, account); err != nil || st.OnServer == 0 {
+		return nil
+	}
+	var seen []index.ServerCopy
+	for chunk := range slices.Chunk(uids, imapsync.MaxBatch) {
+		known, err := knownMessages(ctx, env, ix, conn, account, f, uidValidity, chunk)
+		if err != nil {
+			out.Notes = append(out.Notes, "could not check for mail moved here; the preview may count it as deleted")
+			return nil
+		}
+		seen = append(seen, known...)
+	}
+	return seen
 }
 
 // applyOrDefer is phase 2: what other clients did is applied only when

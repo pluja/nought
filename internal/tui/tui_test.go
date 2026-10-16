@@ -3,6 +3,7 @@
 package tui
 
 import (
+	"fmt"
 	"errors"
 	"flag"
 	"io"
@@ -1011,22 +1012,60 @@ func TestSidebarFolders(t *testing.T) {
 	}
 }
 
-// Archiving where deletion is off says once that the mail stays on the
-// server (and so on a phone).
-func TestArchiveNotesDeletionOffOnce(t *testing.T) {
+// Archiving where deletion is off says once per account that the mail
+// stays on the server, and only when that is known to be true.
+func TestArchiveNotesDeletionOff(t *testing.T) {
+	m := newTestModel(t, 120, 30)
+	onServer := func(m Model) Model { // the test archive has no server copies: pretend it has
+		for i := range m.msgs {
+			m.msgs[i].Server = []ops.ServerLocation{{Folder: "INBOX"}}
+		}
+		return m
+	}
+	press := func(m Model, status []ops.AccountStatusOut) Model {
+		m.status = status
+		return drive(t, onServer(m), key("e"))
+	}
+	off := []ops.AccountStatusOut{{Account: "personal", Deletion: false}}
+	if m = press(m, nil); m.notice != "archived" {
+		t.Errorf("status unknown: %q (say nothing rather than guess)", m.notice)
+	}
+	if m = press(m, off); !strings.Contains(m.notice, "deletion is off for personal") {
+		t.Fatalf("first archive with deletion off: %q", m.notice)
+	}
+	if m = press(m, off); m.notice != "archived" {
+		t.Errorf("second archive: %q (the note is said once per account)", m.notice)
+	}
+}
+
+func TestNoDeletionNoteForLocalMail(t *testing.T) {
 	m := newTestModel(t, 120, 30)
 	m.status = []ops.AccountStatusOut{{Account: "personal", Deletion: false}}
-	m = drive(t, m, key("e"))
-	if !strings.Contains(m.notice, "deletion is off") || !strings.Contains(m.notice, "stays on the server") {
-		t.Fatalf("first archive: %q", m.notice)
+	if m = drive(t, m, key("e")); m.notice != "archived" {
+		t.Errorf("local-only mail: %q (nothing is on a server)", m.notice)
 	}
-	m = drive(t, m, key("e"))
-	if m.notice != "archived" {
-		t.Errorf("second archive: %q (the note is said once)", m.notice)
+}
+
+// The sidebar scrolls to keep the selection visible, headings included.
+func TestSidebarScrollsToTheSelection(t *testing.T) {
+	m := newTestModel(t, 120, 20)
+	for i := range 40 {
+		it := sideItem{label: fmt.Sprintf("folder%02d", i), query: fmt.Sprintf("tag:folder:f%02d", i), count: 1}
+		if i == 0 {
+			it.heading = "Folders"
+		}
+		m.side = append(m.side, it)
 	}
-	m.status, m.deletionNoted = []ops.AccountStatusOut{{Account: "personal", Deletion: true}}, false
-	m = drive(t, m, key("e"))
-	if m.notice != "archived" {
-		t.Errorf("deletion on: %q", m.notice)
+	m.focus = focusSidebar
+	for range len(m.side) {
+		m = drive(t, m, key("j"))
+	}
+	if s := screen(m); !strings.Contains(s, "folder39") {
+		t.Errorf("the selected last folder is not visible:\n%s", s)
+	}
+	m = drive(t, m, keys("gg")...) // back in the list; first entries show again
+	m.focus, m.sideIdx = focusSidebar, 0
+	if s := screen(m); !strings.Contains(s, "Inbox") {
+		t.Errorf("top of the sidebar not visible:\n%s", s)
 	}
 }

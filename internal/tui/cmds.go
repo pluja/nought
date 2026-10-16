@@ -181,7 +181,7 @@ func (m Model) loadSidebar() tea.Cmd {
 				folder, isFolder := strings.CutPrefix(t.Tag, "folder:")
 				switch {
 				case t.Tag == ops.TagInbox || t.Tag == ops.TagUnread || t.Tag == ops.TagFlagged || hiddenTag(t.Tag):
-				case isFolder && folder != "inbox":
+				case isFolder && folder != "" && folder != "inbox":
 					folders = append(folders, sideItem{label: folder, query: "tag:" + t.Tag, count: t.Count})
 				case !isFolder:
 					items = append(items, sideItem{label: "#" + t.Tag, query: "tag:" + t.Tag, count: t.Count})
