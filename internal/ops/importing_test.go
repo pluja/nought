@@ -5,6 +5,7 @@ package ops
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -12,7 +13,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/pluja/nought/internal/index"
 	"github.com/pluja/nought/internal/query"
+	"github.com/pluja/nought/internal/store"
 )
 
 func writeFile(t *testing.T, path, content string) {
@@ -361,4 +364,105 @@ func maildirName(unique, flags string) string {
 		sep = ";"
 	}
 	return unique + sep + "2," + flags
+}
+
+// Review: the index is a cache. When its file is missing (say, restored
+// from a backup without it), it is rebuilt from the archive and the dumps,
+// never started empty: an empty index would overwrite the dumps, the only
+// copy of the tags.
+func TestMissingIndexIsRebuiltNotEmpty(t *testing.T) {
+	env := newTestEnv(t)
+	if _, err := Call(t.Context(), env, Delete, ImportRun, ImportIn{Path: thunderbirdExport(t), Account: "personal", Inbox: true}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Call(t.Context(), env, Tag, MsgTag, TagIn{Query: "subject:one", Add: []string{"keep"}}); err != nil {
+		t.Fatal(err)
+	}
+	dump, err := os.ReadFile(env.Paths.TagsDump)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := env.closeIndex(); err != nil {
+		t.Fatal(err)
+	}
+	if err := removeDB(env.Paths.IndexFile); err != nil {
+		t.Fatal(err)
+	}
+	// Any command now: the tags are there, and the dump is untouched.
+	if got := search(t, env, "tag:inbox"); len(got) != 3 {
+		t.Errorf("inbox after the index was lost = %v", got)
+	}
+	if got := search(t, env, "tag:keep"); len(got) != 1 {
+		t.Errorf("user tag after the index was lost = %v", got)
+	}
+	if _, err := Call(t.Context(), env, Delete, IndexRebuild, struct{}{}); err != nil {
+		t.Fatal(err)
+	}
+	if after, _ := os.ReadFile(env.Paths.TagsDump); string(after) != string(dump) {
+		t.Errorf("dump changed:\n%s\nwant:\n%s", after, dump)
+	}
+}
+
+// Review: an index that exists but is empty (an older nou created one) is
+// not trusted over the dump.
+func TestEmptyIndexDoesNotOverwriteTheDump(t *testing.T) {
+	env := newTestEnv(t)
+	if _, err := Call(t.Context(), env, Delete, ImportRun, ImportIn{Path: thunderbirdExport(t), Account: "personal", Inbox: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := env.closeIndex(); err != nil {
+		t.Fatal(err)
+	}
+	if err := removeDB(env.Paths.IndexFile); err != nil {
+		t.Fatal(err)
+	}
+	empty, err := index.Open(t.Context(), env.Paths.IndexFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := empty.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Call(t.Context(), env, Delete, IndexRebuild, struct{}{}); err != nil {
+		t.Fatal(err)
+	}
+	if got := search(t, env, "tag:inbox"); len(got) != 3 {
+		t.Errorf("inbox after rebuilding over an empty index = %v", got)
+	}
+}
+
+// Review: a reindex sees mail another nou archived meanwhile (the TUI's
+// Env caches the archive's file list).
+func TestReindexSeesMailArchivedElsewhere(t *testing.T) {
+	env := newTestEnv(t)
+	if _, err := Call(t.Context(), env, Delete, ImportRun, ImportIn{Path: thunderbirdExport(t), Account: "personal", Inbox: true}); err != nil {
+		t.Fatal(err)
+	}
+	other, err := store.Open(env.Paths.AccountArchive("personal"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := other.Put([]byte("From: a@x.org\r\nMessage-ID: <late@x>\r\nSubject: late\r\n\r\nx\r\n"), "S"); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := Call(t.Context(), env, Delete, IndexRebuild, struct{}{}); err != nil || out.Messages != 4 {
+		t.Errorf("reindex = %+v, %v", out, err)
+	}
+	if got := search(t, env, "subject:late"); len(got) != 1 {
+		t.Errorf("late message = %v", got)
+	}
+}
+
+// A new account with no mail yet does not rebuild the index every time.
+func TestEmptyArchiveIsNotRebuilt(t *testing.T) {
+	env := newTestEnv(t)
+	if _, err := store.Open(env.Paths.AccountArchive("personal")); err != nil {
+		t.Fatal(err)
+	}
+	var log strings.Builder
+	env.Log = slog.New(slog.NewTextHandler(&log, nil))
+	search(t, env, "tag:inbox")
+	if strings.Contains(log.String(), "rebuilt") {
+		t.Errorf("rebuilt an index over an empty archive: %s", log.String())
+	}
 }

@@ -50,6 +50,8 @@ type Env struct {
 	// one written is the newest.
 	dumpMu sync.Mutex
 
+	// openMu serializes opening the index, which may mean rebuilding it.
+	openMu sync.Mutex
 	mu     sync.Mutex
 	config *config.Config
 	index  *index.Index
@@ -77,16 +79,29 @@ func (e *Env) Config() (*config.Config, error) {
 
 // Index opens the index on first use.
 func (e *Env) Index(ctx context.Context) (*index.Index, error) {
+	e.openMu.Lock()
+	defer e.openMu.Unlock()
+	e.mu.Lock()
+	ix := e.index
+	e.mu.Unlock()
+	if ix != nil {
+		return ix, nil
+	}
+	ix, err := openIndex(ctx, e)
+	if err != nil {
+		return nil, err
+	}
+	e.mu.Lock()
+	e.index = ix
+	e.mu.Unlock()
+	return ix, nil
+}
+
+// dropStores forgets the opened Maildirs, so the next use scans them again.
+func (e *Env) dropStores() {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	if e.index == nil {
-		ix, err := index.Open(ctx, e.Paths.IndexFile)
-		if err != nil {
-			return nil, err
-		}
-		e.index = ix
-	}
-	return e.index, nil
+	clear(e.stores)
 }
 
 // closeIndex closes the index so it can be replaced (see reindex).

@@ -140,9 +140,9 @@ linters:
       # whole-codebase quality pass. New code is held to the limits; take a
       # function off this list once it is split.
       - linters: [gocognit]
-        text: "of func `(printSync|\\(\\*app\\)\\.runWizard|Check|\\(\\*Config\\)\\.Validate|\\(\\*Conn\\)\\.Headers|Maildir|Mbox|runImport|runTag|fetchInfos|runReindex|TextWithLinks|\\(Model\\)\\.update)` is high"
+        text: "of func `(printSync|\\(\\*app\\)\\.runWizard|Check|\\(\\*Config\\)\\.Validate|\\(\\*Conn\\)\\.Headers|Maildir|Mbox|runImport|runTag|fetchInfos|TextWithLinks|\\(Model\\)\\.update)` is high"
       - linters: [funlen]
-        text: "Function '(key|update|runWizard|runImport|runReindex)' has too many"
+        text: "Function '(key|update|runWizard|runImport)' has too many"
 
 issues:
   # Show every finding: the defaults hide repeats.
