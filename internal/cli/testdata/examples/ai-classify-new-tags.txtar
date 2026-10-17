@@ -17,13 +17,13 @@ exec nou search tag:travel-plans
 stdout 'Lisbon'
 stdout 'Porto'
 grep 'There are no tags yet' all.body
-grep 'Use one of these tags: [^"]*travel-plans' all.body
+grep 'Use these tags: [^"]*travel-plans' all.body
 
 # A later run starts from the tags in use.
 exec nou msg tag subject:Porto --add classify
 exec sh $EXAMPLES/ai-classify.sh
 stdout ' travel-plans$'
-grep 'Use one of these tags: [^"]*receipts' last.body
+grep 'Use these tags: [^"]*receipts' last.body
 
 # An empty list without NOU_AI_NEW_TAGS leaves nothing to choose from.
 env NOU_AI_NEW_TAGS=

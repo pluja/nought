@@ -52,7 +52,8 @@ exec nou search tag:deleted
 # The answer is JSON restricted to the allowed tags; the key goes in a
 # private file, never on curl's command line.
 grep '"json_schema"' last.body
-grep '"enum":\["receipts","newsletters","none"\]' last.body
+grep '"items":\{"type":"string","enum":\["receipts","newsletters"\]\}' last.body
+! grep reasoning_effort last.body
 grep '"model":"test-model"' last.body
 grep 'untrusted data' last.body
 grep 'Authorization: Bearer sk-test-123' curl.config
@@ -69,9 +70,21 @@ exec nou search tag:travel-plans
 stdout 'Your flight'
 exec nou search tag:deleted
 ! stdout .
-grep 'you may answer with a new one' last.body
+grep 'you may make up new ones' last.body
 grep '"json_object"' last.body
 env NOU_AI_NEW_TAGS=
+
+# NOU_AI_EFFORT asks for less (or more) thinking, as OpenAI-compatible
+# servers take it.
+exec nou msg tag subject:invoice --add classify
+env NOU_AI_EFFORT=low
+exec sh $EXAMPLES/ai-classify.sh
+grep '"reasoning_effort":"low"' last.body
+env NOU_AI_EFFORT='low; rm'
+exec nou msg tag subject:invoice --add classify
+! exec sh $EXAMPLES/ai-classify.sh
+stderr 'NOU_AI_EFFORT must be a word'
+env NOU_AI_EFFORT=
 
 # Servers without JSON support: no response_format, and a bare word works.
 exec nou msg tag subject:invoice --add classify
