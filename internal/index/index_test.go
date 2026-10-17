@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -550,4 +551,48 @@ func TestRetryBusy(t *testing.T) {
 			t.Errorf("cancelled: err %v after %d calls", err, calls)
 		}
 	})
+}
+
+// Each visits every match exactly once, page by page, even when its
+// callback removes the very tag it is querying for (as msg tag does).
+func TestEachIsStableWhileTagsChange(t *testing.T) {
+	ix, _ := openIndex(t)
+	const n = eachPage + 100
+	for i := range n {
+		h := fmt.Sprintf("%064x", i+1)
+		if _, _, err := ix.AddMessage(t.Context(), Message{Account: "a", Hash: h, MessageID: h + "@x", Tags: []string{"inbox"}}, "", now); err != nil {
+			t.Fatal(err)
+		}
+	}
+	q, err := query.Parse("tag:inbox")
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen, pages := map[int64]bool{}, 0
+	err = ix.Each(t.Context(), q, func(page []Message) error {
+		pages++
+		ids := make([]int64, len(page))
+		for i, m := range page {
+			if seen[m.ID] {
+				t.Fatalf("message %d visited twice", m.ID)
+			}
+			seen[m.ID], ids[i] = true, m.ID
+		}
+		return ix.ModifyTags(t.Context(), ids, nil, []string{"inbox"})
+	})
+	if err != nil || len(seen) != n || pages != 2 {
+		t.Errorf("visited %d in %d pages, %v", len(seen), pages, err)
+	}
+
+	stop := errors.New("stop")
+	all := query.Query{}
+	calls := 0
+	if err := ix.Each(t.Context(), all, func([]Message) error { calls++; return stop }); !errors.Is(err, stop) || calls != 1 {
+		t.Errorf("a callback error did not stop it: %v after %d calls", err, calls)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	if err := ix.Each(ctx, all, func([]Message) error { return nil }); err == nil {
+		t.Error("a cancelled context did not stop it")
+	}
 }
