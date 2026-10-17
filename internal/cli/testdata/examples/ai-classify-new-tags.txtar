@@ -1,0 +1,65 @@
+[windows] skip 'needs a POSIX sh'
+[!exec:jq] skip 'needs jq'
+
+# No tags yet: the model makes them up, and each one is offered to the next
+# messages, so the second flight reuses the first one's tag.
+exec nou import export --account personal --inbox
+exec nou msg tag --add classify -- '*'
+chmod 755 bin/curl
+env PATH=$WORK/bin${:}$PATH
+env NOU_AI_TAGS=
+env NOU_AI_NEW_TAGS=1
+exec sh $EXAMPLES/ai-classify.sh
+stdout -count=1 ' travel-plans \(new\)$'
+stdout -count=1 ' travel-plans$'
+stdout -count=1 ' receipts \(new\)$'
+exec nou search tag:travel-plans
+stdout 'Lisbon'
+stdout 'Porto'
+grep 'There are no tags yet' all.body
+grep 'Use one of these tags: [^"]*travel-plans' all.body
+
+# A later run starts from the tags in use.
+exec nou msg tag subject:Porto --add classify
+exec sh $EXAMPLES/ai-classify.sh
+stdout ' travel-plans$'
+grep 'Use one of these tags: [^"]*receipts' last.body
+
+# An empty list without NOU_AI_NEW_TAGS leaves nothing to choose from.
+env NOU_AI_NEW_TAGS=
+exec nou msg tag subject:Porto --add classify
+! exec sh $EXAMPLES/ai-classify.sh
+stderr 'NOU_AI_TAGS is empty'
+
+-- bin/curl --
+#!/bin/sh
+body=$(cat)
+printf '%s\n' "$body" >>"$WORK/all.body"
+printf '%s\n' "$body" >"$WORK/last.body"
+case $body in
+*flight*) answer='{"tag": "travel-plans"}' ;;
+*invoice*) answer='{"tag": "receipts"}' ;;
+*) answer='{"tag": "none"}' ;;
+esac
+jq -n --arg c "$answer" '{choices: [{message: {role: "assistant", content: $c}}]}'
+-- export/Inbox/a.eml --
+From: Airline <noreply@air.example>
+Message-ID: <a@example.org>
+Date: Mon, 12 Oct 2026 09:00:00 +0000
+Subject: Your flight to Lisbon
+
+Boarding at 9:40.
+-- export/Inbox/b.eml --
+From: Airline <noreply@air.example>
+Message-ID: <b@example.org>
+Date: Tue, 13 Oct 2026 09:00:00 +0000
+Subject: Your flight to Porto
+
+Boarding at 7:15.
+-- export/Inbox/c.eml --
+From: Shop <billing@shop.example>
+Message-ID: <c@example.org>
+Date: Wed, 14 Oct 2026 09:00:00 +0000
+Subject: Your invoice
+
+Your invoice for October.
