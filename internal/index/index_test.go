@@ -289,13 +289,21 @@ func TestModifyTagsAndCounts(t *testing.T) {
 	if err := ix.ModifyTags(t.Context(), []int64{m.ID}, []string{"UPPER"}, nil); err == nil {
 		t.Error("accepted uppercase tag")
 	}
-	counts, err := ix.TagCounts(t.Context())
+	counts, err := ix.TagCounts(t.Context(), "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := []TagCount{{"folder:sent", 1}, {"inbox", 1}, {"todo", 1}, {"unread", 1}}
 	if !slices.Equal(counts, want) {
 		t.Errorf("counts = %v, want %v", counts, want)
+	}
+	// Leaving out a tag's messages (the trash): its todo and unread go.
+	if err := ix.ModifyTags(t.Context(), []int64{m.ID}, []string{"deleted"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	counts, err = ix.TagCounts(t.Context(), "deleted")
+	if err != nil || !slices.Equal(counts, []TagCount{{"deleted", 1}, {"folder:sent", 1}, {"inbox", 1}}) {
+		t.Errorf("counts without the trash = %v, %v", counts, err)
 	}
 }
 

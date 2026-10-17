@@ -81,9 +81,15 @@ type TagCount struct {
 	Count int    `json:"count"`
 }
 
-// TagCounts lists every tag in use.
-func (ix *Index) TagCounts(ctx context.Context) ([]TagCount, error) {
-	rows, err := ix.db.QueryContext(ctx, `SELECT tag, count(*) FROM tags GROUP BY tag ORDER BY tag`)
+// TagCounts counts each tag's messages, leaving out the messages tagged
+// without (the trash, as searches do), except for that tag itself. An
+// empty without counts every message.
+func (ix *Index) TagCounts(ctx context.Context, without string) ([]TagCount, error) {
+	rows, err := ix.db.QueryContext(ctx, `
+		SELECT t.tag, count(*) FROM tags t
+		WHERE ?1 = '' OR t.tag = ?1
+		   OR NOT EXISTS (SELECT 1 FROM tags w WHERE w.message_id = t.message_id AND w.tag = ?1)
+		GROUP BY t.tag ORDER BY t.tag`, without)
 	if err != nil {
 		return nil, fmt.Errorf("list tags: %w", err)
 	}

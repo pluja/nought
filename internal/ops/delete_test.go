@@ -351,3 +351,31 @@ func TestActionsMatchWhatSearchShows(t *testing.T) {
 		t.Errorf("upper-case id of a trashed message: matched %d, %v", out.Matched, err)
 	}
 }
+
+// Review: the sidebar counted a tag's mail in the trash too, so a tag
+// showed 1 next to a view of it that showed none. Tag counts leave out the
+// trash, as searches do; the trash itself still counts its own.
+func TestTagCountsMatchWhatSearchShows(t *testing.T) {
+	env := newTestEnv(t)
+	importSample(t, env)
+	if _, err := Call(t.Context(), env, Tag, MsgTag, TagIn{Query: "tag:inbox", Add: []string{"classify"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Call(t.Context(), env, Delete, MsgDelete, DeleteIn{Query: `subject:"read one"`}); err != nil {
+		t.Fatal(err)
+	}
+	counts, err := Call(t.Context(), env, Read, TagsList, struct{}{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range counts {
+		q := "tag:" + tc.Tag
+		shown, err := Call(t.Context(), env, Read, MsgCount, CountIn{Query: q})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if tc.Count != shown.Count {
+			t.Errorf("tag %s counts %d, its search shows %d", tc.Tag, tc.Count, shown.Count)
+		}
+	}
+}

@@ -26,7 +26,7 @@ var TagsList = Op[struct{}, []index.TagCount]{
 		if err != nil {
 			return nil, err
 		}
-		return ix.TagCounts(ctx)
+		return ix.TagCounts(ctx, TagDeleted) // as searches count: the trash only for its own tag
 	},
 }
 

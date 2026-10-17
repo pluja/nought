@@ -59,7 +59,7 @@ func TestClosedIndexFails(t *testing.T) {
 		"Count":         func() error { _, err := ix.Count(ctx, query.Query{}); return err },
 		"Addresses":     func() error { _, err := ix.Addresses(ctx, "personal", 10); return err },
 		"ModifyTags":    func() error { return ix.ModifyTags(ctx, []int64{1}, []string{"x"}, []string{"inbox"}) },
-		"TagCounts":     func() error { _, err := ix.TagCounts(ctx); return err },
+		"TagCounts":     func() error { _, err := ix.TagCounts(ctx, ""); return err },
 		"Dump":          func() error { return ix.Dump(ctx, &bytes.Buffer{}, nil) },
 		"Restore": func() error {
 			_, err := ix.Restore(ctx, strings.NewReader("+inbox -- id:one@x\n"))
