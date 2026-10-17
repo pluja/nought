@@ -1,13 +1,37 @@
 [windows] skip 'needs a POSIX sh'
 [!exec:jq] skip 'needs jq'
 
+# Nothing to classify: it says so, and how to set the tag up.
+chmod 755 bin/curl
+chmod 755 bin/oldnou/nou
+env PATH=$WORK/bin${:}$PATH
+exec sh $EXAMPLES/ai-classify.sh
+stderr 'no mail is tagged classify'
+stderr 'No rule tags new mail with classify'
+stderr 'query = "\*"'
+stderr 'nou msg tag tag:inbox --add classify'
+! stdout .
+
+# With the rule in place, it only says how to queue the mail already here.
+mkdir home/config
+cp rule.toml home/config/config.toml
+exec sh $EXAMPLES/ai-classify.sh
+stderr 'no mail is tagged classify'
+stderr 'Your rule tags new mail as it arrives'
+! stderr 'No rule'
+
+# A nou too old to know NOU_PERM would act with full permission: refused.
+env SAVED=$PATH
+env PATH=$WORK/bin/oldnou${:}$PATH
+! exec sh $EXAMPLES/ai-classify.sh
+stderr 'does not know NOU_PERM'
+env PATH=$SAVED
+
 # New mail for the classifier: an invoice, a newsletter, a flight, and one
 # that tries to talk the model into deleting mail. The fake curl answers as
 # models do (thinking first, JSON in a code fence, a bare word) and records
 # what it was sent.
 exec nou import export --account personal --inbox --tag classify
-chmod 755 bin/curl
-env PATH=$WORK/bin${:}$PATH
 env NOU_AI_MODEL=test-model
 env NOU_AI_KEY=sk-test-123
 env NOU_AI_TAGS='receipts newsletters'
@@ -75,6 +99,16 @@ env FAKE_CURL_FAIL=1
 exec nou search tag:classify
 stdout 'Your invoice'
 
+-- rule.toml --
+[[rule]]
+query = "*"
+tags = ["classify"]
+-- bin/oldnou/nou --
+#!/bin/sh
+# An older nou: NOU_PERM means nothing to it.
+PATH=${PATH#*:}
+unset NOU_PERM
+exec nou "$@"
 -- bin/curl --
 #!/bin/sh
 [ -z "${FAKE_CURL_FAIL:-}" ] || exit 22

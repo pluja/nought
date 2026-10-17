@@ -11,7 +11,12 @@
 #   query = "*"
 #   tags  = ["classify"]
 #
-# and run it after each sync, or from cron:  nou sync && ai-classify.sh
+# The rule tags mail as it arrives, from the next sync on. To classify the
+# mail you already have:  nou msg tag tag:inbox --add classify
+#
+# Then run it after each sync, or from cron:  nou sync && ai-classify.sh
+# With nothing tagged, it explains this and exits. It needs a nou that knows
+# NOU_PERM (October 2026 on), and refuses to run with an older one.
 #
 # Any OpenAI-compatible chat endpoint works. The default is a local Ollama,
 # so your mail never leaves this machine:
@@ -50,6 +55,12 @@ chars=${NOU_AI_CHARS:-4000}
 format=${NOU_AI_FORMAT:-schema}
 new_tags=${NOU_AI_NEW_TAGS:-}
 export NOU_PERM=tag
+
+# A nou from before NOU_PERM ignores it, and would act with full permission.
+if NOU_PERM=check nou version >/dev/null 2>&1; then
+	echo "ai-classify: this nou does not know NOU_PERM, so it could not be held to tagging; update nou" >&2
+	exit 2
+fi
 
 case $format in
 schema | json | none) ;;
@@ -158,6 +169,28 @@ ask() {
 		| ascii_downcase
 		| gsub("^[^a-z0-9]+|[^a-z0-9]+$"; "")'
 }
+
+# Nothing queued: say how mail gets the tag, rather than do nothing quietly.
+queued=$(nou search tag:classify --limit 1 --json | jq '.messages | length')
+if [ "$queued" -eq 0 ]; then
+	config=$(nou paths --json | jq -r .config_file)
+	echo "ai-classify: no mail is tagged classify, so there is nothing to do." >&2
+	if [ -f "$config" ] && grep -q '"classify"' "$config"; then
+		echo "Your rule tags new mail as it arrives (at the next sync)." >&2
+	else
+		cat >&2 <<-EOF
+			No rule tags new mail with classify yet. Add this to $config,
+			and new mail is tagged as it arrives (at the next sync):
+
+			  [[rule]]
+			  query = "*"
+			  tags  = ["classify"]
+
+		EOF
+	fi
+	echo "To classify mail you already have:  nou msg tag tag:inbox --add classify" >&2
+	exit 0
+fi
 
 while :; do
 	ids=$(nou search tag:classify --limit 50 --json | jq -r '.messages[].id')
