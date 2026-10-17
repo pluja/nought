@@ -8,6 +8,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/pluja/nought/internal/index"
+	"github.com/pluja/nought/internal/smtptest"
 )
 
 func TestDescribeOtherDevices(t *testing.T) {
@@ -88,5 +92,91 @@ func TestFailedAccountAddLeavesNoPassword(t *testing.T) {
 	}
 	if pw, err := env.Secrets.Get("second"); err == nil {
 		t.Errorf("password %q left for an unsaved account", pw)
+	}
+}
+
+// When the index cannot be opened, every op that needs it fails, rather
+// than report nothing found, and none touches the tag dump. (Sending
+// does not need it: queued mail waits in the outbox.)
+func TestUnusableIndexFails(t *testing.T) {
+	env, _ := sendEnv(t, smtptest.Options{})
+	id := idOf(t, env, `subject:"read one"`)
+	dump, err := os.ReadFile(env.Paths.TagsDump)
+	if err != nil {
+		t.Fatal(err)
+	}
+	backup := filepath.Join(t.TempDir(), "tags.dump")
+	writeFile(t, backup, string(dump))
+	if err := errors.Join(env.closeIndex(), removeDB(env.Paths.IndexFile), os.MkdirAll(env.Paths.IndexFile, 0o700)); err != nil {
+		t.Fatal(err)
+	}
+	ctx := t.Context()
+	out := filepath.Join(t.TempDir(), "out")
+	calls := map[string]func() error{
+		"search":  func() error { _, err := Call(ctx, env, Read, MsgSearch, SearchIn{Query: "tag:inbox"}); return err },
+		"count":   func() error { _, err := Call(ctx, env, Read, MsgCount, CountIn{Query: "tag:inbox"}); return err },
+		"show":    func() error { _, err := Call(ctx, env, Read, MsgShow, ShowIn{ID: id}); return err },
+		"save":    func() error { _, err := Call(ctx, env, Read, MsgSave, SaveIn{ID: id, Dir: out}); return err },
+		"tag":     func() error { _, err := Call(ctx, env, Tag, MsgTag, TagIn{Query: id, Add: []string{"x"}}); return err },
+		"archive": func() error { _, err := Call(ctx, env, Tag, MsgArchive, ArchiveIn{Query: id}); return err },
+		"delete":  func() error { _, err := Call(ctx, env, Delete, MsgDelete, DeleteIn{Query: id}); return err },
+		"restore": func() error { _, err := Call(ctx, env, Delete, MsgRestore, RestoreIn{Query: id}); return err },
+		"empty":   func() error { _, err := Call(ctx, env, Delete, TrashEmpty, struct{}{}); return err },
+		"tags":    func() error { _, err := Call(ctx, env, Read, TagsList, struct{}{}); return err },
+		"dump":    func() error { _, err := Call(ctx, env, Read, TagsDump, TagsDumpIn{Path: out}); return err },
+		"undump":  func() error { _, err := Call(ctx, env, Delete, TagsRestore, TagsRestoreIn{Path: backup}); return err },
+		"import": func() error {
+			_, err := Call(ctx, env, Delete, ImportRun, ImportIn{Path: thunderbirdExport(t), Account: "personal"})
+			return err
+		},
+		"reply":   func() error { _, err := Call(ctx, env, Draft, DraftReply, DraftReplyIn{ID: id}); return err },
+		"forward": func() error { _, err := Call(ctx, env, Draft, DraftForward, DraftForwardIn{ID: id}); return err },
+		"suggest": func() error { _, err := Call(ctx, env, Read, AddressSuggest, SuggestIn{Prefix: "a"}); return err },
+		"status":  func() error { _, err := Call(ctx, env, Read, AccountStatus, struct{}{}); return err },
+		"reindex": func() error { _, err := Call(ctx, env, Delete, IndexRebuild, struct{}{}); return err },
+	}
+	for name, call := range calls {
+		if err := call(); err == nil {
+			t.Errorf("%s succeeded without an index", name)
+		}
+	}
+	if got, err := os.ReadFile(env.Paths.TagsDump); err != nil || string(got) != string(dump) {
+		t.Errorf("the tag dump changed: %v", err)
+	}
+}
+
+func TestLeavesServerAt(t *testing.T) {
+	now := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
+	for _, c := range []struct {
+		tags   []string
+		want   time.Time
+		leaves bool
+	}{
+		{nil, time.Time{}, false},
+		{[]string{"inbox"}, time.Time{}, false},
+		{[]string{TagDeleted}, now, true},
+		{[]string{index.DeleteAfterPrefix + "2026-10-20"}, time.Date(2026, 10, 20, 0, 0, 0, 0, time.UTC), true},
+		{[]string{index.DeleteAfterPrefix + "2026-01-01"}, now, true}, // overdue: at the next sync
+	} {
+		got, leaves := leavesServerAt(c.tags, now)
+		if leaves != c.leaves || !got.Equal(c.want) {
+			t.Errorf("leavesServerAt(%v) = %v, %v; want %v, %v", c.tags, got, leaves, c.want, c.leaves)
+		}
+	}
+}
+
+// Mail imported as deleted goes to the transient store, which backups skip,
+// like mail deleted in nought.
+func TestImportAsDeletedIsTransient(t *testing.T) {
+	env := newTestEnv(t)
+	out, err := Call(t.Context(), env, Delete, ImportRun, ImportIn{Path: thunderbirdExport(t), Account: "personal", Tags: []string{TagDeleted}})
+	if err != nil || out.Imported != 3 {
+		t.Fatalf("import = %+v, %v", out, err)
+	}
+	for dir, want := range map[string]int{env.Paths.AccountArchive("personal"): 0, env.Paths.TransientArchive("personal"): 3} {
+		got, err := filepath.Glob(filepath.Join(dir, "cur", "*"))
+		if err != nil || len(got) != want {
+			t.Errorf("%s has %d files, want %d (%v)", dir, len(got), want, err)
+		}
 	}
 }

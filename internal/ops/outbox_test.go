@@ -515,3 +515,26 @@ func TestAttachedFilesAreSent(t *testing.T) {
 		}
 	}
 }
+
+// A Sent copy the server would not take is reported, and the message is
+// not sent again for it: it was delivered, and is archived locally.
+func TestFailedSentCopyIsNotResent(t *testing.T) {
+	env, srv := sendEnv(t, smtptest.Options{}) // its IMAP server does not answer
+	if _, err := Call(t.Context(), env, Delete, AccountSet, AccountSetIn{Name: "personal", SaveSent: config.SaveSentServer}); err != nil {
+		t.Fatal(err)
+	}
+	d := newDraft(t, env, "alice@example.org", "Copied", "x\n")
+	if _, err := Call(t.Context(), env, Send, MsgSend, SendIn{DraftID: d.ID, Now: true}); err != nil {
+		t.Fatal(err)
+	}
+	out := flushNow(t, env)
+	if out.Sent != 1 || !slices.ContainsFunc(out.Notes, func(n string) bool { return strings.Contains(n, "not copied to the server's Sent folder") }) {
+		t.Fatalf("flush = %+v", out)
+	}
+	if again := flushNow(t, env); again.Sent != 0 || len(srv.Messages()) != 1 {
+		t.Errorf("sent again: %+v, %d delivered", again, len(srv.Messages()))
+	}
+	if got := search(t, env, "tag:folder:sent"); !slices.Equal(got, []string{"Copied"}) {
+		t.Errorf("local sent copy = %v", got)
+	}
+}
