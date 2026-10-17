@@ -343,7 +343,7 @@ They need `jq`, and are tested against every change to `nou`.
 
 | Script | Does |
 |---|---|
-| [`ai-classify.sh`](examples/ai-classify.sh) | tags new mail by content with a language model: a local Ollama by default, or any OpenAI-compatible endpoint (`NOU_AI_URL`, `NOU_AI_KEY`, `NOU_AI_MODEL`). Runs with `NOU_PERM=tag`, and applies only tags from your list, so a message cannot talk it into more |
+| [`ai-classify.sh`](examples/ai-classify.sh) | tags new mail by content with a language model: a local Ollama by default, or any OpenAI-compatible endpoint (`NOU_AI_URL`, `NOU_AI_KEY`, `NOU_AI_MODEL`). Asks for JSON restricted to your tags, copes with reasoning models, and can make up new tags (`NOU_AI_NEW_TAGS=1`). Runs with `NOU_PERM=tag`, so a message cannot talk it into more |
 | [`notify.sh`](examples/notify.sh) | syncs, and shows a desktop notification with the count of new mail (no subjects) |
 | [`top-senders.sh`](examples/top-senders.sh) | who fills your inbox, by message count, to archive in bulk |
 | [`save-invoices.sh`](examples/save-invoices.sh) | saves the attachments of mail tagged `receipts` to a folder, once each |
