@@ -15,6 +15,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -54,6 +55,10 @@ func TestScripts(t *testing.T) {
 // to nou's JSON output cannot break them unnoticed. They need a POSIX sh
 // and jq.
 func TestExamples(t *testing.T) {
+	// The scripts skip without jq; CI must not skip them unnoticed.
+	if _, err := exec.LookPath("jq"); err != nil && os.Getenv("CI") != "" && runtime.GOOS != "windows" {
+		t.Fatal("CI has no jq: the example scripts would not be tested")
+	}
 	examples, err := filepath.Abs(filepath.Join("..", "..", "examples"))
 	if err != nil {
 		t.Fatal(err)
