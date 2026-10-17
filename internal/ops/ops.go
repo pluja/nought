@@ -23,6 +23,17 @@ const (
 	Delete
 )
 
+// ParsePermission reads a permission by its name (read, tag, draft, send,
+// delete).
+func ParsePermission(s string) (Permission, error) {
+	for _, p := range []Permission{Read, Tag, Draft, Send, Delete} {
+		if s == p.String() {
+			return p, nil
+		}
+	}
+	return Read, usageError("%q is not a permission: use read, tag, draft, send or delete", s)
+}
+
 func (p Permission) String() string {
 	switch p {
 	case Read:

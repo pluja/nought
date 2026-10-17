@@ -32,7 +32,7 @@ func newDraftListCmd(a *app) *cobra.Command {
 		Short: ops.DraftList.Summary,
 		Args:  noArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			out, err := ops.Call(cmd.Context(), a.env, callerPerm, ops.DraftList, struct{}{})
+			out, err := ops.Call(cmd.Context(), a.env, a.perm, ops.DraftList, struct{}{})
 			return a.result(cmd, out, err, func(w io.Writer) error {
 				for _, d := range out {
 					line := d.ID + "  " + d.Updated.Local().Format("2006-01-02 15:04") + "  " + pad(d.Kind, 9) + "  " +
@@ -56,7 +56,7 @@ func newDraftShowCmd(a *app) *cobra.Command {
 		Short: ops.DraftShow.Summary + ", as in the editor, with its checks",
 		Args:  exactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			out, err := ops.Call(cmd.Context(), a.env, callerPerm, ops.DraftShow, ops.DraftIDIn{ID: args[0]})
+			out, err := ops.Call(cmd.Context(), a.env, a.perm, ops.DraftShow, ops.DraftIDIn{ID: args[0]})
 			return a.result(cmd, out, err, func(w io.Writer) error {
 				// Replies quote mail: sanitize it for the terminal.
 				if err := printf(w, "%s\n", strings.TrimRight(render.Sanitize(compose.Render(out.Draft)), "\n")); err != nil {
@@ -79,7 +79,7 @@ func newDraftEditCmd(a *app) *cobra.Command {
 			if !a.interactive() || a.json {
 				return fmt.Errorf("nou draft edit needs a terminal: %w", ops.ErrUsage)
 			}
-			out, err := ops.Call(cmd.Context(), a.env, callerPerm, ops.DraftShow, ops.DraftIDIn{ID: args[0]})
+			out, err := ops.Call(cmd.Context(), a.env, a.perm, ops.DraftShow, ops.DraftIDIn{ID: args[0]})
 			if err != nil {
 				return err
 			}
@@ -103,7 +103,7 @@ func newDraftDiscardCmd(a *app) *cobra.Command {
 		Short: ops.DraftDiscard.Summary,
 		Args:  exactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			out, err := ops.Call(cmd.Context(), a.env, callerPerm, ops.DraftDiscard, ops.DraftIDIn{ID: args[0]})
+			out, err := ops.Call(cmd.Context(), a.env, a.perm, ops.DraftDiscard, ops.DraftIDIn{ID: args[0]})
 			return a.result(cmd, out, err, func(w io.Writer) error { return printf(w, "discarded %s\n", args[0]) })
 		},
 	}
@@ -128,7 +128,7 @@ func newOutboxListCmd(a *app) *cobra.Command {
 		Short: ops.OutboxList.Summary,
 		Args:  noArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			out, err := ops.Call(cmd.Context(), a.env, callerPerm, ops.OutboxList, struct{}{})
+			out, err := ops.Call(cmd.Context(), a.env, a.perm, ops.OutboxList, struct{}{})
 			return a.result(cmd, out, err, func(w io.Writer) error {
 				for _, e := range out {
 					line := e.ID + "  " + pad(e.State, 8) + "  " + sanitize(e.Subject)
@@ -154,7 +154,7 @@ func newOutboxSendCmd(a *app) *cobra.Command {
 		Short: ops.OutboxFlush.Summary,
 		Args:  noArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			out, err := ops.Call(cmd.Context(), a.env, callerPerm, ops.OutboxFlush, ops.FlushIn{})
+			out, err := ops.Call(cmd.Context(), a.env, a.perm, ops.OutboxFlush, ops.FlushIn{})
 			a.notes(cmd, out.Notes)
 			if err == nil {
 				err = worstOutcome(out.Results)
@@ -173,7 +173,7 @@ func newOutboxRetryCmd(a *app) *cobra.Command {
 		Short: "Try sending a held message again, now",
 		Args:  exactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			e, err := ops.Call(cmd.Context(), a.env, callerPerm, ops.OutboxRetry, ops.DraftIDIn{ID: args[0]})
+			e, err := ops.Call(cmd.Context(), a.env, a.perm, ops.OutboxRetry, ops.DraftIDIn{ID: args[0]})
 			if err != nil {
 				return err
 			}
@@ -188,7 +188,7 @@ func newOutboxCancelCmd(a *app) *cobra.Command {
 		Short: ops.OutboxCancel.Summary,
 		Args:  exactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			out, err := ops.Call(cmd.Context(), a.env, callerPerm, ops.OutboxCancel, ops.DraftIDIn{ID: args[0]})
+			out, err := ops.Call(cmd.Context(), a.env, a.perm, ops.OutboxCancel, ops.DraftIDIn{ID: args[0]})
 			return a.result(cmd, out, err, func(w io.Writer) error { return printDraftLine(w, out) })
 		},
 	}

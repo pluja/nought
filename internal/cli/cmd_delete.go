@@ -23,7 +23,7 @@ func newMsgDeleteCmd(a *app) *cobra.Command {
 		Args:    cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			in.Query = queryFromArgs(args)
-			out, err := ops.Call(cmd.Context(), a.env, callerPerm, ops.MsgDelete, in)
+			out, err := ops.Call(cmd.Context(), a.env, a.perm, ops.MsgDelete, in)
 			return a.result(cmd, out, err, func(w io.Writer) error {
 				switch {
 				case out.DryRun:
@@ -50,7 +50,7 @@ func newMsgRestoreCmd(a *app) *cobra.Command {
 		Args:  cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			in.Query = queryFromArgs(args)
-			out, err := ops.Call(cmd.Context(), a.env, callerPerm, ops.MsgRestore, in)
+			out, err := ops.Call(cmd.Context(), a.env, a.perm, ops.MsgRestore, in)
 			return a.result(cmd, out, err, func(w io.Writer) error {
 				if out.DryRun {
 					return printf(w, "would restore %d\n", out.Changed)
@@ -77,7 +77,7 @@ func newTrashCmd(a *app) *cobra.Command {
 		Short: ops.TrashEmpty.Summary,
 		Args:  noArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			out, err := ops.Call(cmd.Context(), a.env, callerPerm, ops.TrashEmpty, in)
+			out, err := ops.Call(cmd.Context(), a.env, a.perm, ops.TrashEmpty, in)
 			return a.result(cmd, out, err, func(w io.Writer) error {
 				if out.DryRun {
 					return printf(w, "would delete %d for good; %d would wait for the next sync to leave the server first\n",

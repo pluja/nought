@@ -47,12 +47,27 @@ type app struct {
 	json    bool
 	verbose bool
 	env     *ops.Env
+	// perm is what this invocation may do: everything, unless NOU_PERM
+	// lowers it (the zero value, read, until setup runs).
+	perm ops.Permission
 	// editor replaces the user's editor (tests only).
 	editor func(ctx context.Context, path string) error
 }
 
-// The CLI acts for the local user, who holds every permission.
-const callerPerm = ops.Delete
+// callerPermission is the local user's permission, every one unless
+// NOU_PERM lowers it for a script acting on mail content (an AI
+// classifier). An unknown value is an error, never full permission.
+func callerPermission(getenv func(string) string) (ops.Permission, error) {
+	v := getenv("NOU_PERM")
+	if v == "" {
+		return ops.Delete, nil
+	}
+	p, err := ops.ParsePermission(v)
+	if err != nil {
+		return p, fmt.Errorf("NOU_PERM must be one of read, tag, draft, send, delete: %w", ops.ErrUsage)
+	}
+	return p, nil
+}
 
 // Run executes one command line and returns the process exit code.
 func Run(ctx context.Context, o Options) int {
@@ -92,7 +107,10 @@ func wantsJSON(args []string) bool {
 const noPaths = "nopaths"
 
 // setup builds the Env once flags are parsed.
-func (a *app) setup(cmd *cobra.Command, _ []string) error {
+func (a *app) setup(cmd *cobra.Command, _ []string) (err error) {
+	if a.perm, err = callerPermission(a.opts.Getenv); err != nil {
+		return err
+	}
 	tlsConfig, err := a.devMode()
 	if err != nil {
 		return err

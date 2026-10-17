@@ -29,7 +29,7 @@ func newSyncCmd(a *app) *cobra.Command {
 		Args:    cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			in.Accounts = args
-			out, err := ops.Call(cmd.Context(), a.env, callerPerm, ops.SyncRun, in)
+			out, err := ops.Call(cmd.Context(), a.env, a.perm, ops.SyncRun, in)
 			return a.result(cmd, out, err, func(w io.Writer) error { return printSync(w, out) })
 		},
 	}
@@ -138,7 +138,7 @@ func newAccountTestCmd(a *app) *cobra.Command {
 		Short: ops.AccountTest.Summary,
 		Args:  exactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			out, err := ops.Call(cmd.Context(), a.env, callerPerm, ops.AccountTest, ops.AccountName{Name: args[0]})
+			out, err := ops.Call(cmd.Context(), a.env, a.perm, ops.AccountTest, ops.AccountName{Name: args[0]})
 			return a.result(cmd, out, err, func(w io.Writer) error {
 				uidplus := "yes"
 				if !out.UIDPlus {

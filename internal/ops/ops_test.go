@@ -122,3 +122,16 @@ func removeFile(env *Env, account string, e store.Entry) error {
 	}
 	return os.Remove(matches[0])
 }
+
+func TestParsePermission(t *testing.T) {
+	for _, p := range []Permission{Read, Tag, Draft, Send, Delete} {
+		if got, err := ParsePermission(p.String()); err != nil || got != p {
+			t.Errorf("ParsePermission(%q) = %v, %v", p.String(), got, err)
+		}
+	}
+	for _, bad := range []string{"", "all", "Delete", "admin"} {
+		if _, err := ParsePermission(bad); err == nil {
+			t.Errorf("ParsePermission(%q) succeeded", bad)
+		}
+	}
+}

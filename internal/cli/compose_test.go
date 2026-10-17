@@ -41,13 +41,13 @@ func composeApp(t *testing.T, stdin string, versions ...string) (*app, *smtptest
 	pool.AppendCertsFromPEM(srv.CAPEM)
 	env.TLS = &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}
 	t.Cleanup(func() { _ = env.Close() })
-	if _, err := ops.Call(t.Context(), env, callerPerm, ops.AccountAdd, ops.AccountIn{Name: "test", Email: smtptest.User,
+	if _, err := ops.Call(t.Context(), env, ops.Delete, ops.AccountAdd, ops.AccountIn{Name: "test", Email: smtptest.User,
 		IMAPHost: "127.0.0.1", Password: smtptest.Password, SMTPHost: srv.Host, SMTPPort: srv.Port}); err != nil {
 		t.Fatal(err)
 	}
 	var edited []string
 	yes := true
-	a := &app{env: env, opts: Options{Stdin: strings.NewReader(stdin), Interactive: &yes}}
+	a := &app{env: env, perm: ops.Delete, opts: Options{Stdin: strings.NewReader(stdin), Interactive: &yes}}
 	a.editor = func(_ context.Context, path string) error {
 		if len(edited) == len(versions) {
 			t.Fatal("the editor opened too often")
@@ -97,7 +97,7 @@ func TestComposeInTerminal(t *testing.T) {
 			if err != nil {
 				t.Fatalf("compose: %v\n%s", err, out)
 			}
-			drafts, err := ops.Call(t.Context(), a.env, callerPerm, ops.DraftList, struct{}{})
+			drafts, err := ops.Call(t.Context(), a.env, ops.Delete, ops.DraftList, struct{}{})
 			if err != nil {
 				t.Fatal(err)
 			}

@@ -17,7 +17,7 @@ func newPathsCmd(a *app) *cobra.Command {
 		Short: ops.PathsShow.Summary,
 		Args:  noArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			out, err := ops.Call(cmd.Context(), a.env, callerPerm, ops.PathsShow, struct{}{})
+			out, err := ops.Call(cmd.Context(), a.env, a.perm, ops.PathsShow, struct{}{})
 			if err != nil {
 				return err
 			}
@@ -58,7 +58,7 @@ func newVersionCmd(a *app) *cobra.Command {
 		Annotations: map[string]string{noPaths: "true"},
 		Args:        noArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			out, err := ops.Call(cmd.Context(), a.env, callerPerm, ops.VersionShow, struct{}{})
+			out, err := ops.Call(cmd.Context(), a.env, a.perm, ops.VersionShow, struct{}{})
 			if err != nil {
 				return err
 			}

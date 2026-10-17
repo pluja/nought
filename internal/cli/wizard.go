@@ -229,7 +229,7 @@ func (a *app) runWizard(cmd *cobra.Command, p *prompter) error {
 	if !ok {
 		return errQuit
 	}
-	if _, err := ops.Call(ctx, a.env, callerPerm, ops.AccountAdd, in); err != nil {
+	if _, err := ops.Call(ctx, a.env, a.perm, ops.AccountAdd, in); err != nil {
 		return err
 	}
 	return p.say("Saved %s. Server deletion is off.\nNext: nou sync %s   (archives your mail; nothing is deleted)", in.Name, in.Name)
@@ -242,7 +242,7 @@ func (a *app) checkUntilAccepted(cmd *cobra.Command, p *prompter, in *ops.Accoun
 		if err := p.say("\nTesting the connection…"); err != nil {
 			return err
 		}
-		out, err := ops.Call(cmd.Context(), a.env, callerPerm, ops.AccountCheck, *in)
+		out, err := ops.Call(cmd.Context(), a.env, a.perm, ops.AccountCheck, *in)
 		if err == nil {
 			return printCheck(p, out)
 		}
@@ -276,7 +276,7 @@ func (a *app) checkUntilAccepted(cmd *cobra.Command, p *prompter, in *ops.Accoun
 
 // discover tries the built-in provider list, then asks before going online.
 func (a *app) discover(cmd *cobra.Command, p *prompter, email string) (*autoconfig.Result, error) {
-	res, err := ops.Call(cmd.Context(), a.env, callerPerm, ops.AccountDiscover, ops.DiscoverIn{Email: email})
+	res, err := ops.Call(cmd.Context(), a.env, a.perm, ops.AccountDiscover, ops.DiscoverIn{Email: email})
 	if errors.Is(err, ops.ErrNotFound) {
 		domain := domainOf(email)
 		if err := p.say("Not in nought's built-in provider list.\n"+
@@ -289,7 +289,7 @@ func (a *app) discover(cmd *cobra.Command, p *prompter, email string) (*autoconf
 		if askErr != nil || !online {
 			return nil, askErr
 		}
-		res, err = ops.Call(cmd.Context(), a.env, callerPerm, ops.AccountDiscoverOnline, ops.DiscoverIn{Email: email})
+		res, err = ops.Call(cmd.Context(), a.env, a.perm, ops.AccountDiscoverOnline, ops.DiscoverIn{Email: email})
 	}
 	switch {
 	case errors.Is(err, ops.ErrNotFound):
@@ -378,7 +378,7 @@ func askSecurity(p *prompter, what, current string, port, implicitPort, starttls
 // askName suggests a name from the domain ("posteo" for posteo.de) and
 // makes sure it is valid and not taken.
 func askName(cmd *cobra.Command, a *app, p *prompter, email string) (string, error) {
-	accounts, err := ops.Call(cmd.Context(), a.env, callerPerm, ops.AccountList, struct{}{})
+	accounts, err := ops.Call(cmd.Context(), a.env, a.perm, ops.AccountList, struct{}{})
 	if err != nil {
 		return "", err
 	}

@@ -1,0 +1,34 @@
+# NOU_PERM caps what nou may do, for scripts that act on mail content (an
+# AI classifier): it can lower the permission, never raise it.
+exec nou import export --account personal --inbox
+
+env NOU_PERM=tag
+exec nou msg tag subject:lunch --add food
+stdout '^matched 1, changed 1'
+! exec nou msg delete subject:lunch
+stderr 'requires delete permission, caller has tag'
+code 4 nou msg delete --now subject:lunch
+code 4 nou trash empty
+code 4 nou tags restore nope.dump
+! exec nou tui
+stderr 'NOU_PERM'
+
+env NOU_PERM=read
+exec nou search tag:food
+stdout lunch
+code 4 nou msg archive subject:lunch
+
+env NOU_PERM=all
+code 2 nou search tag:food
+stderr 'NOU_PERM must be one of read, tag, draft, send, delete'
+
+env NOU_PERM=
+exec nou msg archive subject:lunch
+stdout '^matched 1, changed 1'
+
+-- export/Inbox/a.eml --
+From: Alice <alice@example.org>
+Message-ID: <a@example.org>
+Subject: lunch on friday
+
+pizza?

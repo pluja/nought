@@ -319,6 +319,9 @@ nou sync && restic backup ~/.local/share/nought ~/.config/nought \
 - `nou` never prompts when stdin is not a terminal. Every command that changes or deletes mail or
   tags (`import`, `sync`, `msg tag`, `msg archive`, `msg delete`, `msg restore`, `trash empty`,
   `tags restore`) supports `--dry-run`.
+- `NOU_PERM=read` (or `tag`, `draft`, `send`) caps what `nou` may do. Use it for scripts that act on
+  mail content, an AI classifier above all: whatever a message says, they cannot delete or send
+  (exit code 4). It can only lower the permission; the TUI refuses to start under it.
 - Exit codes:
 
 | Code | Meaning |

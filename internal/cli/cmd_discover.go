@@ -30,7 +30,7 @@ func newAccountDiscoverCmd(a *app) *cobra.Command {
 			if online {
 				op = ops.AccountDiscoverOnline
 			}
-			out, err := ops.Call(cmd.Context(), a.env, callerPerm, op, in)
+			out, err := ops.Call(cmd.Context(), a.env, a.perm, op, in)
 			if err != nil {
 				return err
 			}

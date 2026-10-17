@@ -64,7 +64,7 @@ func newAccountAddCmd(a *app) *cobra.Command {
 				}
 				in.Password = pw
 			}
-			out, err := ops.Call(cmd.Context(), a.env, callerPerm, ops.AccountAdd, in)
+			out, err := ops.Call(cmd.Context(), a.env, a.perm, ops.AccountAdd, in)
 			if err != nil {
 				return err
 			}
@@ -123,7 +123,7 @@ func newAccountListCmd(a *app) *cobra.Command {
 		Short: ops.AccountList.Summary,
 		Args:  noArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			out, err := ops.Call(cmd.Context(), a.env, callerPerm, ops.AccountList, struct{}{})
+			out, err := ops.Call(cmd.Context(), a.env, a.perm, ops.AccountList, struct{}{})
 			return a.result(cmd, out, err, func(w io.Writer) error {
 				for _, acct := range out {
 					if err := printf(w, "%-12s %-30s %s:%d  deletion %s\n", acct.Name, sanitize(acct.Email),
@@ -143,7 +143,7 @@ func newAccountShowCmd(a *app) *cobra.Command {
 		Short: ops.AccountShow.Summary,
 		Args:  exactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			out, err := ops.Call(cmd.Context(), a.env, callerPerm, ops.AccountShow, ops.AccountName{Name: args[0]})
+			out, err := ops.Call(cmd.Context(), a.env, a.perm, ops.AccountShow, ops.AccountName{Name: args[0]})
 			return a.result(cmd, out, err, func(w io.Writer) error { return printAccount(w, out) })
 		},
 	}
@@ -179,7 +179,7 @@ func newAccountSetCmd(a *app) *cobra.Command {
 		Args:    exactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			in.Name = args[0]
-			out, err := ops.Call(cmd.Context(), a.env, callerPerm, ops.AccountSet, in)
+			out, err := ops.Call(cmd.Context(), a.env, a.perm, ops.AccountSet, in)
 			return a.result(cmd, out, err, func(w io.Writer) error { return printAccount(w, out) })
 		},
 	}
@@ -199,7 +199,7 @@ func newAccountRemoveCmd(a *app) *cobra.Command {
 		Short: ops.AccountRemove.Summary,
 		Args:  exactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			out, err := ops.Call(cmd.Context(), a.env, callerPerm, ops.AccountRemove, ops.AccountName{Name: args[0]})
+			out, err := ops.Call(cmd.Context(), a.env, a.perm, ops.AccountRemove, ops.AccountName{Name: args[0]})
 			return a.result(cmd, out, err, func(w io.Writer) error {
 				return printf(w, "removed %s; its archive is kept at %s\n", out.Name, out.Archive)
 			})

@@ -17,6 +17,9 @@ func newTUICmd(a *app) *cobra.Command {
 		Short: "Open the terminal interface (also: 'nou' with no arguments)",
 		Args:  noArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if err := a.fullPermission(); err != nil {
+				return err
+			}
 			if !a.interactive() {
 				return fmt.Errorf("the TUI needs a terminal: %w", ops.ErrUsage)
 			}
@@ -25,7 +28,19 @@ func newTUICmd(a *app) *cobra.Command {
 	}
 }
 
+// fullPermission refuses the TUI under NOU_PERM: it acts for the person at
+// the keyboard, with every permission.
+func (a *app) fullPermission() error {
+	if a.perm < ops.Delete {
+		return fmt.Errorf("the TUI needs every permission: unset NOU_PERM (%s): %w", a.perm, ops.ErrPermission)
+	}
+	return nil
+}
+
 func (a *app) runTUI(cmd *cobra.Command) error {
+	if err := a.fullPermission(); err != nil {
+		return err
+	}
 	return tui.Run(cmd.Context(), a.env, tui.Options{Input: a.opts.Stdin, Output: a.opts.Stdout,
 		Editor: a.editorCommand()})
 }

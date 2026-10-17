@@ -34,7 +34,7 @@ func newSearchCmd(a *app) *cobra.Command {
 		Args:    cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			in.Query = queryFromArgs(args)
-			out, err := ops.Call(cmd.Context(), a.env, callerPerm, ops.MsgSearch, in)
+			out, err := ops.Call(cmd.Context(), a.env, a.perm, ops.MsgSearch, in)
 			return a.result(cmd, out, err, func(w io.Writer) error {
 				for _, m := range out.Messages {
 					if err := printf(w, "%s\n", messageLine(m)); err != nil {
@@ -124,7 +124,7 @@ func newMsgShowCmd(a *app) *cobra.Command {
 			if in.Raw && !a.json && !force && isTerminal(a.opts.Stdout) {
 				return fmt.Errorf("refusing to print a raw message to a terminal (it may contain escape sequences); pipe it, or use --force: %w", ops.ErrUsage)
 			}
-			out, err := ops.Call(cmd.Context(), a.env, callerPerm, ops.MsgShow, in)
+			out, err := ops.Call(cmd.Context(), a.env, a.perm, ops.MsgShow, in)
 			if err != nil {
 				return err
 			}
@@ -207,7 +207,7 @@ func newMsgSaveCmd(a *app) *cobra.Command {
 				}
 				in.Only = append(in.Only, n)
 			}
-			out, err := ops.Call(cmd.Context(), a.env, callerPerm, ops.MsgSave, in)
+			out, err := ops.Call(cmd.Context(), a.env, a.perm, ops.MsgSave, in)
 			return a.result(cmd, out, err, func(w io.Writer) error {
 				for _, f := range out {
 					if err := printf(w, "saved %s (%d bytes)\n", sanitize(f.Name), f.Size); err != nil {
@@ -234,7 +234,7 @@ func newMsgTagCmd(a *app) *cobra.Command {
 		Args:    cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			in.Query = queryFromArgs(args)
-			out, err := ops.Call(cmd.Context(), a.env, callerPerm, ops.MsgTag, in)
+			out, err := ops.Call(cmd.Context(), a.env, a.perm, ops.MsgTag, in)
 			return a.result(cmd, out, err, func(w io.Writer) error { return printTagOut(w, out) })
 		},
 	}
@@ -255,7 +255,7 @@ func newMsgArchiveCmd(a *app) *cobra.Command {
 		Args:    cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			in.Query = queryFromArgs(args)
-			out, err := ops.Call(cmd.Context(), a.env, callerPerm, ops.MsgArchive, in)
+			out, err := ops.Call(cmd.Context(), a.env, a.perm, ops.MsgArchive, in)
 			return a.result(cmd, out, err, func(w io.Writer) error { return printTagOut(w, out) })
 		},
 	}

@@ -70,7 +70,7 @@ func newComposeCmd(a *app) *cobra.Command {
 			if in.Body, err = f.body(cmd); err != nil {
 				return err
 			}
-			out, err := ops.Call(cmd.Context(), a.env, callerPerm, ops.DraftNew, in)
+			out, err := ops.Call(cmd.Context(), a.env, a.perm, ops.DraftNew, in)
 			if err != nil {
 				return err
 			}
@@ -104,7 +104,7 @@ func newMsgReplyCmd(a *app) *cobra.Command {
 			if in.Body, err = f.body(cmd); err != nil {
 				return err
 			}
-			out, err := ops.Call(cmd.Context(), a.env, callerPerm, ops.DraftReply, in)
+			out, err := ops.Call(cmd.Context(), a.env, a.perm, ops.DraftReply, in)
 			if err != nil {
 				return err
 			}
@@ -134,7 +134,7 @@ func newMsgForwardCmd(a *app) *cobra.Command {
 			if in.Body, err = f.body(cmd); err != nil {
 				return err
 			}
-			out, err := ops.Call(cmd.Context(), a.env, callerPerm, ops.DraftForward, in)
+			out, err := ops.Call(cmd.Context(), a.env, a.perm, ops.DraftForward, in)
 			if err != nil {
 				return err
 			}
@@ -185,7 +185,7 @@ func printProblems(w io.Writer, problems []compose.Problem) error {
 // sendNow sends a draft at once: the CLI has no undo window. A message the
 // server will be asked again exits 3 (partial); a refused one exits 1.
 func (a *app) sendNow(cmd *cobra.Command, draftID string) error {
-	e, err := ops.Call(cmd.Context(), a.env, callerPerm, ops.MsgSend, ops.SendIn{DraftID: draftID, Now: true})
+	e, err := ops.Call(cmd.Context(), a.env, a.perm, ops.MsgSend, ops.SendIn{DraftID: draftID, Now: true})
 	if err != nil {
 		return fmt.Errorf("%w (draft %s kept)", err, draftID)
 	}
@@ -194,7 +194,7 @@ func (a *app) sendNow(cmd *cobra.Command, draftID string) error {
 
 // flushAndReport sends what is due and reports what became of e.
 func (a *app) flushAndReport(cmd *cobra.Command, e ops.OutboxEntry) error {
-	flushed, flushErr := ops.Call(cmd.Context(), a.env, callerPerm, ops.OutboxFlush, ops.FlushIn{})
+	flushed, flushErr := ops.Call(cmd.Context(), a.env, a.perm, ops.OutboxFlush, ops.FlushIn{})
 	i := slices.IndexFunc(flushed.Results, func(r ops.OutboxEntry) bool { return r.ID == e.ID })
 	if i < 0 { // not tried: another nou is sending
 		return fmt.Errorf("%q is queued but was not sent: %w", e.Subject, flushErr)
@@ -259,7 +259,7 @@ func (a *app) editLoop(cmd *cobra.Command, out ops.DraftOut) error {
 			return fmt.Errorf("%w (draft %s kept)", err, id)
 		}
 		var err error
-		if out, err = ops.Call(ctx, a.env, callerPerm, ops.DraftUpdate, ops.DraftIDIn{ID: id}); err != nil {
+		if out, err = ops.Call(ctx, a.env, a.perm, ops.DraftUpdate, ops.DraftIDIn{ID: id}); err != nil {
 			return fmt.Errorf("%w (draft %s kept: nou draft edit %s)", err, id, id)
 		}
 		if out.Discarded {
@@ -305,7 +305,7 @@ func (a *app) choose(cmd *cobra.Command, p *prompter, out ops.DraftOut) (again b
 				}
 				continue
 			}
-			if _, err := ops.Call(cmd.Context(), a.env, callerPerm, ops.DraftDiscard, ops.DraftIDIn{ID: out.ID}); err != nil {
+			if _, err := ops.Call(cmd.Context(), a.env, a.perm, ops.DraftDiscard, ops.DraftIDIn{ID: out.ID}); err != nil {
 				return false, err
 			}
 			return false, p.say("Discarded.")

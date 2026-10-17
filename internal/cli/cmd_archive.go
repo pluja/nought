@@ -26,7 +26,7 @@ func newImportCmd(a *app) *cobra.Command {
 		Args:    exactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			in.Path = args[0]
-			out, err := ops.Call(cmd.Context(), a.env, callerPerm, ops.ImportRun, in)
+			out, err := ops.Call(cmd.Context(), a.env, a.perm, ops.ImportRun, in)
 			return a.result(cmd, out, err, func(w io.Writer) error {
 				verb := "imported"
 				if out.DryRun {
@@ -64,7 +64,7 @@ func newReindexCmd(a *app) *cobra.Command {
 		Short: ops.IndexRebuild.Summary,
 		Args:  noArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			out, err := ops.Call(cmd.Context(), a.env, callerPerm, ops.IndexRebuild, struct{}{})
+			out, err := ops.Call(cmd.Context(), a.env, a.perm, ops.IndexRebuild, struct{}{})
 			return a.result(cmd, out, err, func(w io.Writer) error {
 				if out.Failed > 0 { // the rebuild was not installed
 					if err := printf(w, "could not read %d messages; the index was not replaced:\n", out.Failed); err != nil {
@@ -95,7 +95,7 @@ func newTagsCmd(a *app) *cobra.Command {
 			Short: ops.TagsList.Summary,
 			Args:  noArgs,
 			RunE: func(cmd *cobra.Command, _ []string) error {
-				out, err := ops.Call(cmd.Context(), a.env, callerPerm, ops.TagsList, struct{}{})
+				out, err := ops.Call(cmd.Context(), a.env, a.perm, ops.TagsList, struct{}{})
 				return a.result(cmd, out, err, func(w io.Writer) error {
 					for _, tc := range out {
 						if err := printf(w, "%7d  %s\n", tc.Count, sanitize(tc.Tag)); err != nil {
@@ -120,7 +120,7 @@ func newTagsRestoreCmd(a *app) *cobra.Command {
 		Args:  exactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			in.Path = args[0]
-			out, err := ops.Call(cmd.Context(), a.env, callerPerm, ops.TagsRestore, in)
+			out, err := ops.Call(cmd.Context(), a.env, a.perm, ops.TagsRestore, in)
 			return a.result(cmd, out, err, func(w io.Writer) error {
 				if out.DryRun {
 					return printf(w, "would restore tags for %d messages (%d not found, %d tags skipped)\n",
@@ -150,7 +150,7 @@ func newTagsDumpCmd(a *app) *cobra.Command {
 			if len(args) == 1 {
 				in.Path = args[0]
 			}
-			out, err := ops.Call(cmd.Context(), a.env, callerPerm, ops.TagsDump, in)
+			out, err := ops.Call(cmd.Context(), a.env, a.perm, ops.TagsDump, in)
 			return a.result(cmd, out, err, func(w io.Writer) error {
 				if out.Path != "" {
 					return printf(w, "wrote %s\n", out.Path)

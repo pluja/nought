@@ -41,7 +41,7 @@ func TestWizardDiscoverOnline(t *testing.T) {
 			return "", nil, errors.New("none")
 		},
 	}
-	a := &app{env: env}
+	a := &app{env: env, perm: ops.Delete}
 	cmd := &cobra.Command{}
 	cmd.SetContext(t.Context())
 
