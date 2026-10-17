@@ -3,10 +3,12 @@
 package ops
 
 import (
+	"errors"
 	"slices"
 	"strings"
 	"testing"
 
+	"github.com/pluja/nought/internal/config"
 	"github.com/pluja/nought/internal/imaptest"
 )
 
@@ -85,5 +87,32 @@ func TestUnderstatedSizeIsCaughtWhileFetching(t *testing.T) {
 		if countNotes(folder(t, out, "INBOX"), "larger than max_message_mb") != 1 || len(search(t, env, "")) != 0 {
 			t.Fatalf("sync = %+v, archive %v", out, search(t, env, ""))
 		}
+	}
+}
+
+// A rule with the query * tags every new message (the "classify" pattern
+// for scripts); actions take * as an explicit "everything", never "".
+func TestStarMatchesEverything(t *testing.T) {
+	env, srv := syncEnv(t, imaptest.Options{}, false)
+	cfg, err := env.Config()
+	if err != nil {
+		t.Fatal(err)
+	}
+	next := *cfg
+	next.Rules = []config.Rule{{Query: "*", Tags: []string{"classify"}}}
+	if err := saveConfig(env, &next); err != nil {
+		t.Fatal(err)
+	}
+	srv.Append(t, "INBOX", mail("a@x", "one"), daysAgo(env, 0))
+	srv.Append(t, "INBOX", mail("b@x", "two"), daysAgo(env, 0))
+	runSyncOK(t, env, SyncIn{})
+	if got := search(t, env, "tag:classify"); len(got) != 2 {
+		t.Errorf("tagged by the * rule: %v", got)
+	}
+	if _, err := Call(t.Context(), env, Tag, MsgArchive, ArchiveIn{Query: ""}); !errors.Is(err, ErrUsage) {
+		t.Errorf("archive with an empty query = %v", err)
+	}
+	if out, err := Call(t.Context(), env, Tag, MsgArchive, ArchiveIn{Query: "*"}); err != nil || out.Changed != 2 {
+		t.Errorf("archive * = %+v, %v", out, err)
 	}
 }

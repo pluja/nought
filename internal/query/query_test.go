@@ -44,6 +44,9 @@ func TestParse(t *testing.T) {
 		{"FROM:bob", Query{[][]Term{{{Field: From, Value: "bob"}}}}},
 		{":odd", Query{[][]Term{{{Field: Text, Value: ":odd"}}}}},
 		{"-", Query{[][]Term{{{Field: Text, Value: "-"}}}}},
+		{"*", Query{[][]Term{{{Field: All}}}}},
+		{"* tag:x", Query{[][]Term{{{Field: All}}, {{Field: Tag, Value: "x"}}}}},
+		{`"*"`, Query{[][]Term{{{Field: Text, Value: "*"}}}}},
 		{"date:2026-01-01..2026-03-31", Query{[][]Term{{{Field: Date, Value: "2026-01-01..2026-03-31",
 			Since: day("2026-01-01"), Before: day("2026-04-01")}}}}},
 		{"date:2026-05-02", Query{[][]Term{{{Field: Date, Value: "2026-05-02",
@@ -79,6 +82,7 @@ func TestParseErrors(t *testing.T) {
 		`""`:                          "empty term",
 		strings.Repeat("a", MaxLen+1): "too long",
 		"\xff":                        "UTF-8",
+		"-*":                          "matches nothing",
 	}
 	for in, want := range tests {
 		_, err := Parse(in)
@@ -93,6 +97,7 @@ func TestStringRoundTrip(t *testing.T) {
 		`tag:a OR tag:b -from:"Bob Smith" "re: hi" -"-dash" "OR" date:2026-01-01..`,
 		`subject:"back\\slash" id:x@y is:inbox`,
 		`"-literal" -"-negated literal" -word`,
+		`* "*" tag:a OR *`,
 	} {
 		q, err := Parse(in)
 		if err != nil {

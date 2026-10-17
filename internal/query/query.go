@@ -10,6 +10,9 @@
 //
 //	tag:todo from:bob -is:unread "quarterly report" date:2026-01-01..2026-03-31
 //
+// A bare * matches every message ("*" in quotes is the text). Actions
+// refuse an empty query, so * is how a rule or a command says "everything".
+//
 // Fields: tag, from, to (To and Cc), subject, account, id (Message-ID),
 // is (unread, flagged, inbox, replied), date (YYYY-MM-DD, A..B, A.., ..B),
 // and hash (a message ID prefix as shown by nou).
@@ -36,6 +39,7 @@ const (
 	Is      = "is"
 	Date    = "date"
 	Hash    = "hash" // prefix of the content hash, i.e. a message ID shown by nou
+	All     = "*"    // every message
 )
 
 var fields = map[string]bool{Tag: true, From: true, To: true, Subject: true, Account: true, ID: true, Is: true, Date: true, Hash: true}
@@ -180,6 +184,12 @@ func parseTerm(tok token) (Term, error) {
 		t.Not = true
 		text = text[1:]
 	}
+	if text == All {
+		if t.Not {
+			return Term{}, errors.New("-* matches nothing")
+		}
+		return Term{Field: All}, nil
+	}
 	field, value, hasField := strings.Cut(text, ":")
 	if !hasField || field == "" {
 		t.Field, t.Value = Text, text
@@ -265,6 +275,9 @@ func (q Query) String() string {
 // String formats one term, quoting the value when needed.
 func (t Term) String() string {
 	var b strings.Builder
+	if t.Field == All {
+		return All
+	}
 	if t.Not {
 		b.WriteByte('-')
 	}
@@ -276,7 +289,7 @@ func (t Term) String() string {
 }
 
 func quote(v string) string {
-	if v != "" && v != "OR" && !strings.ContainsAny(v, " \t\r\n\"\\:") && !strings.HasPrefix(v, "-") &&
+	if v != "" && v != "OR" && v != All && !strings.ContainsAny(v, " \t\r\n\"\\:") && !strings.HasPrefix(v, "-") &&
 		strings.IndexFunc(v, unicode.IsSpace) < 0 {
 		return v
 	}

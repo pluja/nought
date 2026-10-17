@@ -284,6 +284,7 @@ ignore case in every language.
 | `date:2026-01-01..2026-03-31`, `date:2026-05-01..` | the Date header, in UTC |
 | `id:<message-id>`, `hash:a3f9c2` | a specific message |
 | `word`, `"exact phrase"` | full text |
+| `'*'` | every message (quoted, or the shell expands it); actions refuse an empty query |
 
 ## Your data
 

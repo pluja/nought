@@ -62,6 +62,8 @@ func compile(q query.Query) (string, []any, error) {
 
 func compileTerm(t query.Term) (string, []any, error) {
 	switch t.Field {
+	case query.All:
+		return "1", nil, nil
 	case query.Text:
 		return "m.id IN (SELECT rowid FROM messages_fts WHERE messages_fts MATCH ?)", []any{ftsPhrase(t.Value)}, nil
 	case query.Tag:

@@ -206,6 +206,9 @@ func TestSearch(t *testing.T) {
 	}{
 		{"", []string{"Café meeting", "Lunch?", "Quarterly report", "no date, no id"}},
 		{"tag:inbox", []string{"Lunch?", "Quarterly report"}},
+		{"*", []string{"Café meeting", "Lunch?", "Quarterly report", "no date, no id"}},
+		{"* account:work", []string{"Café meeting", "no date, no id"}},
+		{"tag:nothing OR *", []string{"Café meeting", "Lunch?", "Quarterly report", "no date, no id"}},
 		{"is:unread", []string{"Quarterly report"}},
 		{"-is:unread tag:inbox", []string{"Lunch?"}},
 		{"tag:inbox OR account:work", []string{"Café meeting", "Lunch?", "Quarterly report", "no date, no id"}},
