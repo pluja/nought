@@ -100,7 +100,9 @@ func (m Model) startDraft(key string) (Model, tea.Cmd) {
 		var err error
 		switch key {
 		case "r", "R":
-			out, err = ops.Call(ctx, env, permDraft, ops.DraftReply, ops.DraftReplyIn{ID: sel.ID, Account: sel.Account, All: key == "R"})
+			// The reply kept as a draft, if there is one: not another from zero.
+			out, err = ops.Call(ctx, env, permDraft, ops.DraftReply,
+				ops.DraftReplyIn{ID: sel.ID, Account: sel.Account, All: key == "R", Resume: true})
 		case "f":
 			out, err = ops.Call(ctx, env, permDraft, ops.DraftForward, ops.DraftForwardIn{ID: sel.ID, Account: sel.Account})
 		default: // from the selected message's account, if any
@@ -120,6 +122,9 @@ func (m Model) draftReady(msg draftMsg) (Model, tea.Cmd) {
 	}
 	if msg.edit {
 		m.editing = msg.out.ID
+		if msg.out.Resumed {
+			m.notice = "your draft reply, as you left it (q in the review discards it)"
+		}
 		return m, m.editFile(msg.out.Path)
 	}
 	if msg.out.Discarded {

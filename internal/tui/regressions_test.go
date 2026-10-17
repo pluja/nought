@@ -229,3 +229,24 @@ func TestOneDraftAtATimeAndCleanTo(t *testing.T) {
 		t.Errorf("To input kept a bidi control: %q", m.input.Value())
 	}
 }
+
+// Review: r on a message whose reply was kept as a draft started another
+// from zero. It opens the kept draft, and says so.
+func TestReplyResumesTheKeptDraft(t *testing.T) {
+	m, _ := newSendModel(t)
+	var paths []string
+	edit := fakeEditor(func(s string) string { return strings.Replace(s, "\n\n", "\n\nMy answer.\n", 1) })
+	m.editFile = func(p string) tea.Cmd { paths = append(paths, p); return edit(p) }
+	m = drive(t, m, key("r"))
+	m = drive(t, m, key("d")) // keep as draft
+	m = drive(t, m, key("r"))
+	if len(paths) != 2 || paths[0] != paths[1] {
+		t.Errorf("edited %v: want the same draft twice", paths)
+	}
+	if !strings.Contains(m.notice, "as you left it") {
+		t.Errorf("notice %q", m.notice)
+	}
+	if n := len(drafts(t, m)); n != 1 {
+		t.Errorf("%d drafts, want 1", n)
+	}
+}

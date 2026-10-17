@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/pluja/nought/internal/compose"
+	"github.com/pluja/nought/internal/smtptest"
 )
 
 // draftEnv is a test env with an account "personal" (me@example.org) and
@@ -303,5 +304,49 @@ func TestAddressSuggestMatchesNameWords(t *testing.T) {
 		if err != nil || len(got) != want || (want == 1 && got[0].Address != "ds@corp.example") {
 			t.Errorf("suggest %q = %+v, %v", prefix, got, err)
 		}
+	}
+}
+
+// A second reply to the same message resumes the draft already written,
+// rather than start another from zero; one on its way (in the outbox) is
+// left alone. Without Resume (scripts), a reply is always a new draft.
+func TestReplyResumesItsDraft(t *testing.T) {
+	env, _ := sendEnv(t, smtptest.Options{})
+	id := idOf(t, env, `subject:"read one"`)
+	first, err := Call(t.Context(), env, Draft, DraftReply, DraftReplyIn{ID: id})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, in := range []DraftReplyIn{{ID: id, Resume: true}, {ID: id, All: true, Resume: true}} {
+		again, err := Call(t.Context(), env, Draft, DraftReply, in)
+		if err != nil || again.ID != first.ID || !again.Resumed {
+			t.Errorf("reply %+v = %s (resumed %v), %v; want draft %s", in, again.ID, again.Resumed, err, first.ID)
+		}
+	}
+	if fresh, err := Call(t.Context(), env, Draft, DraftReply, DraftReplyIn{ID: id}); err != nil || fresh.ID == first.ID || fresh.Resumed {
+		t.Errorf("reply without Resume = %s, %v", fresh.ID, err)
+	}
+	other := idOf(t, env, `subject:"unread two"`)
+	if out, err := Call(t.Context(), env, Draft, DraftReply, DraftReplyIn{ID: other, Resume: true}); err != nil || out.Resumed {
+		t.Errorf("reply to another message resumed %s, %v", out.ID, err)
+	}
+	if _, err := Call(t.Context(), env, Draft, DraftReply, DraftReplyIn{ID: id, Resume: true, Body: "x"}); !errors.Is(err, ErrUsage) {
+		t.Errorf("resume with a body = %v", err)
+	}
+
+	// Queue every reply to it: the next one starts afresh.
+	list, err := Call(t.Context(), env, Read, DraftList, struct{}{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range list {
+		if d.SourceHash != "" && strings.HasPrefix(d.SourceHash, id) {
+			if _, err := Call(t.Context(), env, Send, MsgSend, SendIn{DraftID: d.ID}); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if out, err := Call(t.Context(), env, Draft, DraftReply, DraftReplyIn{ID: id, Resume: true}); err != nil || out.Resumed {
+		t.Errorf("resumed a draft in the outbox: %s, %v", out.ID, err)
 	}
 }

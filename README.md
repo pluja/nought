@@ -182,7 +182,8 @@ On Wed, 14 Oct 2026 09:00, Alice wrote:
 
 When it closes, a review screen shows the message and its checks, then waits for a key: `y` to
 send, `e` to edit again, `t` to change To (with completion from people you write to), `a` to
-attach a file, `d` to keep it as a draft, or `q` to discard it. Missing recipients, an unknown
+attach a file, `d` to keep it as a draft, or `q` to discard it. `r` on a message whose reply you
+kept opens that draft again (`nou msg reply --resume` does the same). Missing recipients, an unknown
 sender address, an unreadable attachment or a message over 25 MB stop the send. Other checks only
 warn: an empty subject, a mentioned but missing attachment, a reply to all with many recipients,
 or an address a letter or two away from someone you know.

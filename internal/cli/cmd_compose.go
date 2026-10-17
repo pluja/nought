@@ -108,9 +108,15 @@ func newMsgReplyCmd(a *app) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if out.Resumed && !a.json {
+				if _, err := fmt.Fprintf(cmd.ErrOrStderr(), "your draft reply %s, as you left it\n", out.ID); err != nil {
+					return err
+				}
+			}
 			return a.finish(cmd, out, f.send)
 		},
 	}
+	cmd.Flags().BoolVar(&in.Resume, "resume", false, "open the draft already answering this message, if any")
 	cmd.Flags().BoolVar(&in.All, "all", false, "reply to all recipients")
 	cmd.Flags().StringArrayVar(&in.Cc, "cc", nil, "also copy to (repeatable)")
 	cmd.Flags().StringArrayVar(&in.Attach, "attach", nil, "file to attach (repeatable)")
