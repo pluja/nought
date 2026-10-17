@@ -106,7 +106,9 @@ func fetchOne(conn *imapsync.Conn, info imapsync.MessageInfo) ([]byte, error) {
 		return nil, fmt.Errorf("%w: deleted on the server meanwhile", errSkip)
 	}
 	if err == nil && len(raw) == 0 {
-		return nil, fmt.Errorf("%w: the server sent an empty message", errSkip)
+		// Not a skip: the cursor would move past the message, and it would
+		// never be archived.
+		return nil, fmt.Errorf("uid %d: the server sent an empty message; the next sync tries again", info.UID)
 	}
 	return raw, err
 }
