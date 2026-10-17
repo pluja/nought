@@ -291,6 +291,7 @@ var MsgDelete = Op[DeleteIn, DeleteOut]{
 type RestoreIn struct {
 	Query   string `json:"query"`
 	Account string `json:"account,omitempty"`
+	DryRun  bool   `json:"dry_run,omitempty"`
 }
 
 // MsgRestore takes messages out of the trash (and cancels their expiry),
@@ -308,7 +309,7 @@ var MsgRestore = Op[RestoreIn, TagOut]{
 		if err != nil {
 			return TagOut{}, err
 		}
-		var out TagOut
+		out := TagOut{DryRun: in.DryRun}
 		var changed []index.Message
 		err = ix.Each(ctx, q, func(page []index.Message) error {
 			for _, m := range page {
@@ -322,6 +323,10 @@ var MsgRestore = Op[RestoreIn, TagOut]{
 				if len(remove) == 0 {
 					continue
 				}
+				if in.DryRun {
+					out.Changed++
+					continue
+				}
 				if err := ix.ModifyTags(ctx, []int64{m.ID}, []string{TagInbox}, remove); err != nil {
 					return err
 				}
@@ -331,6 +336,9 @@ var MsgRestore = Op[RestoreIn, TagOut]{
 			}
 			return nil
 		})
+		if err != nil || in.DryRun {
+			return out, err
+		}
 		if out.Changed > 0 {
 			// The dump first: if a move is interrupted, reindex puts the
 			// file back where the dumped tags say.
@@ -343,18 +351,27 @@ var MsgRestore = Op[RestoreIn, TagOut]{
 	},
 }
 
+// TrashEmptyIn asks to empty the trash, or with DryRun only what that would do.
+type TrashEmptyIn struct {
+	DryRun bool `json:"dry_run,omitempty"`
+}
+
 // TrashEmptyOut reports emptying the trash.
 type TrashEmptyOut struct {
-	Purged  int `json:"purged"`
-	Pending int `json:"pending"` // waiting for the next sync to remove server copies
+	Purged  int  `json:"purged"`
+	Pending int  `json:"pending"` // waiting for the next sync to remove server copies
+	DryRun  bool `json:"dry_run"`
 }
 
 // TrashEmpty deletes everything in the trash for good.
-var TrashEmpty = Op[struct{}, TrashEmptyOut]{
+var TrashEmpty = Op[TrashEmptyIn, TrashEmptyOut]{
 	Name:    "trash.empty",
 	Summary: "Delete everything in the trash for good",
 	Perm:    Delete,
-	Run: func(ctx context.Context, env *Env, _ struct{}) (TrashEmptyOut, error) {
+	Run: func(ctx context.Context, env *Env, in TrashEmptyIn) (TrashEmptyOut, error) {
+		if in.DryRun {
+			return trashEmptyPreview(ctx, env)
+		}
 		release, err := acquireLock(env)
 		if err != nil {
 			return TrashEmptyOut{}, err
@@ -392,4 +409,30 @@ var TrashEmpty = Op[struct{}, TrashEmptyOut]{
 		out.Purged, out.Pending, err = purgeOf(ctx, env, keys)
 		return out, err
 	},
+}
+
+// trashEmptyPreview counts what emptying the trash would do: as purge
+// decides, mail with a copy still on a server waits for the next sync.
+func trashEmptyPreview(ctx context.Context, env *Env) (TrashEmptyOut, error) {
+	out := TrashEmptyOut{DryRun: true}
+	ix, err := env.Index(ctx)
+	if err != nil {
+		return out, err
+	}
+	q, _ := query.Parse("tag:" + TagDeleted)
+	err = ix.Each(ctx, q, func(page []index.Message) error {
+		for _, m := range page {
+			on, err := ix.OnServer(ctx, m.Account, []string{m.Hash})
+			if err != nil {
+				return err
+			}
+			if len(on[m.Hash]) > 0 {
+				out.Pending++
+			} else {
+				out.Purged++
+			}
+		}
+		return nil
+	})
+	return out, err
 }

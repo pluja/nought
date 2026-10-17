@@ -107,18 +107,30 @@ func newTagsCmd(a *app) *cobra.Command {
 			},
 		},
 		newTagsDumpCmd(a),
-		&cobra.Command{
-			Use:   "restore <file>",
-			Short: ops.TagsRestore.Summary,
-			Args:  exactArgs(1),
-			RunE: func(cmd *cobra.Command, args []string) error {
-				out, err := ops.Call(cmd.Context(), a.env, callerPerm, ops.TagsRestore, ops.TagsRestoreIn{Path: args[0]})
-				return a.result(cmd, out, err, func(w io.Writer) error {
-					return printRestore(w, out)
-				})
-			},
-		},
+		newTagsRestoreCmd(a),
 	)
+	return cmd
+}
+
+func newTagsRestoreCmd(a *app) *cobra.Command {
+	var in ops.TagsRestoreIn
+	cmd := &cobra.Command{
+		Use:   "restore <file>",
+		Short: ops.TagsRestore.Summary,
+		Args:  exactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			in.Path = args[0]
+			out, err := ops.Call(cmd.Context(), a.env, callerPerm, ops.TagsRestore, in)
+			return a.result(cmd, out, err, func(w io.Writer) error {
+				if out.DryRun {
+					return printf(w, "would restore tags for %d messages (%d not found, %d tags skipped)\n",
+						out.Applied, out.Missing, out.SkippedTags)
+				}
+				return printRestore(w, out.RestoreResult)
+			})
+		},
+	}
+	cmd.Flags().BoolVarP(&in.DryRun, "dry-run", "n", false, "report what would be restored without changing anything")
 	return cmd
 }
 

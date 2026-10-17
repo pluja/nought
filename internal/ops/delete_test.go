@@ -114,7 +114,7 @@ func TestDeleteNowAndTrashExpiry(t *testing.T) {
 	if err != nil || empty.Matched != 1 {
 		t.Fatal(err)
 	}
-	te, err := Call(t.Context(), env, Delete, TrashEmpty, struct{}{})
+	te, err := Call(t.Context(), env, Delete, TrashEmpty, TrashEmptyIn{})
 	if err != nil || te.Purged != 1 {
 		t.Errorf("trash empty = %+v, %v", te, err)
 	}

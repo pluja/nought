@@ -244,7 +244,7 @@ deletion is off. It never reaches your backups (see below).
 nou msg delete subject:"verification code"   # to the trash: hidden, deleted for good after 30 days
 nou msg restore tag:deleted                  # changed your mind
 nou msg delete --now a3f9c2e1b0d4            # for good, at once (server copy at the next sync)
-nou trash empty
+nou trash empty --dry-run && nou trash empty
 ```
 
 In the TUI, `#` moves a message to the trash (`z` undoes it, `gt` shows the trash, with a
@@ -313,7 +313,9 @@ nou sync && restic backup ~/.local/share/nought ~/.config/nought \
 
 - Every command accepts `--json`. Errors go to stderr; with `--json` they are
   `{"error":{"code":"...","message":"..."}}`.
-- `nou` never prompts when stdin is not a terminal. State-changing commands support `--dry-run`.
+- `nou` never prompts when stdin is not a terminal. Every command that changes or deletes mail or
+  tags (`import`, `sync`, `msg tag`, `msg archive`, `msg delete`, `msg restore`, `trash empty`,
+  `tags restore`) supports `--dry-run`.
 - Exit codes:
 
 | Code | Meaning |

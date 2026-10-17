@@ -52,11 +52,15 @@ func newMsgRestoreCmd(a *app) *cobra.Command {
 			in.Query = queryFromArgs(args)
 			out, err := ops.Call(cmd.Context(), a.env, callerPerm, ops.MsgRestore, in)
 			return a.result(cmd, out, err, func(w io.Writer) error {
+				if out.DryRun {
+					return printf(w, "would restore %d\n", out.Changed)
+				}
 				return printf(w, "restored %d\n", out.Changed)
 			})
 		},
 	}
 	cmd.Flags().StringVarP(&in.Account, "account", "a", "", "account, if a bare message id exists in several")
+	cmd.Flags().BoolVarP(&in.DryRun, "dry-run", "n", false, "report what would be restored")
 	return cmd
 }
 
@@ -67,16 +71,23 @@ func newTrashCmd(a *app) *cobra.Command {
 		Args:  noArgs,
 		RunE:  func(cmd *cobra.Command, _ []string) error { return cmd.Help() },
 	}
-	cmd.AddCommand(&cobra.Command{
+	var in ops.TrashEmptyIn
+	empty := &cobra.Command{
 		Use:   "empty",
 		Short: ops.TrashEmpty.Summary,
 		Args:  noArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			out, err := ops.Call(cmd.Context(), a.env, callerPerm, ops.TrashEmpty, struct{}{})
+			out, err := ops.Call(cmd.Context(), a.env, callerPerm, ops.TrashEmpty, in)
 			return a.result(cmd, out, err, func(w io.Writer) error {
+				if out.DryRun {
+					return printf(w, "would delete %d for good; %d would wait for the next sync to leave the server first\n",
+						out.Purged, out.Pending)
+				}
 				return printf(w, "deleted %d for good; %d wait for the next sync to leave the server first\n", out.Purged, out.Pending)
 			})
 		},
-	})
+	}
+	empty.Flags().BoolVarP(&in.DryRun, "dry-run", "n", false, "report what would be deleted")
+	cmd.AddCommand(empty)
 	return cmd
 }

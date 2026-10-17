@@ -190,39 +190,63 @@ const maxDumpID = 998
 // Restore reads a dump and sets each listed message's tags exactly. Lines for
 // messages not in the index are counted as missing.
 func (ix *Index) Restore(ctx context.Context, r io.Reader) (RestoreResult, error) {
+	return ix.restore(ctx, r, true)
+}
+
+// CheckRestore reads a dump as Restore does and reports what it would set,
+// changing nothing.
+func (ix *Index) CheckRestore(ctx context.Context, r io.Reader) (RestoreResult, error) {
+	return ix.restore(ctx, r, false)
+}
+
+// restore applies a dump in one transaction, committed only when asked:
+// a check runs every statement Restore would, then rolls back.
+func (ix *Index) restore(ctx context.Context, r io.Reader, commit bool) (RestoreResult, error) {
+	tx, err := ix.db.BeginTx(ctx, nil)
+	if err != nil {
+		return RestoreResult{}, fmt.Errorf("begin transaction: %w", err)
+	}
+	res, err := restoreLines(ctx, tx, r)
+	if err != nil || !commit {
+		return res, errors.Join(err, tx.Rollback())
+	}
+	if err := tx.Commit(); err != nil {
+		return res, fmt.Errorf("commit: %w", err)
+	}
+	return res, nil
+}
+
+func restoreLines(ctx context.Context, tx *sql.Tx, r io.Reader) (RestoreResult, error) {
 	var res RestoreResult
 	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 64*1024), MaxDumpLine)
 	account := ""
 	lineNo := 0
-	err := ix.tx(ctx, func(tx *sql.Tx) error {
-		for sc.Scan() {
-			lineNo++
-			line := strings.TrimSpace(sc.Text())
-			if name, ok := strings.CutPrefix(line, "# account "); ok {
-				account = strings.TrimSpace(name)
-				continue
-			}
-			if line == "" || strings.HasPrefix(line, "#") {
-				continue
-			}
-			tags, invalid, key, err := parseDumpLine(line)
-			if err != nil {
-				return fmt.Errorf("line %d: %w", lineNo, err)
-			}
-			res.SkippedTags += len(invalid)
-			n, err := setTags(ctx, tx, account, key, tags)
-			if err != nil {
-				return fmt.Errorf("line %d: %w", lineNo, err)
-			}
-			if n == 0 {
-				res.Missing++
-			}
-			res.Applied += n
+	for sc.Scan() {
+		lineNo++
+		line := strings.TrimSpace(sc.Text())
+		if name, ok := strings.CutPrefix(line, "# account "); ok {
+			account = strings.TrimSpace(name)
+			continue
 		}
-		return sc.Err()
-	})
-	return res, err
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		tags, invalid, key, err := parseDumpLine(line)
+		if err != nil {
+			return res, fmt.Errorf("line %d: %w", lineNo, err)
+		}
+		res.SkippedTags += len(invalid)
+		n, err := setTags(ctx, tx, account, key, tags)
+		if err != nil {
+			return res, fmt.Errorf("line %d: %w", lineNo, err)
+		}
+		if n == 0 {
+			res.Missing++
+		}
+		res.Applied += n
+	}
+	return res, sc.Err()
 }
 
 type dumpKey struct {

@@ -121,7 +121,7 @@ func TestUnusableIndexFails(t *testing.T) {
 		"archive": func() error { _, err := Call(ctx, env, Tag, MsgArchive, ArchiveIn{Query: id}); return err },
 		"delete":  func() error { _, err := Call(ctx, env, Delete, MsgDelete, DeleteIn{Query: id}); return err },
 		"restore": func() error { _, err := Call(ctx, env, Delete, MsgRestore, RestoreIn{Query: id}); return err },
-		"empty":   func() error { _, err := Call(ctx, env, Delete, TrashEmpty, struct{}{}); return err },
+		"empty":   func() error { _, err := Call(ctx, env, Delete, TrashEmpty, TrashEmptyIn{}); return err },
 		"tags":    func() error { _, err := Call(ctx, env, Read, TagsList, struct{}{}); return err },
 		"dump":    func() error { _, err := Call(ctx, env, Read, TagsDump, TagsDumpIn{Path: out}); return err },
 		"undump":  func() error { _, err := Call(ctx, env, Delete, TagsRestore, TagsRestoreIn{Path: backup}); return err },

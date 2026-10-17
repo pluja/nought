@@ -67,41 +67,55 @@ var TagsDump = Op[TagsDumpIn, TagsDumpOut]{
 
 // TagsRestoreIn names the dump file to restore.
 type TagsRestoreIn struct {
-	Path string `json:"path"`
+	Path   string `json:"path"`
+	DryRun bool   `json:"dry_run,omitempty"`
+}
+
+// TagsRestoreOut reports a restore, or with DryRun what it would set.
+type TagsRestoreOut struct {
+	index.RestoreResult
+	DryRun bool `json:"dry_run"`
 }
 
 // TagsRestore sets tags from a dump (nought's or notmuch's).
-var TagsRestore = Op[TagsRestoreIn, index.RestoreResult]{
+var TagsRestore = Op[TagsRestoreIn, TagsRestoreOut]{
 	Name:    "tags.restore",
 	Summary: "Set tags from a dump file (nought or notmuch format)",
 	// A dump can mark mail deleted or expiring: deletion, for good later.
 	Perm: Delete,
-	Run: func(ctx context.Context, env *Env, in TagsRestoreIn) (index.RestoreResult, error) {
+	Run: func(ctx context.Context, env *Env, in TagsRestoreIn) (TagsRestoreOut, error) {
+		out := TagsRestoreOut{DryRun: in.DryRun}
 		f, err := os.Open(in.Path)
 		if errors.Is(err, os.ErrNotExist) {
-			return index.RestoreResult{}, fmt.Errorf("%s: %w", in.Path, ErrNotFound)
+			return out, fmt.Errorf("%s: %w", in.Path, ErrNotFound)
 		}
 		if err != nil {
-			return index.RestoreResult{}, err
+			return out, err
 		}
 		defer func() { _ = f.Close() }()
 		ix, err := env.Index(ctx)
 		if err != nil {
-			return index.RestoreResult{}, err
+			return out, err
 		}
-		res, err := ix.Restore(ctx, f)
-		if err != nil {
-			return res, usageError("restore %s: %v", in.Path, err)
+		restore := ix.Restore
+		if in.DryRun {
+			restore = ix.CheckRestore
+		}
+		if out.RestoreResult, err = restore(ctx, f); err != nil {
+			return out, usageError("restore %s: %v", in.Path, err)
+		}
+		if in.DryRun {
+			return out, nil
 		}
 		if err := syncFlagsFromTags(ctx, env); err != nil {
-			return res, err
+			return out, err
 		}
 		// The dump first, then the files where their tags say (a restored
 		// deletion moves to the transient store).
 		if err := writeTagsDump(ctx, env); err != nil {
-			return res, err
+			return out, err
 		}
-		return res, placeAll(ctx, env)
+		return out, placeAll(ctx, env)
 	},
 }
 

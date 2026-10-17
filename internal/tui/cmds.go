@@ -259,7 +259,7 @@ func (m Model) deleteNow(msg ops.MessageOut) tea.Cmd {
 
 func (m Model) emptyTrash() tea.Cmd {
 	return func() tea.Msg {
-		out, err := ops.Call(m.ctx, m.env, permDelete, ops.TrashEmpty, struct{}{})
+		out, err := ops.Call(m.ctx, m.env, permDelete, ops.TrashEmpty, ops.TrashEmptyIn{})
 		return trashEmptyDoneMsg{out: out, err: err}
 	}
 }

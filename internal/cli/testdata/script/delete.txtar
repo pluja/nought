@@ -9,8 +9,22 @@ exec nou tags dump
 ! stdout deleted
 exec nou tags dump --trash
 stdout deleted
+exec nou tags dump --trash trash.dump
+exec nou msg restore --dry-run tag:deleted
+stdout '^would restore 1$'
+exec nou trash empty --dry-run
+stdout '^would delete 1 for good; 0 would wait'
+exec nou search tag:deleted
+stdout lunch
 exec nou msg restore tag:deleted
 stdout '^restored 1$'
+exec nou tags restore --dry-run trash.dump
+stdout '^would restore tags for 2 messages'
+exec nou search tag:deleted
+! stdout .
+exec nou trash empty --dry-run --json
+stdout '"purged":0'
+stdout '"dry_run":true'
 exec nou msg delete --now subject:code
 stdout '^deleted 1 for good; 0 wait'
 exec nou search tag:deleted OR subject:code
