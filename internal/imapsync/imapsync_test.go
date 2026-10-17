@@ -12,6 +12,7 @@ import (
 	"net"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -424,5 +425,227 @@ func TestAppend(t *testing.T) {
 	infos, err := c.Infos(uids)
 	if err != nil || len(infos) != 1 || !infos[0].Seen || !infos[0].InternalDate.Equal(date) {
 		t.Errorf("appended = %+v, %v", infos, err)
+	}
+}
+
+// expungeServer scripts the commands Expunge sends, recording them: UID 1
+// is ours to delete, UID 2 was already marked deleted by another client.
+func expungeServer(t *testing.T, storeOK, expungeOK bool) (*Conn, func() []string) {
+	t.Helper()
+	var mu sync.Mutex
+	var seen []string
+	srv, client := fakeServer(t, func(w io.Writer, tag, line string) {
+		mu.Lock()
+		seen = append(seen, line)
+		mu.Unlock()
+		reply := func(ok bool) string {
+			if ok {
+				return tag + " OK done\r\n"
+			}
+			return tag + " NO refused\r\n"
+		}
+		switch {
+		case strings.Contains(line, "FETCH"):
+			_, _ = io.WriteString(w, `* 1 FETCH (UID 1 FLAGS () RFC822.SIZE 10 INTERNALDATE "01-Jan-2026 00:00:00 +0000")`+"\r\n"+
+				`* 2 FETCH (UID 2 FLAGS (\Deleted) RFC822.SIZE 10 INTERNALDATE "01-Jan-2026 00:00:00 +0000")`+"\r\n"+tag+" OK done\r\n")
+		case strings.Contains(line, "STORE") && strings.Contains(line, "-FLAGS"):
+			_, _ = io.WriteString(w, reply(true))
+		case strings.Contains(line, "STORE"):
+			_, _ = io.WriteString(w, reply(storeOK))
+		case strings.Contains(line, "EXPUNGE"):
+			_, _ = io.WriteString(w, reply(expungeOK))
+		default:
+			_, _ = io.WriteString(w, tag+" BAD unexpected\r\n")
+		}
+	})
+	c, err := Dial(t.Context(), srv, client, "u", "p", 5*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = c.Close() })
+	if _, err := c.Select("INBOX", false); err != nil {
+		t.Fatal(err)
+	}
+	return c, func() []string {
+		mu.Lock()
+		defer mu.Unlock()
+		return slices.Clone(seen)
+	}
+}
+
+// Expunge's safety: only UID EXPUNGE of the given UIDs, never a plain
+// EXPUNGE (which would delete every \Deleted message in the folder); no
+// expunge if marking failed; and if the expunge fails, only the flags nought
+// set are taken back, not those another client set.
+func TestExpungeFailures(t *testing.T) {
+	has := func(cmds []string, sub string) bool {
+		return slices.ContainsFunc(cmds, func(c string) bool { return strings.Contains(c, sub) })
+	}
+
+	c, seen := expungeServer(t, true, true)
+	if err := c.Expunge([]uint32{1, 2}); err != nil {
+		t.Fatal(err)
+	}
+	for _, cmd := range seen() {
+		if cmd == "EXPUNGE" {
+			t.Error("a plain EXPUNGE was sent")
+		}
+	}
+	if !has(seen(), "UID EXPUNGE 1:2") {
+		t.Errorf("commands = %q", seen())
+	}
+
+	c, seen = expungeServer(t, false, true)
+	if err := c.Expunge([]uint32{1, 2}); err == nil || has(seen(), "EXPUNGE") {
+		t.Errorf("after a failed STORE: err %v, commands %q", err, seen())
+	}
+
+	c, seen = expungeServer(t, true, false)
+	if err := c.Expunge([]uint32{1, 2}); err == nil {
+		t.Fatal("a failed UID EXPUNGE reported success")
+	}
+	if !has(seen(), "UID STORE 1 -FLAGS.SILENT") || has(seen(), "UID STORE 1:2 -FLAGS") {
+		t.Errorf("flags taken back: %q", seen())
+	}
+
+	if err := c.Expunge(nil); err != nil {
+		t.Errorf("empty: %v", err)
+	}
+	if err := c.Expunge(make([]uint32, MaxBatch+1)); err == nil {
+		t.Error("an oversized batch was accepted")
+	}
+}
+
+// Folders turns the server's list into names nought uses: "/" for any
+// separator, \Noselect skipped, and the special-use attributes recorded
+// whatever the folder is called.
+func TestFoldersFromTheServer(t *testing.T) {
+	srv, client := fakeServer(t, func(w io.Writer, tag, line string) {
+		if strings.HasPrefix(line, "LIST") {
+			_, _ = io.WriteString(w, `* LIST (\HasNoChildren) "." "INBOX"`+"\r\n"+
+				`* LIST (\Noselect) "." "Archive"`+"\r\n"+
+				`* LIST (\HasNoChildren) "." "Archive.2024"`+"\r\n"+
+				`* LIST (\Trash) "." "Papelera"`+"\r\n"+
+				`* LIST (\Drafts) "." "Borradores"`+"\r\n"+
+				`* LIST (\All) "." "[Gmail].All Mail"`+"\r\n"+
+				`* LIST (\Sent) "." "Enviados"`+"\r\n"+tag+" OK done\r\n")
+		}
+	})
+	c, err := Dial(t.Context(), srv, client, "u", "p", 5*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = c.Close() }()
+	folders, err := c.Folders()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []Folder{
+		{Name: "Archive/2024", Raw: "Archive.2024"},
+		{Name: "Borradores", Raw: "Borradores", Special: true},
+		{Name: "Enviados", Raw: "Enviados", Sent: true},
+		{Name: "INBOX", Raw: "INBOX"},
+		{Name: "Papelera", Raw: "Papelera", Trash: true},
+		{Name: "[Gmail]/All Mail", Raw: "[Gmail].All Mail", Special: true},
+	}
+	if !slices.Equal(folders, want) {
+		t.Errorf("folders:\n%+v\nwant:\n%+v", folders, want)
+	}
+
+	srv, client = fakeServer(t, func(w io.Writer, tag, line string) {
+		_, _ = io.WriteString(w, tag+" NO not today\r\n")
+	})
+	c2, err := Dial(t.Context(), srv, client, "u", "p", 5*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = c2.Close() }()
+	if _, err := c2.Folders(); err == nil {
+		t.Error("a refused LIST gave no error")
+	}
+}
+
+// After a cancel, no command reaches the server; a server that refuses
+// everything gives errors, never empty successes; commands that need a
+// folder say so before one is selected.
+func TestCommandsRefuseAndFail(t *testing.T) {
+	calls := func(c *Conn) map[string]error {
+		_, ex := c.Exists("x")
+		_, sel := c.Select("INBOX", false)
+		_, after := c.UIDsAfter(0)
+		_, all := c.AllUIDs()
+		_, look := c.Lookup([]uint32{1})
+		_, infos := c.Infos([]uint32{1})
+		_, fetch := c.Fetch(1, 100)
+		_, heads := c.Headers([]uint32{1})
+		return map[string]error{"Exists": ex, "Select": sel, "UIDsAfter": after, "AllUIDs": all, "Lookup": look,
+			"Infos": infos, "Fetch": fetch, "Headers": heads, "Append": c.Append("INBOX", nil, time.Time{}, []byte("x"))}
+	}
+	refuse := func(w io.Writer, tag, line string) { _, _ = io.WriteString(w, tag+" NO refused\r\n") }
+
+	srv, client := fakeServer(t, refuse)
+	ctx, cancel := context.WithCancel(t.Context())
+	c, err := Dial(ctx, srv, client, "u", "p", 5*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cancel()
+	for name, err := range calls(c) {
+		if !errors.Is(err, context.Canceled) {
+			t.Errorf("%s after cancel: %v", name, err)
+		}
+	}
+
+	for _, selectFirst := range []bool{false, true} {
+		srv, client = fakeServer(t, refuse)
+		c, err := Dial(t.Context(), srv, client, "u", "p", 5*time.Second)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if selectFirst {
+			if _, err := c.Select("INBOX", false); err != nil {
+				t.Fatal(err)
+			}
+		}
+		for name, err := range calls(c) {
+			// A plain NO to STATUS means no such folder: Exists is false.
+			if err == nil && name != "Select" && name != "Exists" {
+				t.Errorf("%s (folder selected: %v): no error from a refusing server", name, selectFirst)
+			}
+		}
+		_ = c.Close()
+	}
+}
+
+// A NO to STATUS means the folder is gone only when the server says so (or
+// says nothing more): sync takes a vanished folder's mail as deleted on
+// another device. A busy or broken server is an error, not a deletion.
+func TestExistsTellsGoneFromUnavailable(t *testing.T) {
+	for _, tt := range []struct {
+		reply   string
+		exists  bool
+		wantErr bool
+	}{
+		{"OK [x] done", true, false},
+		{"NO no such folder", false, false},
+		{"NO [NONEXISTENT] no such folder", false, false},
+		{"NO [UNAVAILABLE] try later", false, true},
+		{"NO [INUSE] busy", false, true},
+		{"NO [SERVERBUG] oops", false, true},
+	} {
+		srv, client := fakeServer(t, func(w io.Writer, tag, line string) {
+			if strings.HasPrefix(line, "STATUS") {
+				_, _ = io.WriteString(w, `* STATUS "x" (MESSAGES 1)`+"\r\n"+tag+" "+tt.reply+"\r\n")
+			}
+		})
+		c, err := Dial(t.Context(), srv, client, "u", "p", 5*time.Second)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := c.Exists("x")
+		if got != tt.exists || (err != nil) != tt.wantErr {
+			t.Errorf("%q: exists %v, err %v", tt.reply, got, err)
+		}
+		_ = c.Close()
 	}
 }

@@ -215,15 +215,21 @@ func (c *Conn) Folders() ([]Folder, error) {
 }
 
 // Exists reports whether a folder exists on the server, for one that is
-// missing from the folder list: a server answering NO to STATUS has no
-// such folder.
+// missing from the folder list. A NO to STATUS means no such folder only
+// when the server says so (NONEXISTENT, TRYCREATE) or says nothing more: a
+// busy or broken server (UNAVAILABLE, INUSE...) is an error, since sync
+// takes a vanished folder's mail as deleted on another device.
 func (c *Conn) Exists(raw string) (bool, error) {
 	if err := c.live(); err != nil {
 		return false, err
 	}
 	_, err := c.c.Status(raw, &imap.StatusOptions{NumMessages: true}).Wait()
 	if imapErr, ok := errors.AsType[*imap.Error](err); ok && imapErr.Type == imap.StatusResponseTypeNo {
-		return false, nil
+		switch imapErr.Code {
+		case "", imap.ResponseCodeNonExistent, imap.ResponseCodeTryCreate:
+			return false, nil
+		}
+		return false, fmt.Errorf("status %s: %w", raw, err)
 	}
 	return err == nil, err
 }
