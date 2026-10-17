@@ -85,9 +85,6 @@ func DescribeOtherDevices(archived, deleted, back int) string {
 	return strings.Join(parts, ", ")
 }
 
-// maxMessageSize bounds a fetched message; larger ones stay on the server.
-const maxMessageSize = 256 << 20
-
 // SyncRun fetches new mail into the archive and, for accounts with deletion
 // enabled, deletes from the server the messages whose local copies are
 // verified and whose folder policy says they have been kept long enough.

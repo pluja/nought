@@ -33,56 +33,22 @@ func fetchNew(ctx context.Context, env *Env, ix *index.Index, conn *imapsync.Con
 
 func fetchInfos(ctx context.Context, env *Env, ix *index.Index, conn *imapsync.Conn, account string, f imapsync.Folder,
 	infos []imapsync.MessageInfo, st *index.SyncState, incremental bool, out *FolderSyncOut) error {
-	tags := []string{folderTag(f.Name)}
-	if isInbox(f.Name) {
-		tags = append(tags, TagInbox)
+	limit, err := maxMessageBytes(env)
+	if err != nil {
+		return err
 	}
 	for _, info := range infos {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		switch raw, err := fetchOne(conn, info); {
-		case errors.Is(err, errSkip):
-			out.Notes = append(out.Notes, fmt.Sprintf("uid %d: %v; left on the server", info.UID, err))
-		case err != nil:
+		err := fetchMessage(ctx, env, ix, conn, account, f, st.UIDValidity, info, incremental, limit, out)
+		if errors.Is(err, errTooLarge) {
+			// Remembered, so every sync reports it while it is there.
+			out.Notes = append(out.Notes, tooLargeNote(info, limit))
+			err = ix.RecordSkipped(ctx, account, f.Raw, st.UIDValidity, info.UID, info.Size)
+		}
+		if err != nil {
 			return err
-		default:
-			// A new message gets the folder's tags. A message already
-			// archived (seen in another folder, or fetched again after a
-			// reindex) only gains the folder tag: re-adding "inbox" would
-			// undo triage, unless another client moved it there.
-			m, created, err := archive(ctx, env, account, raw, flagsOf(info), tags)
-			if err != nil {
-				return fmt.Errorf("archive uid %d: %w", info.UID, err)
-			}
-			if !created {
-				if err := ix.ModifyTags(ctx, []int64{m.ID}, tags[:1], nil); err != nil { // idempotent
-					return err
-				}
-				if incremental {
-					back, err := foundOnServer(ctx, env, ix, account, m.Hash, isInbox(f.Name))
-					if err != nil {
-						return err
-					}
-					if back {
-						out.BackInInbox++
-					}
-				}
-			}
-			out.Fetched++
-			// Only a copy whose size matches what the server reports may
-			// ever be deleted from the server.
-			if !sizeMatches(raw, info.Size) {
-				out.Notes = append(out.Notes, fmt.Sprintf(
-					"uid %d: the server reported %d bytes but sent %d; archived, but kept on the server", info.UID, info.Size, len(raw)))
-				break
-			}
-			if err := ix.RecordCopy(ctx, index.ServerCopy{
-				Account: account, Folder: f.Raw, FolderName: f.Name, UIDValidity: st.UIDValidity, UID: info.UID,
-				Hash: store.Hash(raw), Size: info.Size, InternalDate: info.InternalDate,
-			}, env.Now()); err != nil {
-				return err
-			}
 		}
 		st.LastUID = info.UID
 		if err := ix.SetSyncState(ctx, account, f.Raw, *st); err != nil {
@@ -92,15 +58,112 @@ func fetchInfos(ctx context.Context, env *Env, ix *index.Index, conn *imapsync.C
 	return nil
 }
 
-var errSkip = errors.New("skipped")
-
-func fetchOne(conn *imapsync.Conn, info imapsync.MessageInfo) ([]byte, error) {
-	if info.Size > maxMessageSize {
-		return nil, fmt.Errorf("%w: larger than %d MiB", errSkip, maxMessageSize>>20)
+// retrySkipped reports, at every sync, the folder's messages left on the
+// server for their size, and fetches those the limit now allows. Ones gone
+// from the server are forgotten. The cursor stays where it is.
+func retrySkipped(ctx context.Context, env *Env, ix *index.Index, conn *imapsync.Conn, account string,
+	f imapsync.Folder, uidValidity uint32, out *FolderSyncOut) error {
+	skipped, err := ix.Skipped(ctx, account, f.Raw, uidValidity)
+	if err != nil || len(skipped) == 0 {
+		return err
 	}
-	raw, err := conn.Fetch(info.UID, maxMessageSize)
-	if errors.Is(err, imapsync.ErrTooLarge) {
-		return nil, fmt.Errorf("%w: larger than %d MiB", errSkip, maxMessageSize>>20)
+	limit, err := maxMessageBytes(env)
+	if err != nil {
+		return err
+	}
+	uids := make([]uint32, len(skipped))
+	for i, s := range skipped {
+		uids[i] = s.UID
+	}
+	infos, err := conn.Lookup(uids)
+	if err != nil {
+		return err
+	}
+	for _, uid := range uids {
+		info, ok := infos[uid]
+		if ok {
+			// Not incremental: the message was never archived, so it
+			// cannot be a move back to the inbox.
+			err = fetchMessage(ctx, env, ix, conn, account, f, uidValidity, info, false, limit, out)
+			if errors.Is(err, errTooLarge) {
+				out.Notes = append(out.Notes, tooLargeNote(info, limit))
+				continue
+			}
+			if err != nil {
+				return err
+			}
+		}
+		if err := ix.ForgetSkipped(ctx, account, f.Raw, uidValidity, uid); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// fetchMessage archives one message and records its server copy. It
+// returns errTooLarge, archiving nothing, for a message over the limit.
+func fetchMessage(ctx context.Context, env *Env, ix *index.Index, conn *imapsync.Conn, account string,
+	f imapsync.Folder, uidValidity uint32, info imapsync.MessageInfo, incremental bool, limit int64, out *FolderSyncOut) error {
+	raw, err := fetchOne(conn, info, limit)
+	if errors.Is(err, errSkip) {
+		out.Notes = append(out.Notes, fmt.Sprintf("uid %d: %v; left on the server", info.UID, err))
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	// A new message gets the folder's tags. A message already archived
+	// (seen in another folder, or fetched again after a reindex) only gains
+	// the folder tag: re-adding "inbox" would undo triage, unless another
+	// client moved it there.
+	tags := []string{folderTag(f.Name)}
+	if isInbox(f.Name) {
+		tags = append(tags, TagInbox)
+	}
+	m, created, err := archive(ctx, env, account, raw, flagsOf(info), tags)
+	if err != nil {
+		return fmt.Errorf("archive uid %d: %w", info.UID, err)
+	}
+	if !created {
+		if err := ix.ModifyTags(ctx, []int64{m.ID}, tags[:1], nil); err != nil { // idempotent
+			return err
+		}
+		if incremental {
+			back, err := foundOnServer(ctx, env, ix, account, m.Hash, isInbox(f.Name))
+			if err != nil {
+				return err
+			}
+			if back {
+				out.BackInInbox++
+			}
+		}
+	}
+	out.Fetched++
+	// Only a copy whose size matches what the server reports may ever be
+	// deleted from the server.
+	if !sizeMatches(raw, info.Size) {
+		out.Notes = append(out.Notes, fmt.Sprintf(
+			"uid %d: the server reported %d bytes but sent %d; archived, but kept on the server", info.UID, info.Size, len(raw)))
+		return nil
+	}
+	return ix.RecordCopy(ctx, index.ServerCopy{
+		Account: account, Folder: f.Raw, FolderName: f.Name, UIDValidity: uidValidity, UID: info.UID,
+		Hash: store.Hash(raw), Size: info.Size, InternalDate: info.InternalDate,
+	}, env.Now())
+}
+
+var (
+	errSkip     = errors.New("skipped")
+	errTooLarge = errors.New("larger than max_message_mb")
+)
+
+func fetchOne(conn *imapsync.Conn, info imapsync.MessageInfo, limit int64) ([]byte, error) {
+	if info.Size > limit {
+		return nil, errTooLarge
+	}
+	raw, err := conn.Fetch(info.UID, limit)
+	if errors.Is(err, imapsync.ErrTooLarge) { // the server understated its size
+		return nil, errTooLarge
 	}
 	if errors.Is(err, imapsync.ErrGone) {
 		return nil, fmt.Errorf("%w: deleted on the server meanwhile", errSkip)
@@ -111,6 +174,21 @@ func fetchOne(conn *imapsync.Conn, info imapsync.MessageInfo) ([]byte, error) {
 		return nil, fmt.Errorf("uid %d: the server sent an empty message; the next sync tries again", info.UID)
 	}
 	return raw, err
+}
+
+func tooLargeNote(info imapsync.MessageInfo, limit int64) string {
+	return fmt.Sprintf("uid %d (%d MiB) is larger than max_message_mb (%d); left on the server until the limit allows it",
+		info.UID, (info.Size+1<<20-1)>>20, limit>>20)
+}
+
+// maxMessageBytes is the largest message fetched: each is held in memory
+// while it is archived.
+func maxMessageBytes(env *Env) (int64, error) {
+	cfg, err := env.Config()
+	if err != nil {
+		return 0, err
+	}
+	return cfg.MaxMessageBytes(), nil
 }
 
 func flagsOf(info imapsync.MessageInfo) string {

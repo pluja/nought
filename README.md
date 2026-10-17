@@ -130,6 +130,9 @@ match     = "Sent*"
 keep_days = 7     # keep a week of sent mail visible on your phone
 ```
 
+A message larger than `max_message_mb` (global, default 256) stays on the server, and every sync
+says so while it is there. Raise the limit and the next sync archives it.
+
 ## Using a phone too
 
 Keep any mail app on your phone (Thunderbird, FairEmail, ...) on the same account. It shows your

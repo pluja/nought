@@ -470,3 +470,18 @@ func TestDraftsAndOutboxAreBackedUp(t *testing.T) {
 		t.Errorf("backup set %v lacks drafts or outbox (%q, %q)", include, p.DraftsDir, p.OutboxDir)
 	}
 }
+
+func TestMaxMessageSize(t *testing.T) {
+	if got := (&Config{}).MaxMessageBytes(); got != DefaultMaxMessageMB<<20 {
+		t.Errorf("default = %d", got)
+	}
+	c, err := Load(writeConfig(t, "max_message_mb = 512\n"+validTOML))
+	if err != nil || c.MaxMessageBytes() != 512<<20 {
+		t.Fatalf("max_message_mb = 512: %v", err)
+	}
+	for _, bad := range []string{"0", "-1", "4097"} {
+		if _, err := Load(writeConfig(t, "max_message_mb = "+bad+"\n"+validTOML)); err == nil {
+			t.Errorf("accepted max_message_mb = %s", bad)
+		}
+	}
+}

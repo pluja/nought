@@ -74,6 +74,9 @@ func TestClosedIndexFails(t *testing.T) {
 		"MarkExpunged":      func() error { return ix.MarkExpunged(ctx, []ServerCopy{c}, now) },
 		"OnServer":          func() error { _, err := ix.OnServer(ctx, "personal", []string{hash(1)}); return err },
 		"ServerStatus":      func() error { _, err := ix.ServerStatus(ctx, "personal"); return err },
+		"RecordSkipped":     func() error { return ix.RecordSkipped(ctx, "personal", "INBOX", 1, 1, 1) },
+		"Skipped":           func() error { _, err := ix.Skipped(ctx, "personal", "INBOX", 1); return err },
+		"ForgetSkipped":     func() error { return ix.ForgetSkipped(ctx, "personal", "INBOX", 1, 1) },
 		"DeletionRequested": func() error { _, err := ix.DeletionRequested(ctx, "personal", "INBOX", 1, "2026-10-15"); return err },
 	}
 	for name, call := range calls {

@@ -163,6 +163,10 @@ func fetchFolder(ctx context.Context, env *Env, ix *index.Index, conn *imapsync.
 	}
 	// New UIDs after a completed sync are moves and deliveries; a fetch
 	// from the start (new folder, reset) only finds known mail again.
+	// Before the new mail, so a message skipped now is reported once.
+	if err := retrySkipped(ctx, env, ix, conn, a.Name, f, st.UIDValidity, out); err != nil {
+		return scan, mb.UIDValidity, err
+	}
 	err = fetchNew(ctx, env, ix, conn, a.Name, f, uids, &st, st.Synced, out)
 	if errors.Is(err, index.ErrCopyConflict) {
 		// The server reused a UID for other content. Trust no UID in this

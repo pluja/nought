@@ -72,8 +72,11 @@ func (ix *Index) ForgetFolder(ctx context.Context, account, folder string, uidVa
 }
 
 // restartFolder makes the next sync fetch a folder from its first message,
-// as a re-fetch (not new arrivals).
+// as a re-fetch (not new arrivals). Its skipped messages are found again.
 func restartFolder(ctx context.Context, tx *sql.Tx, account, folder string, uidValidity uint32) error {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM skipped WHERE account = ? AND folder = ?`, account, folder); err != nil {
+		return err
+	}
 	_, err := tx.ExecContext(ctx, `
 		INSERT INTO sync_state (account, folder, uidvalidity, last_uid) VALUES (?, ?, ?, 0)
 		ON CONFLICT (account, folder) DO UPDATE SET uidvalidity = excluded.uidvalidity, last_uid = 0, synced_at = 0`,

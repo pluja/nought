@@ -45,8 +45,12 @@ type Config struct {
 	// SendDelay is the TUI's undo window before mail is sent ("10s" by
 	// default, "0" sends at once, at most 5m).
 	SendDelay string `toml:"send_delay,omitempty"`
-	Rules     []Rule `toml:"rule,omitempty"`
-	TUI       TUI    `toml:"tui,omitempty"`
+	// MaxMessageMB bounds a message fetched from a server, in MiB (default
+	// 256): each is held in memory while archived. Larger ones stay on the
+	// server, reported at every sync.
+	MaxMessageMB *int   `toml:"max_message_mb,omitempty"`
+	Rules        []Rule `toml:"rule,omitempty"`
+	TUI          TUI    `toml:"tui,omitempty"`
 }
 
 // Body versions for PreferBody.
@@ -77,6 +81,18 @@ func (c *Config) SendDelayDuration() time.Duration {
 	}
 	d, _ := time.ParseDuration(c.SendDelay)
 	return d
+}
+
+// DefaultMaxMessageMB applies when max_message_mb is not set; it is above
+// every common provider's own limit.
+const DefaultMaxMessageMB = 256
+
+// MaxMessageBytes returns the largest message fetched from a server.
+func (c *Config) MaxMessageBytes() int64 {
+	if c.MaxMessageMB == nil {
+		return DefaultMaxMessageMB << 20
+	}
+	return int64(*c.MaxMessageMB) << 20
 }
 
 // DefaultTrashDays applies when trash_days is not set.
@@ -281,6 +297,9 @@ func (c *Config) Validate() error {
 	}
 	if c.TrashDays != nil && (*c.TrashDays < 0 || *c.TrashDays > 3650) {
 		return errors.New("trash_days must be between 0 and 3650")
+	}
+	if c.MaxMessageMB != nil && (*c.MaxMessageMB < 1 || *c.MaxMessageMB > 4096) {
+		return errors.New("max_message_mb must be between 1 and 4096")
 	}
 	for i, r := range c.Rules {
 		if _, err := query.Parse(r.Query); err != nil || strings.TrimSpace(r.Query) == "" {
