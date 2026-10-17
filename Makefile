@@ -3,6 +3,8 @@
 
 GO ?= go
 COVER_MIN ?= 80
+# Packages that hold user data have their own floors; raise, never lower.
+COVER_FLOORS ?= store=90 index=90 imapsync=90 ops=87
 # golangci-lint, the same version as CI (.github/workflows/ci.yml).
 GOLANGCI_LINT_VERSION := 2.15.0
 
@@ -16,6 +18,7 @@ cover:
 	$(GO) test -race -coverpkg=./internal/... -coverprofile=cover.out ./...
 	@$(GO) tool cover -func=cover.out | tail -1
 	@$(GO) tool cover -func=cover.out | awk '/^total:/ { sub("%","",$$3); if ($$3+0 < $(COVER_MIN)) { print "coverage below $(COVER_MIN)%"; exit 1 } }'
+	@awk -v floors="$(COVER_FLOORS)" -f tools/coverfloor.awk cover.out
 
 lint: lint-version
 	$(GO) vet ./...
