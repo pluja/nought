@@ -49,6 +49,7 @@ type Server struct {
 
 	user      *imapmemserver.User
 	breakNext atomic.Int64 // >0: the next connection dies after this many bytes
+	rewrite   atomic.Pointer[func([]byte) []byte]
 	wg        sync.WaitGroup
 }
 
@@ -110,6 +111,12 @@ func (s *Server) Config() config.Server {
 // BreakNextConnection makes the next accepted connection drop after the
 // server has written n bytes, to simulate network failures mid-sync.
 func (s *Server) BreakNextConnection(n int64) { s.breakNext.Store(n) }
+
+// RewriteResponses passes what the server writes on connections accepted
+// from now on through fn, to fake a server that misreports. Each call gets
+// a whole buffered write, which holds whole responses in these tests; nil
+// stops rewriting.
+func (s *Server) RewriteResponses(fn func([]byte) []byte) { s.rewrite.Store(&fn) }
 
 func (s *Server) client(t testing.TB) *imapclient.Client {
 	t.Helper()
@@ -202,10 +209,25 @@ func (l *breakingListener) Accept() (net.Conn, error) {
 	if err != nil {
 		return nil, err
 	}
+	if fn := l.s.rewrite.Load(); fn != nil && *fn != nil {
+		c = &rewritingConn{Conn: c, fn: *fn}
+	}
 	if n := l.s.breakNext.Swap(0); n > 0 {
 		return &breakingConn{Conn: c, left: n}, nil
 	}
 	return c, nil
+}
+
+type rewritingConn struct {
+	net.Conn
+	fn func([]byte) []byte
+}
+
+func (c *rewritingConn) Write(p []byte) (int, error) {
+	if _, err := c.Conn.Write(c.fn(p)); err != nil {
+		return 0, err
+	}
+	return len(p), nil
 }
 
 // quiet discards the server's error log.
