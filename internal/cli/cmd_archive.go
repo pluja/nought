@@ -66,6 +66,12 @@ func newReindexCmd(a *app) *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			out, err := ops.Call(cmd.Context(), a.env, callerPerm, ops.IndexRebuild, struct{}{})
 			return a.result(cmd, out, err, func(w io.Writer) error {
+				if out.Failed > 0 { // the rebuild was not installed
+					if err := printf(w, "could not read %d messages; the index was not replaced:\n", out.Failed); err != nil {
+						return err
+					}
+					return printFailures(w, out.Failures)
+				}
 				if err := printf(w, "indexed %d messages in %d accounts; restored tags for %d (%d not found, %d tags skipped)\n",
 					out.Messages, out.Accounts, out.Restored.Applied, out.Restored.Missing, out.Restored.SkippedTags); err != nil {
 					return err

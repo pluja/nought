@@ -57,19 +57,17 @@ func runReindex(ctx context.Context, env *Env, _ struct{}) (ReindexOut, error) {
 	if err != nil {
 		return out, err
 	}
+	if out.Failed > 0 {
+		return out, errors.Join(removeDB(next),
+			fmt.Errorf("%d messages could not be read, so the index was not replaced (nothing was changed): %w", out.Failed, ErrPartial))
+	}
 	if err := env.closeIndex(); err != nil {
 		return out, err
 	}
 	if err := installIndex(next, env.Paths.IndexFile); err != nil {
 		return out, err
 	}
-	if err := settle(ctx, env); err != nil {
-		return out, err
-	}
-	if out.Failed > 0 {
-		return out, fmt.Errorf("%d messages could not be indexed: %w", out.Failed, ErrPartial)
-	}
-	return out, nil
+	return out, settle(ctx, env)
 }
 
 // settle makes the files agree with the new index: flags from tags, every
@@ -85,9 +83,11 @@ func settle(ctx context.Context, env *Env) error {
 	return writeTagsDump(ctx, env)
 }
 
-// buildIndex builds a complete index at path from the archive and the dumps.
-// It reads the archive afresh: another nou may have archived mail since this
-// one last looked. On failure nothing is left at path.
+// buildIndex builds an index at path from the archive and the dumps. It
+// reads the archive afresh: another nou may have archived mail since this
+// one last looked. On failure nothing is left at path. Messages that could
+// not be read are counted in out.Failed, and an index missing them must not
+// be installed: the next dump written from it would drop their tags.
 func buildIndex(ctx context.Context, env *Env, path string) (out ReindexOut, err error) {
 	if err := removeDB(path); err != nil {
 		return out, err
@@ -194,6 +194,10 @@ func openIndex(ctx context.Context, env *Env) (*index.Index, error) {
 	}
 	built := env.Paths.IndexFile + ".rebuild-" + hex.EncodeToString(random)
 	out, err := buildIndex(ctx, env, built)
+	if err == nil && out.Failed > 0 {
+		err = errors.Join(removeDB(built), fmt.Errorf("%d messages could not be read (%s: %s); make them readable and try again",
+			out.Failed, out.Failures[0].Source, out.Failures[0].Error))
+	}
 	if err != nil {
 		return nil, fmt.Errorf("the index was empty; rebuilding it from the archive: %w", err)
 	}
