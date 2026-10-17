@@ -78,6 +78,9 @@ func Start(t testing.TB, opts Options) *Server {
 		// The listener is TLS, but the fault-injecting wrapper hides that
 		// from the server, which would otherwise refuse LOGIN.
 		InsecureAuth: true,
+		// Dropped connections are what the tests inject; logged, they
+		// bury the test output.
+		Logger: quiet{},
 	})
 	inner, err := tls.Listen("tcp", "127.0.0.1:0", &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12})
 	if err != nil {
@@ -204,6 +207,11 @@ func (l *breakingListener) Accept() (net.Conn, error) {
 	}
 	return c, nil
 }
+
+// quiet discards the server's error log.
+type quiet struct{}
+
+func (quiet) Printf(string, ...any) {}
 
 type breakingConn struct {
 	net.Conn
