@@ -288,3 +288,20 @@ func TestQuotedDatesAreUTC(t *testing.T) {
 		t.Errorf("attribution not in UTC:\n%s", r.Draft.Body)
 	}
 }
+
+// A name completes by any of its words, from the word's start only.
+func TestAddressSuggestMatchesNameWords(t *testing.T) {
+	env := draftEnv(t)
+	root := filepath.Join(t.TempDir(), "more")
+	writeFile(t, filepath.Join(root, "Inbox", "cur", maildirName("9", "S")),
+		strings.Replace(mail("9@x", "hi"), "alice@example.org", `"Dana Smith" <ds@corp.example>`, 1))
+	if _, err := Call(t.Context(), env, Delete, ImportRun, ImportIn{Path: root, Account: "personal"}); err != nil {
+		t.Fatal(err)
+	}
+	for prefix, want := range map[string]int{"smi": 1, "Dana": 1, "mith": 0, "ds@": 1} {
+		got, err := Call(t.Context(), env, Read, AddressSuggest, SuggestIn{Prefix: prefix})
+		if err != nil || len(got) != want || (want == 1 && got[0].Address != "ds@corp.example") {
+			t.Errorf("suggest %q = %+v, %v", prefix, got, err)
+		}
+	}
+}

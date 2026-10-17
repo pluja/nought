@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -483,5 +484,34 @@ func TestSMTPTimeoutGrowsWithSize(t *testing.T) {
 	}
 	if got := smtpTimeout(2*time.Minute, 25<<20); got != 2*time.Minute+400*time.Second {
 		t.Errorf("25 MB: %v", got)
+	}
+}
+
+// Attached files are sent, typed by their extension ("~/" is the home
+// directory, as in the editor's Attach: lines).
+func TestAttachedFilesAreSent(t *testing.T) {
+	env, srv := sendEnv(t, smtptest.Options{})
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	writeFile(t, filepath.Join(home, "report.pdf"), "%PDF-1.4 report")
+	odd := filepath.Join(t.TempDir(), "notes.zz-unknown")
+	writeFile(t, odd, "raw notes")
+	d, err := Call(t.Context(), env, Draft, DraftNew, DraftNewIn{To: []string{"alice@example.org"}, Subject: "Files",
+		Body: "Both files attached.\n", Attach: []string{"~/report.pdf", odd}})
+	if err != nil || len(d.Problems) != 0 {
+		t.Fatalf("draft = %+v, %v", d.Problems, err)
+	}
+	if _, err := Call(t.Context(), env, Send, MsgSend, SendIn{DraftID: d.ID}); err != nil {
+		t.Fatal(err)
+	}
+	if out := flushNow(t, env); out.Sent != 1 {
+		t.Fatalf("flush = %+v", out)
+	}
+	sent := string(srv.Messages()[0].Data)
+	for _, want := range []string{"application/pdf", "report.pdf", "application/octet-stream", "notes.zz-unknown"} {
+		if !strings.Contains(sent, want) {
+			t.Errorf("sent message lacks %q", want)
+		}
 	}
 }
