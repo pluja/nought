@@ -339,8 +339,9 @@ nou sync && restic backup ~/.local/share/nought ~/.config/nought \
 
 ### Example scripts
 
-[`examples/`](examples) holds small `sh` scripts to start from; each explains itself at the top.
-They need `jq`, and are tested against every change to `nou`.
+[`examples/`](examples) holds small `sh` scripts to start from, tested against every change to
+`nou`. [`examples/README.md`](examples/README.md) shows how to set them up: after every sync, on
+a timer, and the AI tagging step by step.
 
 | Script | Does |
 |---|---|
@@ -349,18 +350,6 @@ They need `jq`, and are tested against every change to `nou`.
 | [`top-senders.sh`](examples/top-senders.sh) | who fills your inbox, by message count, to archive in bulk |
 | [`save-invoices.sh`](examples/save-invoices.sh) | saves the attachments of mail tagged `receipts` to a folder, once each |
 | [`backup.sh`](examples/backup.sh) | backs up exactly what `nou paths` recommends, with restic or rsync |
-
-To run the classifier on all new mail, tag it as it arrives, then run the script after syncing:
-
-```toml
-[[rule]]
-query = "*"
-tags  = ["classify"]
-```
-
-```sh
-nou sync && examples/ai-classify.sh
-```
 
 ## Development
 
