@@ -1,0 +1,28 @@
+[windows] skip 'needs a POSIX sh'
+[!exec:jq] skip 'needs jq'
+
+exec nou import export --account personal --inbox
+exec sh $EXAMPLES/top-senders.sh
+stdout '^ *2 alice@example.org$'
+stdout '^ *1 news@shop.example$'
+exec sh $EXAMPLES/top-senders.sh from:news
+! stdout alice
+
+-- export/Inbox/a.eml --
+From: Alice <Alice@Example.org>
+Message-ID: <a@example.org>
+Subject: one
+
+1
+-- export/Inbox/b.eml --
+From: alice@example.org
+Message-ID: <b@example.org>
+Subject: two
+
+2
+-- export/Inbox/c.eml --
+From: "Shop, News" <news@shop.example>
+Message-ID: <c@example.org>
+Subject: sale
+
+3

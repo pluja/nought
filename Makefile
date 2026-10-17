@@ -24,6 +24,8 @@ lint: lint-version
 	$(GO) vet ./...
 	$(GO) tool staticcheck ./...
 	golangci-lint run
+	@if command -v shellcheck >/dev/null; then shellcheck --shell=sh --severity=warning examples/*.sh; \
+	else echo "shellcheck not installed: examples/ not checked here (CI checks them)"; fi
 
 # A different golangci-lint finds different things: use CI's.
 lint-version:

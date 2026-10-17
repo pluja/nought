@@ -1,0 +1,27 @@
+[windows] skip 'needs a POSIX sh'
+[!exec:jq] skip 'needs jq'
+
+# One new message: one notification, with the count only. Nothing new: none.
+imapappend INBOX 1 fresh.eml
+stdin password.txt
+exec nou account add test --email me@example.org --imap-host 127.0.0.1 --imap-port $IMAP_PORT --password-stdin
+chmod 755 bin/notify-send
+env PATH=$WORK/bin${:}$PATH
+exec sh $EXAMPLES/notify.sh
+grep '^nought 1 new message$' notify.log
+! grep 'fresh' notify.log
+rm notify.log
+exec sh $EXAMPLES/notify.sh
+! exists notify.log
+
+-- bin/notify-send --
+#!/bin/sh
+printf '%s\n' "$*" >>"$WORK/notify.log"
+-- password.txt --
+test-password
+-- fresh.eml --
+From: Alice <alice@example.org>
+Message-ID: <fresh@example.org>
+Subject: fresh news
+
+fresh

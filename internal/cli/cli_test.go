@@ -47,12 +47,34 @@ func TestMain(m *testing.M) {
 }
 
 func TestScripts(t *testing.T) {
-	// One IMAP and one SMTP test server for all scripts; only the sync and
-	// compose scripts use them.
+	testscript.Run(t, scriptParams(t, filepath.Join("testdata", "script")))
+}
+
+// TestExamples runs the scripts in examples/ against test data, so a change
+// to nou's JSON output cannot break them unnoticed. They need a POSIX sh
+// and jq.
+func TestExamples(t *testing.T) {
+	examples, err := filepath.Abs(filepath.Join("..", "..", "examples"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := scriptParams(t, filepath.Join("testdata", "examples"))
+	setup := p.Setup
+	p.Setup = func(e *testscript.Env) error {
+		e.Setenv("EXAMPLES", examples)
+		return setup(e)
+	}
+	testscript.Run(t, p)
+}
+
+// scriptParams runs the scripts in dir with one IMAP and one SMTP test
+// server for all of them.
+func scriptParams(t *testing.T, dir string) testscript.Params {
+	t.Helper()
 	srv := imaptest.Start(t, imaptest.Options{})
 	smtpSrv := smtptest.Start(t, smtptest.Options{})
-	testscript.Run(t, testscript.Params{
-		Dir:           filepath.Join("testdata", "script"),
+	return testscript.Params{
+		Dir:           dir,
 		UpdateScripts: *update,
 		Cmds: map[string]func(*testscript.TestScript, bool, []string){
 			"code":       cmdCode,
@@ -72,7 +94,7 @@ func TestScripts(t *testing.T) {
 			e.Setenv("SMTP_PORT", strconv.Itoa(smtpSrv.Port))
 			return os.WriteFile(ca, append(slices.Clone(srv.CAPEM), smtpSrv.CAPEM...), 0o600)
 		},
-	})
+	}
 }
 
 // cmdCapture sets a variable from the last command's output, the first

@@ -1,0 +1,38 @@
+[windows] skip 'needs a POSIX sh'
+[!exec:jq] skip 'needs jq'
+
+# Receipts' files are saved once; each message is then tagged saved.
+exec nou import export --account personal --tag receipts
+exec sh $EXAMPLES/save-invoices.sh $WORK/invoices
+stdout 'invoice.pdf$'
+exists invoices/invoice.pdf
+exec nou search tag:saved
+stdout 'Your invoice'
+stdout 'Thanks'
+exec sh $EXAMPLES/save-invoices.sh $WORK/invoices
+! stdout .
+! exists 'invoices/invoice (1).pdf'
+
+-- export/Inbox/a.eml --
+From: billing@shop.example
+Message-ID: <a@example.org>
+Subject: Your invoice
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary=b
+
+--b
+Content-Type: text/plain
+
+attached
+--b
+Content-Type: application/pdf
+Content-Disposition: attachment; filename=invoice.pdf
+
+%PDF
+--b--
+-- export/Inbox/b.eml --
+From: billing@shop.example
+Message-ID: <b@example.org>
+Subject: Thanks for your order
+
+no files here

@@ -43,6 +43,8 @@ jobs:
         run: |
           go vet ./...
           go tool staticcheck ./...
+      - name: Example scripts
+        run: shellcheck --shell=sh --severity=warning examples/*.sh
       - uses: golangci/golangci-lint-action@v9
         with:
           version: v2.15.0 # GOLANGCI_LINT_VERSION in the Makefile

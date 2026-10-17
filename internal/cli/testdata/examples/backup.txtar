@@ -1,0 +1,29 @@
+[windows] skip 'needs a POSIX sh'
+[!exec:jq] skip 'needs jq'
+[!exec:rsync] skip 'needs rsync'
+
+# The backup has the archive and the tag dump, never the trash or the index.
+exec nou import export --account personal --inbox
+exec nou msg delete subject:lunch
+exec sh $EXAMPLES/backup.sh rsync $WORK/backup
+exec find $WORK/backup -type f
+stdout '/data/archive/personal/'
+stdout '/data/tags.dump$'
+! stdout 'transient'
+! stdout 'index.db'
+
+! exec sh $EXAMPLES/backup.sh
+stderr usage
+
+-- export/Inbox/a.eml --
+From: Alice <alice@example.org>
+Message-ID: <a@example.org>
+Subject: lunch on friday
+
+pizza?
+-- export/Inbox/b.eml --
+From: Bob <bob@example.org>
+Message-ID: <b@example.org>
+Subject: the plan
+
+see you
