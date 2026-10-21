@@ -255,9 +255,18 @@ func (m Model) renderList() string {
 }
 
 func (m Model) renderListLine(msg ops.MessageOut, selected bool, w int) string {
+	// Marked rows are tinted whatever has focus; the cursor's own tint
+	// shows on the rest, and its bar on both.
+	_, marked := m.marked[keyOf(msg)]
 	highlight := selected && m.focus == focusList
 	st := func(s lipgloss.Style) lipgloss.Style {
-		if highlight {
+		switch {
+		case marked:
+			// The row's colored marks (unread, location, tags) take the
+			// text color: in the theme's own hues, one would vanish on
+			// the tint.
+			return s.UnsetForeground().Background(m.st.markBG)
+		case highlight:
 			return s.Background(m.st.selBG)
 		}
 		return s
@@ -270,11 +279,11 @@ func (m Model) renderListLine(msg ops.MessageOut, selected bool, w int) string {
 		text = m.st.bold
 	}
 	gutter := st(m.st.plain).Render(" ")
-	switch _, marked := m.marked[keyOf(msg)]; {
-	case marked:
-		gutter = st(m.st.accent).Render(m.glyph("✓", "+"))
+	switch {
 	case selected:
 		gutter = st(m.st.accent).Render("▌")
+	case marked:
+		gutter = st(m.st.accent).Render(m.glyph("✓", "+"))
 	}
 	state, stateStyle := " ", m.st.plain
 	switch {

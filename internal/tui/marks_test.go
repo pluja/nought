@@ -253,3 +253,26 @@ func TestActionWaitsForMarkAll(t *testing.T) {
 		t.Errorf("%d marked", len(m.marked))
 	}
 }
+
+// Marked rows stand out in a hue of their own (not just a tick), and the
+// cursor stays visible on them.
+func TestMarkedRowsAreTinted(t *testing.T) {
+	m := newTestModel(t, 120, 30)
+	m = drive(t, m, key("x")) // marks the first, cursor on the second
+	const markBG, cursorBG = ";44m", ";100m"
+	marked := m.renderListLine(m.msgs[0], false, 60)
+	if !strings.Contains(marked, markBG) || !strings.Contains(marked, "✓") {
+		t.Errorf("marked row not tinted: %q", marked)
+	}
+	if cursor := m.renderListLine(m.msgs[1], true, 60); !strings.Contains(cursor, cursorBG) || strings.Contains(cursor, markBG) {
+		t.Errorf("cursor row: %q", cursor)
+	}
+	if both := m.renderListLine(m.msgs[0], true, 60); !strings.Contains(both, markBG) || !strings.Contains(both, "▌") {
+		t.Errorf("cursor on a marked row: %q", both)
+	}
+	// Nothing on a marked row is drawn in the tint's own blue (the unread
+	// mark is blue elsewhere): it would vanish.
+	if strings.Contains(marked, "34;44m") || strings.Contains(marked, "[34;") {
+		t.Errorf("blue on blue: %q", marked)
+	}
+}

@@ -109,7 +109,7 @@ type styles struct {
 	unreadDot, flag, tag, italic, link             lipgloss.Style
 	local, server, leaving                         lipgloss.Style   // where a message lives
 	quote                                          []lipgloss.Style // quote levels (bars, attributions), repeating
-	selBG                                          color.Color
+	selBG, markBG                                  color.Color
 }
 
 func newStyles() styles {
@@ -133,8 +133,9 @@ func newStyles() styles {
 		leaving:   s.Foreground(c("3")),
 		// Blue, magenta, cyan, green: four hues apart in most themes, so a
 		// level can be followed down the screen; never yellow, the warning.
-		quote: []lipgloss.Style{s.Foreground(c("4")), s.Foreground(c("5")), s.Foreground(c("6")), s.Foreground(c("2"))},
-		selBG: c("8"),
+		quote:  []lipgloss.Style{s.Foreground(c("4")), s.Foreground(c("5")), s.Foreground(c("6")), s.Foreground(c("2"))},
+		selBG:  c("8"),
+		markBG: c("4"), // marked rows: blue, apart from the cursor's grey
 	}
 }
 
