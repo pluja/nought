@@ -40,6 +40,8 @@ stdout ' receipts$'
 stdout ' newsletters$'
 ! stdout 'travel'
 ! stdout 'deleted'
+stderr 'NOU_AI_URL is not set, so it asks a local Ollama at http://localhost:11434/v1'
+stderr 'NOU_AI_MODEL'
 exec nou search tag:receipts
 stdout 'Your invoice'
 exec nou search tag:newsletters
@@ -105,10 +107,17 @@ env NOU_AI_REMOTE=1
 exec sh $EXAMPLES/ai-classify.sh
 stdout ' receipts$'
 
-# A failed request stops it, and the message keeps its tag for next time.
+# A failed request stops it, says why, and the message keeps its tag for
+# next time.
 exec nou msg tag subject:invoice --add classify
-env FAKE_CURL_FAIL=1
+env FAKE_CURL_FAIL=7
+env NOU_AI_URL=
+env NOU_AI_REMOTE=
 ! exec sh $EXAMPLES/ai-classify.sh
+stderr 'no answer from http://localhost:11434/v1'
+stderr 'ollama serve'
+stderr 'NOU_AI_URL, NOU_AI_MODEL and NOU_AI_KEY'
+stderr 'keep the classify tag'
 exec nou search tag:classify
 stdout 'Your invoice'
 
@@ -124,7 +133,7 @@ unset NOU_PERM
 exec nou "$@"
 -- bin/curl --
 #!/bin/sh
-[ -z "${FAKE_CURL_FAIL:-}" ] || exit 22
+[ -z "${FAKE_CURL_FAIL:-}" ] || exit "$FAKE_CURL_FAIL"
 prev=
 for a in "$@"; do
 	printf '%s\n' "$a" >>"$WORK/curl.args"

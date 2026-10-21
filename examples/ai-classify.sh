@@ -194,7 +194,10 @@ ask() {
 				properties: {tags: {type: "array", items: {type: "string", enum: $tags}}}}}}}
 		end') || return 1
 	reply=$(printf '%s' "$request" | curl -sS --fail --max-time 300 -K "$auth" \
-		-H 'Content-Type: application/json' --data-binary @- "$url/chat/completions") || return 1
+		-H 'Content-Type: application/json' --data-binary @- "$url/chat/completions") || {
+		unreachable
+		return 1
+	}
 	# The tags of {"tags": [...]} (or {"tag": ...}), after any <think> block
 	# (closed or cut off); or bare words, from servers that answer without
 	# JSON. A tag with a space in it is dropped, not split in two.
@@ -230,6 +233,21 @@ if [ "$queued" -eq 0 ]; then
 	fi
 	echo "To classify mail you already have:  nou msg tag tag:inbox --add classify" >&2
 	exit 0
+fi
+
+# unreachable explains a request that got no answer, after curl's own error.
+unreachable() {
+	cat >&2 <<-EOF
+		ai-classify: no answer from $url (model $model).
+		Is the model server running? For a local Ollama: ollama serve, then ollama pull $model.
+		For another endpoint, set NOU_AI_URL, NOU_AI_MODEL and NOU_AI_KEY (see the top of this script).
+		Messages not classified yet keep the classify tag for the next run.
+	EOF
+}
+
+if [ -z "${NOU_AI_URL:-}" ]; then
+	echo "ai-classify: NOU_AI_URL is not set, so it asks a local Ollama at $url (model $model);" >&2
+	echo "set NOU_AI_URL, NOU_AI_MODEL and NOU_AI_KEY for another endpoint." >&2
 fi
 
 while :; do
