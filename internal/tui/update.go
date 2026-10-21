@@ -72,12 +72,15 @@ func (m Model) update(msg tea.Msg) (Model, tea.Cmd) {
 			m.notice, m.noticeErr = msg.err.Error(), true
 		case msg.req.what != "":
 			m.notice = msg.req.what
+			if len(msg.req.msgs) > 1 {
+				m.notice += ": " + about(msg.req.msgs)
+			}
 			if msg.req.note != "" {
 				m.notice += "; " + msg.req.note
 				if m.deletionNoted == nil {
 					m.deletionNoted = map[string]bool{}
 				}
-				m.deletionNoted[msg.req.msg.Account] = true
+				m.deletionNoted[msg.req.noteAccount] = true
 			}
 			if msg.req.undo != nil && msg.out.Changed > 0 {
 				m.undo = append(m.undo, *msg.req.undo)
@@ -99,6 +102,9 @@ func (m Model) update(msg tea.Msg) (Model, tea.Cmd) {
 		}
 		m.notice = "undid " + msg.entry.what
 		return m.refresh()
+
+	case markAllMsg:
+		return m.markAllDone(msg)
 
 	case statusDoneMsg:
 		m.status = msg.out
@@ -221,8 +227,9 @@ func (m Model) searchDone(msg searchDoneMsg) (Model, tea.Cmd) {
 	}
 	prev, hadSel := m.selected()
 	m.msgs, m.more = msg.out.Messages, msg.out.More
+	m = m.pruneMarks()
 	if hadSel {
-		if i := slices.IndexFunc(m.msgs, func(x ops.MessageOut) bool { return x.ID == prev.ID }); i >= 0 {
+		if i := slices.IndexFunc(m.msgs, func(x ops.MessageOut) bool { return keyOf(x) == keyOf(prev) }); i >= 0 {
 			m.cursor = i
 		}
 	}
@@ -235,7 +242,7 @@ func (m Model) searchDone(msg searchDoneMsg) (Model, tea.Cmd) {
 		return m, nil
 	}
 	sel, _ := m.selected()
-	if m.open != nil && m.open.Message.ID != sel.ID {
+	if m.open != nil && keyOf(m.open.Message) != keyOf(sel) {
 		if m.focus == focusReader {
 			// The open message left this view (archived on another
 			// device, say): move on to the next one, as mail readers do,
@@ -286,31 +293,38 @@ func (m Model) load() tea.Cmd {
 	return m.search(m.query, m.searchGen)
 }
 
-// enqueue applies a tag change to the shown message at once (so quick
+// enqueue applies a tag change to the shown messages at once (so quick
 // successive keys see the new state) and saves it; saves run one at a
 // time, in order.
 func (m Model) enqueue(req tagReq) (Model, tea.Cmd) {
-	if i := slices.IndexFunc(m.msgs, func(x ops.MessageOut) bool { return x.ID == req.msg.ID }); i >= 0 {
-		msgs := slices.Clone(m.msgs)
+	changed := map[msgKey]bool{}
+	for _, msg := range req.msgs {
+		changed[keyOf(msg)] = true
+	}
+	msgs := slices.Clone(m.msgs)
+	for i := range msgs {
+		if !changed[keyOf(msgs[i])] {
+			continue
+		}
 		msgs[i].Tags = applyTagChange(msgs[i].Tags, req.add, req.remove)
-		m.msgs = msgs
-		if m.open != nil && m.open.Message.ID == req.msg.ID {
+		if m.open != nil && keyOf(m.open.Message) == keyOf(msgs[i]) {
 			open := *m.open
 			open.Message.Tags = msgs[i].Tags
 			m.open = &open
 		}
 	}
+	m.msgs = msgs
 	m.tagQueue = append(m.tagQueue, req)
 	var cmd tea.Cmd
 	if !m.tagBusy {
 		m, cmd = m.startNextTag()
 	}
-	// A message that no longer belongs in the view (archived from the
-	// inbox, trashed, restored from the trash) leaves it at once, and the
-	// next one is selected (and opened, when reading).
+	// Messages that no longer belong in the view (archived from the inbox,
+	// trashed, restored from the trash) leave it at once, and the next one
+	// is selected (and opened, when reading).
 	if m.leavesView(req) {
 		var next tea.Cmd
-		m, next = m.dropFromView(req.msg.ID)
+		m, next = m.dropFromView(req.msgs...)
 		cmd = tea.Batch(cmd, next)
 	}
 	return m, cmd
@@ -328,19 +342,35 @@ func (m Model) leavesView(req tagReq) bool {
 	}
 }
 
-func (m Model) dropFromView(id string) (Model, tea.Cmd) {
-	i := slices.IndexFunc(m.msgs, func(x ops.MessageOut) bool { return x.ID == id })
-	if i < 0 {
+// dropFromView removes messages that left the view. The selection stays on
+// the message it was on, or moves to the next one still listed.
+func (m Model) dropFromView(gone ...ops.MessageOut) (Model, tea.Cmd) {
+	drop := map[msgKey]bool{}
+	for _, msg := range gone {
+		drop[keyOf(msg)] = true
+	}
+	above := 0 // dropped rows above the cursor
+	kept := make([]ops.MessageOut, 0, len(m.msgs))
+	for i, msg := range m.msgs {
+		if drop[keyOf(msg)] {
+			if i < m.cursor {
+				above++
+			}
+			continue
+		}
+		kept = append(kept, msg)
+	}
+	if len(kept) == len(m.msgs) {
 		return m, nil
 	}
-	m.msgs = slices.Delete(slices.Clone(m.msgs), i, i+1)
-	m.cursor = min(m.cursor, max(len(m.msgs)-1, 0))
+	m.msgs = kept
+	m.cursor = min(max(m.cursor-above, 0), max(len(m.msgs)-1, 0))
 	if len(m.msgs) == 0 {
 		m.open = nil
 		m.focus = focusList
 		return m, nil
 	}
-	if m.open != nil && m.open.Message.ID == id {
+	if m.open != nil && drop[keyOf(m.open.Message)] {
 		if m.focus == focusReader {
 			return m.openSelected()
 		}
@@ -397,7 +427,7 @@ func (m Model) openMessage(markRead bool) (Model, tea.Cmd) {
 	m.showGen++
 	cmds := []tea.Cmd{m.show(sel, m.showGen)}
 	if markRead && m.prefs.ReadOnOpen() && slices.Contains(sel.Tags, ops.TagUnread) {
-		next, cmd := m.enqueue(newTagReq(sel, nil, []string{ops.TagUnread}, ""))
+		next, cmd := m.enqueue(newTagReq([]ops.MessageOut{sel}, nil, []string{ops.TagUnread}, ""))
 		m = next
 		cmds = append(cmds, cmd)
 	}
@@ -407,6 +437,9 @@ func (m Model) openMessage(markRead bool) (Model, tea.Cmd) {
 func (m Model) goTo(query string) (Model, tea.Cmd) {
 	m.query, m.cursor, m.offset, m.open, m.focus = query, 0, 0, nil, focusList
 	m.searchGen++
+	m.markGen++ // a * still loading belongs to the old view
+	m.markingAll = false
+	m = m.clearMarks()
 	if query == queryDrafts {
 		m.msgs, m.more, m.draftIdx = nil, false, 0
 	}
@@ -474,7 +507,7 @@ func (m Model) undoLast() (Model, tea.Cmd) {
 // which moved on to the next. In the list, the selected one.
 func (m Model) target() (ops.MessageOut, bool) {
 	if m.focus == focusReader && m.open != nil {
-		if i := slices.IndexFunc(m.msgs, func(x ops.MessageOut) bool { return x.ID == m.open.Message.ID }); i >= 0 {
+		if i := slices.IndexFunc(m.msgs, func(x ops.MessageOut) bool { return keyOf(x) == keyOf(m.open.Message) }); i >= 0 {
 			return m.msgs[i], true
 		}
 	}

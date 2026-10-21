@@ -133,6 +133,9 @@ func (m Model) renderHeader() string {
 		n += "+"
 	}
 	head := m.st.title.Render("nought") + "  " + m.st.bold.Render(render.SanitizeLine(q)) + m.st.dim.Render("  "+n+" messages")
+	if len(m.marked) > 0 {
+		head += m.st.accent.Render("  · "+strconv.Itoa(len(m.marked))+" marked") + m.st.dim.Render(" (Esc clears)")
+	}
 	switch {
 	case m.composing != nil:
 		head = m.st.title.Render("nought") + "  " + m.st.bold.Render(kindTitle(m.composing.Kind)) + m.st.dim.Render("  review before sending")
@@ -267,7 +270,10 @@ func (m Model) renderListLine(msg ops.MessageOut, selected bool, w int) string {
 		text = m.st.bold
 	}
 	gutter := st(m.st.plain).Render(" ")
-	if selected {
+	switch _, marked := m.marked[keyOf(msg)]; {
+	case marked:
+		gutter = st(m.st.accent).Render(m.glyph("✓", "+"))
+	case selected:
 		gutter = st(m.st.accent).Render("▌")
 	}
 	state, stateStyle := " ", m.st.plain
@@ -494,7 +500,7 @@ func (m Model) renderPromptLine() string {
 		return fit(m.st.errText.Render("Delete everything in the trash for good, here and on servers? (y/N)"), m.width, 1)
 	case m.inputKind == inputConfirmDelete:
 		q := "Delete permanently, here and on the server? (y/N) "
-		return fit(m.st.errText.Render(q)+render.SanitizeLine(m.deleting.Subject), m.width, 1)
+		return fit(m.st.errText.Render(q)+render.SanitizeLine(about(m.deleting)), m.width, 1)
 	case m.inputKind == inputConfirmDiscard:
 		return fit(m.st.errText.Render("Discard this draft? (y/N)"), m.width, 1)
 	case m.inputKind == inputTo:

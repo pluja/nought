@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -114,37 +115,65 @@ func (m Model) showVersion(msg ops.MessageOut, gen int, prefer string) tea.Cmd {
 	}
 }
 
-// messageQuery addresses exactly one message.
-func messageQuery(msg ops.MessageOut) string {
-	return "hash:" + msg.ID + " account:" + msg.Account
+// refs names messages for the ops that take a list.
+func refs(msgs []ops.MessageOut) []ops.MessageRef {
+	out := make([]ops.MessageRef, len(msgs))
+	for i, msg := range msgs {
+		out[i] = ops.MessageRef{ID: msg.ID, Account: msg.Account}
+	}
+	return out
 }
 
-// newTagReq prepares a tag change and the exact undo for it.
-func newTagReq(msg ops.MessageOut, add, remove []string, what string) tagReq {
-	req := tagReq{msg: msg, add: add, remove: remove, what: what}
+// newTagReq prepares a tag change on msgs and the exact undo for it: the
+// messages are grouped by what the change does to them, so undoing gives
+// each the tags it had.
+func newTagReq(msgs []ops.MessageOut, add, remove []string, what string) tagReq {
+	req := tagReq{msgs: msgs, add: add, remove: remove, what: what}
 	if what == "" {
 		return req
 	}
-	var undoAdd, undoRemove []string
-	for _, t := range remove {
-		if slices.Contains(msg.Tags, t) {
-			undoAdd = append(undoAdd, t)
+	u := &undoEntry{what: what + ": " + about(msgs)}
+	groups := map[string]int{}
+	for _, msg := range msgs {
+		var undoAdd, undoRemove []string
+		for _, t := range remove {
+			if slices.Contains(msg.Tags, t) {
+				undoAdd = append(undoAdd, t)
+			}
 		}
-	}
-	for _, t := range add {
-		if !slices.Contains(msg.Tags, t) {
-			undoRemove = append(undoRemove, t)
+		for _, t := range add {
+			if !slices.Contains(msg.Tags, t) {
+				undoRemove = append(undoRemove, t)
+			}
 		}
+		if len(undoAdd)+len(undoRemove) == 0 {
+			continue
+		}
+		key := strings.Join(undoAdd, ",") + "|" + strings.Join(undoRemove, ",")
+		i, ok := groups[key]
+		if !ok {
+			i = len(u.steps)
+			groups[key] = i
+			u.steps = append(u.steps, undoStep{add: undoAdd, remove: undoRemove})
+		}
+		u.steps[i].msgs = append(u.steps[i].msgs, ops.MessageRef{ID: msg.ID, Account: msg.Account})
 	}
-	req.undo = &undoEntry{query: messageQuery(msg), add: undoAdd, remove: undoRemove,
-		what: what + ": " + msg.Subject}
+	req.undo = u
 	return req
+}
+
+// about names what an action was on: the subject, or how many.
+func about(msgs []ops.MessageOut) string {
+	if len(msgs) == 1 {
+		return msgs[0].Subject
+	}
+	return strconv.Itoa(len(msgs)) + " messages"
 }
 
 func (m Model) runTag(req tagReq) tea.Cmd {
 	return func() tea.Msg {
 		out, err := ops.Call(m.ctx, m.env, tagPerm(req.add), ops.MsgTag,
-			ops.TagIn{Query: messageQuery(req.msg), Add: req.add, Remove: req.remove})
+			ops.TagIn{Messages: refs(req.msgs), Add: req.add, Remove: req.remove})
 		return tagDoneMsg{req: req, out: out, err: err}
 	}
 }
@@ -159,10 +188,18 @@ func tagPerm(add []string) ops.Permission {
 	return permTag
 }
 
+// revert undoes a change, step by step. A failed undo is kept to try
+// again: each step sets tags, so running one twice does no harm.
 func (m Model) revert(u undoEntry) tea.Cmd {
 	return func() tea.Msg {
-		_, err := ops.Call(m.ctx, m.env, tagPerm(u.add), ops.MsgTag, ops.TagIn{Query: u.query, Add: u.add, Remove: u.remove})
-		return undoDoneMsg{entry: u, err: err}
+		for _, s := range u.steps {
+			_, err := ops.Call(m.ctx, m.env, tagPerm(s.add), ops.MsgTag,
+				ops.TagIn{Messages: s.msgs, Add: s.add, Remove: s.remove})
+			if err != nil {
+				return undoDoneMsg{entry: u, err: err}
+			}
+		}
+		return undoDoneMsg{entry: u}
 	}
 }
 
@@ -248,11 +285,11 @@ func (m Model) sync(ctx context.Context) tea.Cmd {
 	}
 }
 
-// deleteNow deletes one message for good (its server copies at the next
+// deleteNow deletes messages for good (their server copies at the next
 // sync).
-func (m Model) deleteNow(msg ops.MessageOut) tea.Cmd {
+func (m Model) deleteNow(msgs []ops.MessageOut) tea.Cmd {
 	return func() tea.Msg {
-		out, err := ops.Call(m.ctx, m.env, permDelete, ops.MsgDelete, ops.DeleteIn{Query: messageQuery(msg), Now: true})
+		out, err := ops.Call(m.ctx, m.env, permDelete, ops.MsgDelete, ops.DeleteIn{Messages: refs(msgs), Now: true})
 		return deleteDoneMsg{out: out, err: err}
 	}
 }
@@ -293,22 +330,25 @@ func parseTagInput(s string) (add, remove []string) {
 	return add, remove
 }
 
-// trashReq moves a message to the trash, or takes it out (back to the
-// inbox). Both are undoable with z.
-func (m Model) trashReq(msg ops.MessageOut) (tagReq, error) {
-	var expiry []string
-	for _, t := range msg.Tags {
-		if ops.IsExpiryTag(t) {
-			expiry = append(expiry, t)
+// trashReq moves messages to the trash, or, when all of them are in it,
+// takes them out (back to the inbox). Both are undoable with z.
+func (m Model) trashReq(msgs []ops.MessageOut) (tagReq, error) {
+	isTrashed := hasTag(ops.TagDeleted)
+	if all(msgs, isTrashed) {
+		remove := []string{ops.TagDeleted}
+		for _, msg := range msgs {
+			for _, t := range msg.Tags {
+				if ops.IsExpiryTag(t) && !slices.Contains(remove, t) {
+					remove = append(remove, t)
+				}
+			}
 		}
-	}
-	if slices.Contains(msg.Tags, ops.TagDeleted) {
-		return newTagReq(msg, []string{ops.TagInbox}, append([]string{ops.TagDeleted}, expiry...), "restored"), nil
+		return newTagReq(msgs, []string{ops.TagInbox}, remove, "restored"), nil
 	}
 	add, remove, err := ops.TrashTags(m.env, false)
 	if err != nil {
 		return tagReq{}, err
 	}
 	// An earlier expiry (from a rule) still applies, as with nou msg delete.
-	return newTagReq(msg, add, remove, "moved to the trash"), nil
+	return newTagReq(slices.DeleteFunc(slices.Clone(msgs), isTrashed), add, remove, "moved to the trash"), nil
 }

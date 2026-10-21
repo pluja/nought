@@ -256,10 +256,16 @@ func resolve(ctx context.Context, env *Env, account, id string) (index.Message, 
 	return m, nil
 }
 
-// MessageRef names one message: its id, as nou shows it, in an account.
+// MaxBatch is the most messages one tag or delete names (Messages), and so
+// the most a frontend selects for one.
+const MaxBatch = index.MaxLimit
+
+// MessageRef names one message: its id, as nou shows it, and its account
+// (ids are unique within an account; without one, an id must be unique
+// across accounts).
 type MessageRef struct {
 	ID      string `json:"id"`
-	Account string `json:"account"`
+	Account string `json:"account,omitempty"`
 }
 
 // TagIn changes tags on every message matching a query, or on exactly the
@@ -601,8 +607,8 @@ func selection(ctx context.Context, env *Env, q, account string, refs []MessageR
 	switch {
 	case q != "" || account != "":
 		return nil, usageError("give a query or a list of messages, not both")
-	case len(refs) > index.MaxLimit:
-		return nil, usageError("at most %d messages at once", index.MaxLimit)
+	case len(refs) > MaxBatch:
+		return nil, usageError("at most %d messages at once", MaxBatch)
 	}
 	msgs := make([]index.Message, 0, len(refs))
 	seen := map[int64]bool{}

@@ -73,24 +73,34 @@ type sideItem struct {
 	heading string // shown above this item, to start a section
 }
 
-// undoEntry reverts one tag change.
+// undoEntry reverts one tag change, on one message or many: a step for
+// each group of messages that changed alike, so each gets back exactly
+// the tags it had.
 type undoEntry struct {
-	query  string
-	add    []string
-	remove []string
-	what   string
+	steps []undoStep
+	what  string
 }
 
-// tagReq is a queued tag change. Changes run one at a time, in the order
-// the keys were pressed.
-type tagReq struct {
-	msg    ops.MessageOut
-	add    []string
-	remove []string
-	what   string // "" for changes that are not undoable (mark read on open)
-	note   string // said after what, once done
-	undo   *undoEntry
+type undoStep struct {
+	msgs        []ops.MessageRef
+	add, remove []string
 }
+
+// tagReq is a queued tag change, on one message or on the marked ones.
+// Changes run one at a time, in the order the keys were pressed.
+type tagReq struct {
+	msgs        []ops.MessageOut
+	add, remove []string
+	what        string // "" for changes that are not undoable (mark read on open)
+	note        string // said after what, once done
+	noteAccount string // the account note is about
+	undo        *undoEntry
+}
+
+// msgKey identifies a message: ids are unique within an account only.
+type msgKey struct{ id, account string }
+
+func keyOf(msg ops.MessageOut) msgKey { return msgKey{msg.ID, msg.Account} }
 
 // styles use the terminal's own 16-color palette, so they follow the
 // user's theme (light or dark) instead of imposing one.
@@ -156,28 +166,36 @@ type Model struct {
 	side    []sideItem
 	sideIdx int
 
-	open        *ops.ShowOut
-	openKey     string // message, width and tags the reader content was built for
-	links       []render.Link
-	showLinks   bool
-	linkPick    int // >0: the confirmation box for this link is open
-	openURL     func(string) error
-	showGen     int    // results of older show requests are ignored
-	bodyPrefer  string // "html" or "plain" once the user switched with v; "" follows the config
-	previewSeq  int    // debounces previews while moving
-	previewWait time.Duration
-	reader      viewport.Model
-	inputKind   inputKind
-	input       textinput.Model
-	inputTarget ops.MessageOut // the message a tag or save prompt acts on
-	tagQueue    []tagReq
-	tagBusy     bool
-	status      []ops.AccountStatusOut
-	notice      string
-	noticeErr   bool           // the notice reports a failure
-	deleting    ops.MessageOut // the message D asks about
-	trashDays   int            // how long the trash keeps mail (for its header)
-	deletionOn  bool           // some account deletes handled mail from its server (for the help)
+	open         *ops.ShowOut
+	openKey      string // message, width and tags the reader content was built for
+	links        []render.Link
+	showLinks    bool
+	linkPick     int // >0: the confirmation box for this link is open
+	openURL      func(string) error
+	showGen      int    // results of older show requests are ignored
+	bodyPrefer   string // "html" or "plain" once the user switched with v; "" follows the config
+	previewSeq   int    // debounces previews while moving
+	previewWait  time.Duration
+	reader       viewport.Model
+	inputKind    inputKind
+	input        textinput.Model
+	inputTargets []ops.MessageOut // the messages a tag or save prompt acts on
+	tagQueue     []tagReq
+	tagBusy      bool
+	status       []ops.AccountStatusOut
+	notice       string
+	noticeErr    bool             // the notice reports a failure
+	deleting     []ops.MessageOut // the messages D asks about
+	// marked: messages chosen for a batch action (x, V, *), as they were
+	// when marked. ranging: V is on, marking from the anchor message to
+	// the cursor.
+	marked      map[msgKey]ops.MessageOut
+	ranging     bool
+	rangeAnchor msgKey
+	markGen     int  // results of an older * are ignored
+	markingAll  bool // a * is loading: actions wait for it
+	trashDays   int  // how long the trash keeps mail (for its header)
+	deletionOn  bool // some account deletes handled mail from its server (for the help)
 	// deletionNoted: accounts for which the user was told this session that
 	// archiving leaves mail on the server (deletion is off).
 	deletionNoted map[string]bool

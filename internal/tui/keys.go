@@ -45,7 +45,7 @@ func (m Model) key(k tea.KeyPressMsg) (Model, tea.Cmd) {
 				return m, nil
 			}
 			m.cursor, m.draftIdx = 0, 0
-			return m.schedulePreview()
+			return m.markRange().schedulePreview()
 		case "i":
 			return m.goTo(queryInbox)
 		case "a":
@@ -138,54 +138,60 @@ func (m Model) listKey(key string) (Model, tea.Cmd) {
 		return m.move(-len(m.msgs))
 	case "enter", "right":
 		return m.openSelected()
+	case "x":
+		return m.toggleMark()
+	case "V":
+		return m.toggleRange()
+	case "*":
+		return m.markAll()
+	case "esc":
+		return m.escMarks(), nil
 	}
 	return m.messageAction(key)
 }
 
 // messageAction handles keys that act on the selected message, in the list
-// and in the reader.
+// and in the reader, or on the marked messages when there are any.
 func (m Model) messageAction(key string) (Model, tea.Cmd) {
-	sel, ok := m.target()
+	if m.markingAll && m.focus != focusReader {
+		m.notice = "marking… (a moment)"
+		return m, nil
+	}
+	msgs, ok := m.actionTargets()
 	if !ok {
 		return m, nil
 	}
 	switch key {
 	case "e":
-		if !slices.Contains(sel.Tags, ops.TagInbox) {
-			m.notice = "not in the inbox"
-			return m, nil
+		return m.archive(msgs)
+	case "u": // any unread: all read; else all unread
+		if slices.ContainsFunc(msgs, hasTag(ops.TagUnread)) {
+			return m.enqueueAction(newTagReq(msgs, nil, []string{ops.TagUnread}, "marked read"))
 		}
-		req := newTagReq(sel, nil, []string{ops.TagInbox}, "archived")
-		if len(sel.Server) > 0 && m.deletionOff(sel.Account) && !m.deletionNoted[sel.Account] {
-			req.note = "deletion is off for " + sel.Account + ", so it stays on the server (and other devices)"
+		return m.enqueueAction(newTagReq(msgs, []string{ops.TagUnread}, nil, "marked unread"))
+	case "s": // all flagged: unflag them; else flag all
+		if all(msgs, hasTag(ops.TagFlagged)) {
+			return m.enqueueAction(newTagReq(msgs, nil, []string{ops.TagFlagged}, "unflagged"))
 		}
-		return m.enqueue(req)
-	case "u":
-		if slices.Contains(sel.Tags, ops.TagUnread) {
-			return m.enqueue(newTagReq(sel, nil, []string{ops.TagUnread}, "marked read"))
-		}
-		return m.enqueue(newTagReq(sel, []string{ops.TagUnread}, nil, "marked unread"))
-	case "s":
-		if slices.Contains(sel.Tags, ops.TagFlagged) {
-			return m.enqueue(newTagReq(sel, nil, []string{ops.TagFlagged}, "unflagged"))
-		}
-		return m.enqueue(newTagReq(sel, []string{ops.TagFlagged}, nil, "flagged"))
+		return m.enqueueAction(newTagReq(msgs, []string{ops.TagFlagged}, nil, "flagged"))
 	case "l", "t":
 		return m.startInput(inputTags, "")
 	case "#":
-		req, err := m.trashReq(sel)
+		req, err := m.trashReq(msgs)
 		if err != nil {
 			m.notice, m.noticeErr = err.Error(), true
 			return m, nil
 		}
-		return m.enqueue(req)
+		return m.enqueueAction(req)
 	case "D":
-		m.deleting = sel
+		m.deleting = msgs
 		m.inputKind = inputConfirmDelete
 		return m, nil
 	case "w":
 		switch {
-		case m.open == nil || m.open.Message.ID != sel.ID:
+		case len(m.marked) > 0:
+			m.notice = "attachments are saved from one message (Esc clears the marks)"
+		case m.open == nil || m.open.Message.ID != msgs[0].ID:
 			m.notice = "open the message first (Enter)"
 		case len(m.open.Attachments) == 0:
 			m.notice = "no attachments in this message"
@@ -195,6 +201,24 @@ func (m Model) messageAction(key string) (Model, tea.Cmd) {
 		return m, nil
 	}
 	return m, nil
+}
+
+// archive takes the messages still in the inbox out of it.
+func (m Model) archive(msgs []ops.MessageOut) (Model, tea.Cmd) {
+	inbox := slices.DeleteFunc(slices.Clone(msgs), func(msg ops.MessageOut) bool { return !hasTag(ops.TagInbox)(msg) })
+	if len(inbox) == 0 {
+		m.notice = "not in the inbox"
+		return m, nil
+	}
+	req := newTagReq(inbox, nil, []string{ops.TagInbox}, "archived")
+	for _, msg := range inbox {
+		if len(msg.Server) > 0 && m.deletionOff(msg.Account) && !m.deletionNoted[msg.Account] {
+			req.note = "deletion is off for " + msg.Account + ", so it stays on the server (and other devices)"
+			req.noteAccount = msg.Account
+			break
+		}
+	}
+	return m.enqueueAction(req)
 }
 
 func (m Model) readerKey(key string) (Model, tea.Cmd) {
@@ -267,7 +291,7 @@ func (m Model) move(delta int) (Model, tea.Cmd) {
 		return m, nil
 	}
 	m.cursor = min(max(m.cursor+delta, 0), len(m.msgs)-1)
-	return m.schedulePreview()
+	return m.markRange().schedulePreview()
 }
 
 // moveOpen moves to the next or previous message and opens it.
@@ -283,11 +307,11 @@ func (m Model) startInput(kind inputKind, value string) (Model, tea.Cmd) {
 	if kind == inputTags || kind == inputSaveDir {
 		// The prompt acts on this message, whatever a refresh does to the
 		// list meanwhile.
-		sel, ok := m.target()
+		targets, ok := m.actionTargets()
 		if !ok {
 			return m, nil
 		}
-		m.inputTarget = sel
+		m.inputTargets = targets
 	}
 	m.inputKind = kind
 	m.input.SetValue(value)
@@ -314,9 +338,9 @@ func (m Model) confirmKey(k tea.KeyPressMsg) (Model, tea.Cmd) {
 	case kind == inputConfirmDiscard:
 		m.notice = "draft kept"
 	case yes: // inputConfirmDelete
-		msg := m.deleting
-		m, drop := m.dropFromView(msg.ID)
-		return m, tea.Batch(drop, m.deleteNow(msg))
+		msgs := m.deleting
+		m, drop := m.clearMarks().dropFromView(msgs...)
+		return m, tea.Batch(drop, m.deleteNow(msgs))
 	default:
 		m.notice = "not deleted"
 	}
@@ -385,7 +409,7 @@ func (m Model) submit(kind inputKind, value string) (Model, tea.Cmd) {
 		if len(add)+len(remove) == 0 {
 			return m, nil
 		}
-		return m.enqueue(newTagReq(m.inputTarget, add, remove, "tags changed"))
+		return m.enqueueAction(newTagReq(m.inputTargets, add, remove, "tags changed"))
 	case inputPalette:
 		return m.command(value)
 	case inputLinkNumber:
@@ -397,7 +421,7 @@ func (m Model) submit(kind inputKind, value string) (Model, tea.Cmd) {
 		}
 	case inputSaveDir:
 		if value != "" {
-			return m, m.saveAttachments(m.inputTarget, value)
+			return m, m.saveAttachments(m.inputTargets[0], value)
 		}
 	case inputAttach:
 		if value != "" {
@@ -422,6 +446,13 @@ func (m Model) command(line string) (Model, tea.Cmd) {
 	case "inbox":
 		return m.goTo(queryInbox)
 	case "tag", "t":
+		// Like t: the marked messages, or the selected one, as of now.
+		targets, ok := m.actionTargets()
+		if !ok {
+			m.notice = "no message to tag"
+			return m, nil
+		}
+		m.inputTargets = targets
 		return m.submit(inputTags, arg)
 	case "archive":
 		return m.messageAction("e")

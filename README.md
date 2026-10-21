@@ -39,6 +39,9 @@ recipients, a sender that is not yours, an attachment you mention but forgot, a 
 
 ![The undo countdown after sending a reply](docs/images/sending.svg)
 
+**Clear the inbox in bulk.** `x` marks messages (`V` marks as you move, `*` the whole view); `e`,
+`#`, `u`, `s`, `t` and `D` then act on all of them at once, and one `z` undoes it.
+
 **Every key on one page** (`?`):
 
 ![The help screen](docs/images/help.svg)

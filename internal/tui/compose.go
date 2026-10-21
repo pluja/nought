@@ -93,6 +93,10 @@ func (m Model) startDraft(key string) (Model, tea.Cmd) {
 	if key != "c" && !ok || m.startingDraft {
 		return m, nil // one draft at a time: a quick second r is ignored
 	}
+	if key != "c" && len(m.marked) > 0 {
+		m.notice = "replies and forwards take one message (Esc clears the marks)"
+		return m, nil
+	}
 	m.startingDraft = true
 	ctx, env := m.ctx, m.env
 	return m, func() tea.Msg {
