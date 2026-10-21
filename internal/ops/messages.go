@@ -256,13 +256,21 @@ func resolve(ctx context.Context, env *Env, account, id string) (index.Message, 
 	return m, nil
 }
 
-// TagIn changes tags on every message matching a query.
+// MessageRef names one message: its id, as nou shows it, in an account.
+type MessageRef struct {
+	ID      string `json:"id"`
+	Account string `json:"account"`
+}
+
+// TagIn changes tags on every message matching a query, or on exactly the
+// messages listed (a batch; the trash included, as for a bare id).
 type TagIn struct {
-	Query   string   `json:"query"`
-	Account string   `json:"account,omitempty"` // narrows a bare message id
-	Add     []string `json:"add,omitempty"`
-	Remove  []string `json:"remove,omitempty"`
-	DryRun  bool     `json:"dry_run,omitempty"`
+	Query    string       `json:"query,omitempty"`
+	Account  string       `json:"account,omitempty"` // narrows a bare message id
+	Messages []MessageRef `json:"messages,omitempty"`
+	Add      []string     `json:"add,omitempty"`
+	Remove   []string     `json:"remove,omitempty"`
+	DryRun   bool         `json:"dry_run,omitempty"`
 }
 
 // TagOut reports what changed.
@@ -320,7 +328,7 @@ func runTag(ctx context.Context, env *Env, in TagIn) (out TagOut, err error) {
 	if err != nil {
 		return out, err
 	}
-	q, err := queryOrID(ctx, env, in.Query, in.Account)
+	each, err := selection(ctx, env, in.Query, in.Account, in.Messages)
 	if err != nil {
 		return out, err
 	}
@@ -342,7 +350,7 @@ func runTag(ctx context.Context, env *Env, in TagIn) (out TagOut, err error) {
 
 	var flagErrs []error
 	var moves []index.Message // into or out of the transient store
-	err = ix.Each(ctx, q, func(page []index.Message) error {
+	err = each(func(page []index.Message) error {
 		var ids []int64
 		var changed []index.Message
 		for _, m := range page {
@@ -570,4 +578,50 @@ func withoutTrash(q query.Query) query.Query {
 	}
 	q.Groups = append(q.Groups, []query.Term{{Field: query.Tag, Value: TagDeleted, Not: true}})
 	return q
+}
+
+// namedPage is how many named messages an action handles at a time.
+const namedPage = 1000
+
+// selection walks, a page at a time, the messages an action applies to: a
+// query's matches, or exactly the messages named. Named ones are all
+// resolved first, so an unknown id changes nothing.
+func selection(ctx context.Context, env *Env, q, account string, refs []MessageRef) (func(func([]index.Message) error) error, error) {
+	ix, err := env.Index(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(refs) == 0 {
+		parsed, err := queryOrID(ctx, env, q, account)
+		if err != nil {
+			return nil, err
+		}
+		return func(fn func([]index.Message) error) error { return ix.Each(ctx, parsed, fn) }, nil
+	}
+	switch {
+	case q != "" || account != "":
+		return nil, usageError("give a query or a list of messages, not both")
+	case len(refs) > index.MaxLimit:
+		return nil, usageError("at most %d messages at once", index.MaxLimit)
+	}
+	msgs := make([]index.Message, 0, len(refs))
+	seen := map[int64]bool{}
+	for _, r := range refs {
+		m, err := resolve(ctx, env, r.Account, r.ID)
+		if err != nil {
+			return nil, err
+		}
+		if !seen[m.ID] {
+			seen[m.ID] = true
+			msgs = append(msgs, m)
+		}
+	}
+	return func(fn func([]index.Message) error) error {
+		for page := range slices.Chunk(msgs, namedPage) {
+			if err := fn(page); err != nil {
+				return err
+			}
+		}
+		return nil
+	}, nil
 }

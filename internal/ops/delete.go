@@ -215,10 +215,10 @@ func purgeOf(ctx context.Context, env *Env, keys []string) (purged, pending int,
 	return purged, pending, err
 }
 
-// matchingKeys lists the messages a query matches.
-func matchingKeys(ctx context.Context, ix *index.Index, q query.Query) ([]string, error) {
+// matchingKeys lists the messages an action applies to.
+func matchingKeys(each func(func([]index.Message) error) error) ([]string, error) {
 	var keys []string
-	err := ix.Each(ctx, q, func(page []index.Message) error {
+	err := each(func(page []index.Message) error {
 		for _, m := range page {
 			keys = append(keys, messageKey(m))
 		}
@@ -227,10 +227,12 @@ func matchingKeys(ctx context.Context, ix *index.Index, q query.Query) ([]string
 	return keys, err
 }
 
-// DeleteIn selects messages to delete.
+// DeleteIn selects messages to delete: a query's matches, or exactly the
+// messages listed.
 type DeleteIn struct {
-	Query   string `json:"query"`
-	Account string `json:"account,omitempty"` // narrows a bare message id
+	Query    string       `json:"query,omitempty"`
+	Account  string       `json:"account,omitempty"` // narrows a bare message id
+	Messages []MessageRef `json:"messages,omitempty"`
 	// Now deletes for good at once instead of moving to the trash.
 	Now    bool `json:"now,omitempty"`
 	DryRun bool `json:"dry_run,omitempty"`
@@ -257,7 +259,8 @@ var MsgDelete = Op[DeleteIn, DeleteOut]{
 			return DeleteOut{}, err
 		}
 		if !in.Now || in.DryRun {
-			tag, err := runTag(ctx, env, TagIn{Query: in.Query, Account: in.Account, DryRun: in.DryRun, Add: add, Remove: remove})
+			tag, err := runTag(ctx, env, TagIn{Query: in.Query, Account: in.Account, Messages: in.Messages,
+				DryRun: in.DryRun, Add: add, Remove: remove})
 			return DeleteOut{Matched: tag.Matched, DryRun: in.DryRun}, err
 		}
 		release, err := acquireLock(env)
@@ -265,19 +268,15 @@ var MsgDelete = Op[DeleteIn, DeleteOut]{
 			return DeleteOut{}, err
 		}
 		defer release()
-		ix, err := env.Index(ctx)
+		each, err := selection(ctx, env, in.Query, in.Account, in.Messages)
 		if err != nil {
 			return DeleteOut{}, err
 		}
-		q, err := queryOrID(ctx, env, in.Query, in.Account)
+		keys, err := matchingKeys(each)
 		if err != nil {
 			return DeleteOut{}, err
 		}
-		keys, err := matchingKeys(ctx, ix, q)
-		if err != nil {
-			return DeleteOut{}, err
-		}
-		tag, err := runTag(ctx, env, TagIn{Query: in.Query, Account: in.Account, Add: add, Remove: remove})
+		tag, err := runTag(ctx, env, TagIn{Query: in.Query, Account: in.Account, Messages: in.Messages, Add: add, Remove: remove})
 		out := DeleteOut{Matched: tag.Matched}
 		if err != nil {
 			return out, err
