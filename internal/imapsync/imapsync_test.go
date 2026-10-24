@@ -677,3 +677,25 @@ func TestNilBodyIsNotACrash(t *testing.T) {
 		t.Errorf("Headers with a NIL header = %v, %v; want none", headers, err)
 	}
 }
+
+// A server that answers NO to fetching one message (it cannot read it)
+// says the message is unavailable, so sync can carry on with the others;
+// a broken connection is not.
+func TestServerNoIsUnavailable(t *testing.T) {
+	srv, client := fakeServer(t, func(w io.Writer, tag, line string) {
+		if strings.Contains(line, "FETCH") {
+			_, _ = io.WriteString(w, tag+" NO [SERVERBUG] cannot read that message\r\n")
+		}
+	})
+	c, err := Dial(t.Context(), srv, client, "u", "p", 5*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = c.Close() }()
+	if _, err := c.Select("INBOX", false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Fetch(1, 1000); !errors.Is(err, ErrUnavailable) {
+		t.Errorf("Fetch answered NO = %v, want ErrUnavailable", err)
+	}
+}

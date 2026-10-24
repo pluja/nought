@@ -3,11 +3,10 @@
 package ops
 
 import (
-	"errors"
+	"bytes"
 	"regexp"
 	"slices"
 	"strconv"
-	"strings"
 	"testing"
 
 	"github.com/pluja/nought/internal/imaptest"
@@ -68,8 +67,9 @@ func TestIncompleteListAppliesNothing(t *testing.T) {
 	}
 }
 
-// emptyBodies makes the server send every message body as empty.
-func emptyBodies(srv *imaptest.Server) {
+// emptyBodies makes the server send as empty the bodies that contain
+// marker.
+func emptyBodies(srv *imaptest.Server, marker string) {
 	re := regexp.MustCompile(`BODY\[\] \{(\d+)\}\r\n`)
 	srv.RewriteResponses(func(p []byte) []byte {
 		var out []byte
@@ -79,26 +79,39 @@ func emptyBodies(srv *imaptest.Server) {
 				return append(out, p...)
 			}
 			n, _ := strconv.Atoi(string(p[loc[2]:loc[3]]))
-			out = append(append(out, p[:loc[0]]...), "BODY[] {0}\r\n"...)
-			p = p[min(loc[1]+n, len(p)):]
+			end := min(loc[1]+n, len(p))
+			if !bytes.Contains(p[loc[1]:end], []byte(marker)) {
+				out = append(out, p[:end]...)
+			} else {
+				out = append(append(out, p[:loc[0]]...), "BODY[] {0}\r\n"...)
+			}
+			p = p[end:]
 		}
 	})
 }
 
-// An empty body from the server is a failed fetch, tried again by the next
-// sync: skipped, the message would never be archived (the folder's cursor
-// moves past it), though it stays on the server.
-func TestEmptyMessageIsFetchedAgain(t *testing.T) {
+// Review: a message the server would not send (an empty body here; NO or
+// no data alike) either stopped its folder at every sync, holding up all
+// the mail after it, or was skipped for good. It is remembered like an
+// oversized one: the rest is archived, the note comes back at every sync,
+// and it is archived once the server sends it.
+func TestUnsentMessageDoesNotHoldUpTheFolder(t *testing.T) {
 	env, srv := syncEnv(t, imaptest.Options{}, true)
-	srv.Append(t, "INBOX", mail("old@x", "old"), daysAgo(env, 30))
-	emptyBodies(srv)
-	out, err := Call(t.Context(), env, Delete, SyncRun, SyncIn{})
-	if !errors.Is(err, ErrPartial) || !strings.Contains(folder(t, out, "INBOX").Error, "empty message") || len(search(t, env, "")) != 0 {
-		t.Fatalf("sync = %+v, %v, archive %v", out, err, search(t, env, ""))
+	srv.Append(t, "INBOX", mail("bad@x", "bad one"), daysAgo(env, 30))
+	srv.Append(t, "INBOX", mail("good@x", "good one"), daysAgo(env, 0))
+	emptyBodies(srv, "bad one")
+	for range 2 {
+		out := runSyncOK(t, env, SyncIn{})
+		if n := countNotes(folder(t, out, "INBOX"), "did not send it"); n != 1 {
+			t.Fatalf("%d notes: %+v", n, out)
+		}
+		if got := search(t, env, ""); !slices.Equal(got, []string{"good one"}) {
+			t.Fatalf("archive %v", got)
+		}
 	}
 	srv.RewriteResponses(nil)
-	runSyncOK(t, env, SyncIn{})
-	if got := search(t, env, ""); !slices.Equal(got, []string{"old"}) {
-		t.Errorf("once the server sends it, the archive has %v", got)
+	out := runSyncOK(t, env, SyncIn{})
+	if got := search(t, env, ""); len(got) != 2 || hasNote(out, "did not send it") {
+		t.Errorf("once the server sends it: archive %v, %+v", got, out)
 	}
 }

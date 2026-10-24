@@ -55,6 +55,9 @@ var (
 	ErrNoUIDPlus = errors.New("server does not support UIDPLUS (UID EXPUNGE)")
 	// ErrTooLarge means a message body exceeded the limit and was skipped.
 	ErrTooLarge = errors.New("message larger than the limit")
+	// ErrUnavailable means the server answered NO to fetching one message
+	// (it could not read it), as opposed to a failed connection.
+	ErrUnavailable = errors.New("the server would not send the message")
 )
 
 // Conn is an authenticated IMAP connection.
@@ -441,6 +444,9 @@ func (c *Conn) Fetch(uid uint32, limit int64) ([]byte, error) {
 		}
 	}
 	if err := cmd.Close(); err != nil {
+		if _, refused := errors.AsType[*imap.Error](err); refused {
+			return nil, fmt.Errorf("fetch uid %d: %w: %w", uid, ErrUnavailable, err)
+		}
 		return nil, fmt.Errorf("fetch uid %d: %w", uid, err)
 	}
 	if tooLarge {

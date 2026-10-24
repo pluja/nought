@@ -42,9 +42,10 @@ func fetchInfos(ctx context.Context, env *Env, ix *index.Index, conn *imapsync.C
 			return err
 		}
 		err := fetchMessage(ctx, env, ix, conn, account, f, st.UIDValidity, info, incremental, limit, out)
-		if errors.Is(err, errTooLarge) {
-			// Remembered, so every sync reports it while it is there.
-			out.Notes = append(out.Notes, tooLargeNote(info, limit))
+		if note, ok := skipNote(err, info, limit); ok {
+			// Remembered, so every sync tries it again and reports it
+			// while it is there, and the cursor moves on to the rest.
+			out.Notes = append(out.Notes, note)
 			err = ix.RecordSkipped(ctx, account, f.Raw, st.UIDValidity, info.UID, info.Size)
 		}
 		if err != nil {
@@ -58,9 +59,9 @@ func fetchInfos(ctx context.Context, env *Env, ix *index.Index, conn *imapsync.C
 	return nil
 }
 
-// retrySkipped reports, at every sync, the folder's messages left on the
-// server for their size, and fetches those the limit now allows. Ones gone
-// from the server are forgotten. The cursor stays where it is.
+// retrySkipped tries again, at every sync, the folder's messages left on
+// the server (too large, or not sent by it), and reports those still left.
+// Ones gone from the server are forgotten. The cursor stays where it is.
 func retrySkipped(ctx context.Context, env *Env, ix *index.Index, conn *imapsync.Conn, account string,
 	f imapsync.Folder, uidValidity uint32, out *FolderSyncOut) error {
 	skipped, err := ix.Skipped(ctx, account, f.Raw, uidValidity)
@@ -85,8 +86,8 @@ func retrySkipped(ctx context.Context, env *Env, ix *index.Index, conn *imapsync
 			// Not incremental: the message was never archived, so it
 			// cannot be a move back to the inbox.
 			err = fetchMessage(ctx, env, ix, conn, account, f, uidValidity, info, false, limit, out)
-			if errors.Is(err, errTooLarge) {
-				out.Notes = append(out.Notes, tooLargeNote(info, limit))
+			if note, ok := skipNote(err, info, limit); ok {
+				out.Notes = append(out.Notes, note)
 				continue
 			}
 			if err != nil {
@@ -101,14 +102,11 @@ func retrySkipped(ctx context.Context, env *Env, ix *index.Index, conn *imapsync
 }
 
 // fetchMessage archives one message and records its server copy. It
-// returns errTooLarge, archiving nothing, for a message over the limit.
+// returns errTooLarge or errUnavailable, archiving nothing, for a message
+// over the limit or one the server did not send.
 func fetchMessage(ctx context.Context, env *Env, ix *index.Index, conn *imapsync.Conn, account string,
 	f imapsync.Folder, uidValidity uint32, info imapsync.MessageInfo, incremental bool, limit int64, out *FolderSyncOut) error {
 	raw, err := fetchOne(conn, info, limit)
-	if errors.Is(err, errSkip) {
-		out.Notes = append(out.Notes, fmt.Sprintf("uid %d: %v; left on the server", info.UID, err))
-		return nil
-	}
 	if err != nil {
 		return err
 	}
@@ -153,8 +151,10 @@ func fetchMessage(ctx context.Context, env *Env, ix *index.Index, conn *imapsync
 }
 
 var (
-	errSkip     = errors.New("skipped")
 	errTooLarge = errors.New("larger than max_message_mb")
+	// errUnavailable: the server did not send a message it lists (it
+	// answered NO, sent no data, or an empty body).
+	errUnavailable = errors.New("the server did not send it")
 )
 
 func fetchOne(conn *imapsync.Conn, info imapsync.MessageInfo, limit int64) ([]byte, error) {
@@ -162,23 +162,26 @@ func fetchOne(conn *imapsync.Conn, info imapsync.MessageInfo, limit int64) ([]by
 		return nil, errTooLarge
 	}
 	raw, err := conn.Fetch(info.UID, limit)
-	if errors.Is(err, imapsync.ErrTooLarge) { // the server understated its size
+	switch {
+	case errors.Is(err, imapsync.ErrTooLarge): // the server understated its size
 		return nil, errTooLarge
-	}
-	if errors.Is(err, imapsync.ErrGone) {
-		return nil, fmt.Errorf("%w: deleted on the server meanwhile", errSkip)
-	}
-	if err == nil && len(raw) == 0 {
-		// Not a skip: the cursor would move past the message, and it would
-		// never be archived.
-		return nil, fmt.Errorf("uid %d: the server sent an empty message; the next sync tries again", info.UID)
+	case errors.Is(err, imapsync.ErrUnavailable), errors.Is(err, imapsync.ErrGone), err == nil && len(raw) == 0:
+		return nil, errUnavailable
 	}
 	return raw, err
 }
 
-func tooLargeNote(info imapsync.MessageInfo, limit int64) string {
-	return fmt.Sprintf("uid %d (%d MiB) is larger than max_message_mb (%d); left on the server until the limit allows it",
-		info.UID, (info.Size+1<<20-1)>>20, limit>>20)
+// skipNote says why a message is left on the server, if err is one that
+// leaves it there to be tried again (rather than a failed connection).
+func skipNote(err error, info imapsync.MessageInfo, limit int64) (string, bool) {
+	switch {
+	case errors.Is(err, errTooLarge):
+		return fmt.Sprintf("uid %d (%d MiB) is larger than max_message_mb (%d); left on the server until the limit allows it",
+			info.UID, (info.Size+1<<20-1)>>20, limit>>20), true
+	case errors.Is(err, errUnavailable):
+		return fmt.Sprintf("uid %d: the server did not send it; left on the server, tried again at every sync", info.UID), true
+	}
+	return "", false
 }
 
 // maxMessageBytes is the largest message fetched: each is held in memory
