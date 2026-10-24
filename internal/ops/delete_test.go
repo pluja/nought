@@ -379,3 +379,34 @@ func TestTagCountsMatchWhatSearchShows(t *testing.T) {
 		}
 	}
 }
+
+// Review: purge worked from the list it took at the start, so a message
+// restored while it ran (restore takes no lock) was deleted anyway. Each
+// one is checked again just before its file goes.
+func TestPurgeSkipsWhatWasRestoredMeanwhile(t *testing.T) {
+	env := newTestEnv(t)
+	importSample(t, env)
+	if _, err := Call(t.Context(), env, Delete, MsgDelete, DeleteIn{Query: `subject:"read one"`}); err != nil {
+		t.Fatal(err)
+	}
+	later := env.Now().AddDate(0, 0, 60)
+	env.Now = func() time.Time { return later }
+	ix, err := env.Index(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	due, err := ix.PurgeDue(t.Context(), later.UTC().Format(dateLayout))
+	if err != nil || len(due) != 1 {
+		t.Fatalf("due = %d, %v", len(due), err)
+	}
+	if _, err := Call(t.Context(), env, Tag, MsgRestore, RestoreIn{Query: "tag:deleted"}); err != nil {
+		t.Fatal(err)
+	}
+	purged, err := purgeMessages(t.Context(), env, ix, due)
+	if err != nil || len(purged) != 0 {
+		t.Errorf("purged %v, %v", purged, err)
+	}
+	if got := search(t, env, `subject:"read one"`); len(got) != 1 {
+		t.Errorf("the restored message is gone: %v", got)
+	}
+}

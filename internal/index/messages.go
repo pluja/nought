@@ -250,3 +250,16 @@ func (ix *Index) PurgeDue(ctx context.Context, today string) ([]Message, error) 
 	return ix.selectMessages(ctx, `m.id IN (SELECT t.message_id FROM tags t
 		WHERE `+dueTag+`)`, []any{today}, "m.id", MaxLimit)
 }
+
+// StillDue reports whether a message's delete-after date is still today or
+// earlier: a purge checks again just before deleting, as the message may
+// have been restored since it was listed.
+func (ix *Index) StillDue(ctx context.Context, id int64, today string) (bool, error) {
+	var due bool
+	err := ix.db.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM tags t
+		WHERE t.message_id = ? AND `+dueTag+`)`, id, today).Scan(&due)
+	if err != nil {
+		return false, fmt.Errorf("check purge date: %w", err)
+	}
+	return due, nil
+}

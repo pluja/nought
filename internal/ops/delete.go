@@ -169,9 +169,24 @@ func purge(ctx context.Context, env *Env) (map[string]bool, error) {
 	if err != nil {
 		return nil, err
 	}
+	return purgeMessages(ctx, env, ix, due)
+}
+
+// purgeMessages deletes the due messages listed. Each is checked again
+// just before its file goes: restoring takes no lock, so a message may
+// have been restored since it was listed.
+func purgeMessages(ctx context.Context, env *Env, ix *index.Index, due []index.Message) (map[string]bool, error) {
+	today := env.Now().UTC().Format(dateLayout)
 	purged := map[string]bool{}
 	var errs []error
 	for _, m := range due {
+		still, err := ix.StillDue(ctx, m.ID, today)
+		if err != nil {
+			return purged, err
+		}
+		if !still {
+			continue
+		}
 		on, err := ix.OnServer(ctx, m.Account, []string{m.Hash})
 		if err != nil {
 			return purged, err

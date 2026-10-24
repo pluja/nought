@@ -618,3 +618,22 @@ func TestCommitsAreDurable(t *testing.T) {
 		t.Errorf("synchronous = %d (%v), want 2 (FULL)", level, err)
 	}
 }
+
+func TestStillDue(t *testing.T) {
+	ix, _ := openIndex(t)
+	id := add(t, ix, Message{Account: "a", Hash: hash(1), Subject: "x", Tags: []string{"deleted", "delete-after:2026-10-01"}}, "")
+	for _, c := range []struct {
+		today string
+		want  bool
+	}{{"2026-09-30", false}, {"2026-10-01", true}, {"2026-10-20", true}} {
+		if got, err := ix.StillDue(t.Context(), id, c.today); err != nil || got != c.want {
+			t.Errorf("StillDue on %s = %v, %v", c.today, got, err)
+		}
+	}
+	if err := ix.ModifyTags(t.Context(), []int64{id}, nil, []string{"deleted", "delete-after:2026-10-01"}); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := ix.StillDue(t.Context(), id, "2026-10-20"); err != nil || got {
+		t.Errorf("restored message still due: %v, %v", got, err)
+	}
+}
