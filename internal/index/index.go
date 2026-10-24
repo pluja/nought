@@ -33,8 +33,11 @@ type Index struct {
 
 // pragmas are fixed: they are applied by the driver to every connection.
 // busy_timeout comes first so it already applies while switching to WAL.
+// synchronous=FULL makes each commit durable: the tag dump is rewritten
+// from the index, so an index rolled back by a power cut would lose tags
+// the dump already had. Commits are few and small, so it costs little.
 const pragmas = "?_pragma=busy_timeout(10000)&_pragma=journal_mode(WAL)" +
-	"&_pragma=foreign_keys(1)&_pragma=synchronous(NORMAL)&_txlock=immediate"
+	"&_pragma=foreign_keys(1)&_pragma=synchronous(FULL)&_txlock=immediate"
 
 // registerFold gives SQLite fold(), lower() for every script: SQLite's
 // own folds ASCII only, so subject:ärger missed "ÄRGER". SQLite's function

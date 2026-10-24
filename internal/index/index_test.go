@@ -607,3 +607,14 @@ func TestEachIsStableWhileTagsChange(t *testing.T) {
 		t.Error("a cancelled context did not stop it")
 	}
 }
+
+// Review: with synchronous=NORMAL in WAL mode, a power cut could roll the
+// index back past commits the tag dump already had; the next dump, written
+// from the stale index, lost those tags. Every commit is durable.
+func TestCommitsAreDurable(t *testing.T) {
+	ix, _ := openIndex(t)
+	var level int
+	if err := ix.db.QueryRowContext(t.Context(), "PRAGMA synchronous").Scan(&level); err != nil || level != 2 {
+		t.Errorf("synchronous = %d (%v), want 2 (FULL)", level, err)
+	}
+}
