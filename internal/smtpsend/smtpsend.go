@@ -43,6 +43,11 @@ type Envelope struct {
 // whole transaction.
 func Send(ctx context.Context, srv config.Server, base *tls.Config, user, password string,
 	env Envelope, raw []byte, timeout time.Duration) error {
+	// go-smtp clears the connection's deadline after each command, so the
+	// deadline set when dialing does not hold; closing the connection when
+	// this context ends does.
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
 	c, err := dial(ctx, srv, base, timeout)
 	if err != nil {
 		return err

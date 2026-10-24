@@ -37,6 +37,7 @@ type Options struct {
 	FailData   int    // DATA fails with this SMTP code (4xx or 5xx)
 	MaxSize    int64  // advertised SIZE limit
 	DropData   bool   // accept DATA, then drop the connection before replying
+	Stall      bool   // accept DATA, then never reply (until the server closes)
 	// User and Password are the accepted credentials (default: the
 	// package's User and Password).
 	User, Password string
@@ -63,6 +64,8 @@ type Server struct {
 	failData atomic.Int64
 	srv      *smtp.Server
 	starttls bool
+	stop     chan struct{} // closed by Close: stalled sessions end
+	stopOnce sync.Once
 }
 
 // Start runs a server until the test ends.
@@ -70,7 +73,8 @@ func Start(t testing.TB, opts Options) *Server {
 	t.Helper()
 	cert, client := imaptest.Certificate(t)
 	s := &Server{Host: "127.0.0.1", Client: client, opts: opts, starttls: opts.StartTLS || opts.NoStartTLS,
-		CAPEM: pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: cert.Certificate[0]})}
+		CAPEM: pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: cert.Certificate[0]}),
+		stop:  make(chan struct{})}
 	s.failData.Store(int64(opts.FailData))
 	s.srv = smtp.NewServer(backend{s})
 	s.srv.Domain = "smtptest"
@@ -119,7 +123,10 @@ func (s *Server) Messages() []Received {
 func (s *Server) SetFailData(code int) { s.failData.Store(int64(code)) }
 
 // Close stops the server (to test sending while offline).
-func (s *Server) Close() { _ = s.srv.Close() }
+func (s *Server) Close() {
+	s.stopOnce.Do(func() { close(s.stop) })
+	_ = s.srv.Close()
+}
 
 type backend struct{ s *Server }
 
@@ -176,6 +183,9 @@ func (ss *session) Data(r io.Reader) error {
 	ss.s.mu.Unlock()
 	if ss.s.opts.DropData { // the message is taken, but the client never hears so
 		_ = ss.conn.Conn().Close()
+	}
+	if ss.s.opts.Stall {
+		<-ss.s.stop
 	}
 	return nil
 }

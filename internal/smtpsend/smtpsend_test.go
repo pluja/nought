@@ -93,3 +93,25 @@ func TestSendRefusesUntrustedCertificate(t *testing.T) {
 		t.Errorf("untrusted certificate: %v", err)
 	}
 }
+
+// Review: go-smtp clears the connection's deadline after each command, so
+// a server that took the message and never answered held the send, and
+// the outbox lock, for minutes. The timeout bounds the whole transaction;
+// the outcome is then unknown (it may have been delivered), never retried
+// by itself.
+func TestStalledServerTimesOut(t *testing.T) {
+	srv := smtptest.Start(t, smtptest.Options{Stall: true})
+	done := make(chan error, 1)
+	go func() {
+		done <- Send(t.Context(), srv.Config(), srv.Client, smtptest.User, smtptest.Password,
+			Envelope{From: "me@example.org", To: []string{"a@example.org"}}, []byte("x\r\n"), 500*time.Millisecond)
+	}()
+	select {
+	case err := <-done:
+		if !errors.Is(err, ErrUnknown) {
+			t.Errorf("stalled server = %v, want ErrUnknown", err)
+		}
+	case <-time.After(20 * time.Second):
+		t.Fatal("a stalled server held the send")
+	}
+}
