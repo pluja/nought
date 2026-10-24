@@ -426,20 +426,14 @@ func (c *Conn) Fetch(uid uint32, limit int64) ([]byte, error) {
 			case imapclient.FetchItemDataUID:
 				msgUID = uint32(item.UID)
 			case imapclient.FetchItemDataBodySection:
-				b, err := io.ReadAll(io.LimitReader(item.Literal, limit+1))
+				b, over, err := readLiteral(item.Literal, limit)
 				if err != nil {
 					return nil, fmt.Errorf("fetch uid %d: %w", uid, err)
 				}
-				if int64(len(b)) > limit {
-					// Drain the rest so the protocol stays in step; the
-					// deadlines bound how long a hostile server can stream.
-					if _, err := io.Copy(io.Discard, item.Literal); err != nil {
-						return nil, fmt.Errorf("fetch uid %d: %w", uid, err)
-					}
-					tooLarge = true
-					continue
+				tooLarge = tooLarge || over
+				if !over {
+					msgBody = b
 				}
-				msgBody = b
 			}
 		}
 		if msgUID == uid && msgBody != nil {
@@ -558,17 +552,13 @@ func (c *Conn) Headers(uids []uint32) (map[uint32][]byte, error) {
 				case imapclient.FetchItemDataUID:
 					uid = uint32(item.UID)
 				case imapclient.FetchItemDataBodySection:
-					b, err := io.ReadAll(io.LimitReader(item.Literal, maxHeader+1))
+					b, over, err := readLiteral(item.Literal, maxHeader)
 					if err != nil {
 						return nil, errors.Join(fmt.Errorf("fetch headers: %w", err), cmd.Close())
 					}
-					if len(b) > maxHeader {
-						if _, err := io.Copy(io.Discard, item.Literal); err != nil {
-							return nil, errors.Join(fmt.Errorf("fetch headers: %w", err), cmd.Close())
-						}
-						b = nil
+					if !over && len(b) > 0 { // NIL or too large: no header to compare
+						header = b
 					}
-					header = b
 				}
 			}
 			if header != nil && slices.Contains(batch, uid) {
@@ -580,4 +570,25 @@ func (c *Conn) Headers(uids []uint32) (map[uint32][]byte, error) {
 		}
 	}
 	return out, nil
+}
+
+// readLiteral reads a fetched literal, up to limit bytes. A larger one is
+// drained, so the protocol stays in step (the deadlines bound how long a
+// hostile server can stream), and reported as over the limit. A nil one
+// (NIL: the server cannot read the message) is empty.
+func readLiteral(lit imap.LiteralReader, limit int64) (body []byte, over bool, err error) {
+	if lit == nil {
+		return []byte{}, false, nil
+	}
+	b, err := io.ReadAll(io.LimitReader(lit, limit+1))
+	if err != nil {
+		return nil, false, err
+	}
+	if int64(len(b)) <= limit {
+		return b, false, nil
+	}
+	if _, err := io.Copy(io.Discard, lit); err != nil {
+		return nil, false, err
+	}
+	return nil, true, nil
 }

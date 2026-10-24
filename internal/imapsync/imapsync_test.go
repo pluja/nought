@@ -649,3 +649,31 @@ func TestExistsTellsGoneFromUnavailable(t *testing.T) {
 		_ = c.Close()
 	}
 }
+
+// Review: a server answering BODY[] NIL (legal IMAP, for a message it
+// cannot read) crashed nou: the literal is nil. It is an empty body, and
+// a header that is NIL is no header.
+func TestNilBodyIsNotACrash(t *testing.T) {
+	srv, client := fakeServer(t, func(w io.Writer, tag, line string) {
+		switch {
+		case strings.Contains(line, "BODY.PEEK[HEADER]"):
+			_, _ = io.WriteString(w, "* 1 FETCH (UID 1 BODY[HEADER] NIL)\r\n"+tag+" OK done\r\n")
+		case strings.Contains(line, "BODY.PEEK[]"):
+			_, _ = io.WriteString(w, "* 1 FETCH (UID 1 BODY[] NIL)\r\n"+tag+" OK done\r\n")
+		}
+	})
+	c, err := Dial(t.Context(), srv, client, "u", "p", 5*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = c.Close() }()
+	if _, err := c.Select("INBOX", false); err != nil {
+		t.Fatal(err)
+	}
+	if body, err := c.Fetch(1, 1000); err != nil || len(body) != 0 {
+		t.Errorf("Fetch of a NIL body = %q, %v; want empty", body, err)
+	}
+	if headers, err := c.Headers([]uint32{1}); err != nil || len(headers) != 0 {
+		t.Errorf("Headers with a NIL header = %v, %v; want none", headers, err)
+	}
+}
