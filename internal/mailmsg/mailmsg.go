@@ -43,6 +43,14 @@ const (
 	maxField     = 2000    // runes kept of a header field such as Subject
 	maxAddresses = 200     // To + Cc addresses kept
 	maxMsgID     = 998     // RFC 5322 line length; longer IDs are ignored
+	// go-message keeps a header field in about a hundred times its size
+	// when fields are tiny: a hostile header of a few MiB took gigabytes.
+	// Real mail has dozens of fields; the rest of the header is dropped.
+	maxHeaderFields = 1000
+	maxFieldBytes   = 1 << 20 // DKIM and ARC fields, the longest in real mail, take kilobytes
+	maxHeaderBytes  = 8 << 20
+	maxListBytes    = 64 << 10 // of an address or Message-ID list parsed
+	maxReferences   = 50       // the first and the last ones (RFC 5322 3.6.4)
 )
 
 // readOptions lifts go-message's 1 MiB header limit: the raw message is
@@ -50,10 +58,66 @@ const (
 // must not hide every other field.
 var readOptions = &message.ReadOptions{MaxHeaderBytes: -1}
 
+// read parses raw, with its header bounded to maxHeaderFields fields.
+func read(raw []byte) (*message.Entity, error) {
+	return message.ReadWithOptions(bytes.NewReader(boundHeader(raw)), readOptions)
+}
+
+// boundHeader returns raw with a bounded header: at most maxHeaderFields
+// fields and maxHeaderBytes in all, none over maxFieldBytes. A field over
+// the limits is dropped, not the fields after it, so one huge field hides
+// nothing else. The body is kept as it is; most messages come back as
+// they are.
+func boundHeader(raw []byte) []byte {
+	type span struct{ start, end int }
+	var keep []span
+	total, dropped := 0, false
+	field := span{-1, -1}
+	closeField := func(end int) {
+		if field.start < 0 {
+			return
+		}
+		n := end - field.start
+		if len(keep) < maxHeaderFields && n <= maxFieldBytes && total+n <= maxHeaderBytes {
+			keep = append(keep, span{field.start, end})
+			total += n
+		} else {
+			dropped = true
+		}
+		field.start = -1
+	}
+	rest := len(raw) // where the body (with the blank line before it) starts
+	for i := 0; i < len(raw); {
+		end := len(raw)
+		if j := bytes.IndexByte(raw[i:], '\n'); j >= 0 {
+			end = i + j + 1
+		}
+		line := bytes.TrimRight(raw[i:end], "\r\n")
+		if len(line) == 0 {
+			rest = i
+			break
+		}
+		if line[0] != ' ' && line[0] != '\t' || field.start < 0 {
+			closeField(i)
+			field.start = i
+		}
+		i = end
+	}
+	closeField(rest)
+	if !dropped {
+		return raw
+	}
+	out := make([]byte, 0, total+len(raw)-rest)
+	for _, f := range keep {
+		out = append(out, raw[f.start:f.end]...)
+	}
+	return append(out, raw[rest:]...)
+}
+
 // Parse reads the header of raw. It returns whatever it could parse; a
 // non-nil error only explains what was skipped.
 func Parse(raw []byte) (Header, error) {
-	e, err := message.ReadWithOptions(bytes.NewReader(raw), readOptions)
+	e, err := read(raw)
 	if e == nil {
 		return Header{}, fmt.Errorf("parse header: %w", err)
 	}
@@ -80,7 +144,7 @@ func Parse(raw []byte) (Header, error) {
 	out.To = limit(addresses(h, "To"))
 	out.Cc = limit(addresses(h, "Cc"))
 	out.ReplyTo = limit(addresses(h, "Reply-To"))
-	out.References = msgIDs(h, "References")
+	out.References = firstAndLast(msgIDs(h, "References"), maxReferences)
 	if ids := msgIDs(h, "In-Reply-To"); len(ids) > 0 {
 		out.InReplyTo = ids[0]
 	}
@@ -98,9 +162,13 @@ func text(h mail.Header, key string) string {
 }
 
 func addresses(h mail.Header, key string) []string {
-	list, err := h.AddressList(key)
+	v := h.Get(key)
+	if len(v) > maxListBytes { // cut after the last whole address that fits
+		v = v[:max(strings.LastIndexByte(v[:maxListBytes], ','), 0)]
+	}
+	list, err := mail.ParseAddressList(v)
 	if err != nil || len(list) == 0 {
-		if v := text(h, key); v != "" {
+		if v := oneLine(v); v != "" {
 			return []string{v}
 		}
 		return nil
@@ -126,7 +194,9 @@ func formatAddress(a *mail.Address) string {
 	return oneLine(a.Name) + " <" + a.Address + ">"
 }
 
-func msgIDs(h mail.Header, key string) []string {
+func msgIDs(full mail.Header, key string) []string {
+	var h mail.Header
+	h.Set(key, headAndTail(full.Get(key), maxListBytes))
 	ids, err := h.MsgIDList(key)
 	if err != nil {
 		// Be lenient, but only with tokens that look like IDs, so prose
@@ -196,7 +266,7 @@ var errTooManyParts = errors.New("too many MIME parts")
 // attachments, decoded to UTF-8, plus a list of attachments.
 func Bodies(raw []byte) (Content, error) {
 	var c Content
-	e, err := message.ReadWithOptions(bytes.NewReader(raw), readOptions)
+	e, err := read(raw)
 	if e == nil {
 		return c, fmt.Errorf("parse message: %w", err)
 	}
@@ -255,7 +325,7 @@ const maxAttachmentBytes = 256 << 20
 // AttachmentData returns a message's attachments with their contents (to
 // forward them).
 func AttachmentData(raw []byte) ([]OutgoingAttachment, error) {
-	e, err := message.ReadWithOptions(bytes.NewReader(raw), readOptions)
+	e, err := read(raw)
 	if e == nil {
 		return nil, fmt.Errorf("parse message: %w", err)
 	}
@@ -315,4 +385,29 @@ func oneLine(s string) string {
 		s = string([]rune(s)[:maxField])
 	}
 	return s
+}
+
+// headAndTail keeps the start and the end of a long list of
+// space-separated items, at most limit bytes, cut between items.
+func headAndTail(v string, limit int) string {
+	if len(v) <= limit {
+		return v
+	}
+	head := v[:limit/2]
+	if i := strings.LastIndexByte(head, ' '); i >= 0 {
+		head = head[:i]
+	}
+	tail := v[len(v)-limit/2:]
+	if i := strings.IndexByte(tail, ' '); i >= 0 {
+		tail = tail[i:]
+	}
+	return head + tail
+}
+
+// firstAndLast keeps the first item and the last n-1 of a long list.
+func firstAndLast(list []string, n int) []string {
+	if len(list) <= n {
+		return list
+	}
+	return append(list[:1:1], list[len(list)-(n-1):]...)
 }
