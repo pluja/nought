@@ -6,7 +6,6 @@
 package mailmsg
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -57,62 +56,6 @@ const (
 // already in memory and size-limited by the caller, and a single huge header
 // must not hide every other field.
 var readOptions = &message.ReadOptions{MaxHeaderBytes: -1}
-
-// read parses raw, with its header bounded to maxHeaderFields fields.
-func read(raw []byte) (*message.Entity, error) {
-	return message.ReadWithOptions(bytes.NewReader(boundHeader(raw)), readOptions)
-}
-
-// boundHeader returns raw with a bounded header: at most maxHeaderFields
-// fields and maxHeaderBytes in all, none over maxFieldBytes. A field over
-// the limits is dropped, not the fields after it, so one huge field hides
-// nothing else. The body is kept as it is; most messages come back as
-// they are.
-func boundHeader(raw []byte) []byte {
-	type span struct{ start, end int }
-	var keep []span
-	total, dropped := 0, false
-	field := span{-1, -1}
-	closeField := func(end int) {
-		if field.start < 0 {
-			return
-		}
-		n := end - field.start
-		if len(keep) < maxHeaderFields && n <= maxFieldBytes && total+n <= maxHeaderBytes {
-			keep = append(keep, span{field.start, end})
-			total += n
-		} else {
-			dropped = true
-		}
-		field.start = -1
-	}
-	rest := len(raw) // where the body (with the blank line before it) starts
-	for i := 0; i < len(raw); {
-		end := len(raw)
-		if j := bytes.IndexByte(raw[i:], '\n'); j >= 0 {
-			end = i + j + 1
-		}
-		line := bytes.TrimRight(raw[i:end], "\r\n")
-		if len(line) == 0 {
-			rest = i
-			break
-		}
-		if line[0] != ' ' && line[0] != '\t' || field.start < 0 {
-			closeField(i)
-			field.start = i
-		}
-		i = end
-	}
-	closeField(rest)
-	if !dropped {
-		return raw
-	}
-	out := make([]byte, 0, total+len(raw)-rest)
-	for _, f := range keep {
-		out = append(out, raw[f.start:f.end]...)
-	}
-	return append(out, raw[rest:]...)
-}
 
 // Parse reads the header of raw. It returns whatever it could parse; a
 // non-nil error only explains what was skipped.
@@ -168,7 +111,9 @@ func addresses(h mail.Header, key string) []string {
 	}
 	list, err := mail.ParseAddressList(v)
 	if err != nil || len(list) == 0 {
-		if v := oneLine(v); v != "" {
+		var cut mail.Header
+		cut.Set(key, v)
+		if v := text(cut, key); v != "" {
 			return []string{v}
 		}
 		return nil
@@ -279,6 +224,7 @@ func Bodies(raw []byte) (Content, error) {
 			return err
 		}
 		if part.MultipartReader() != nil {
+			boundParts(part)
 			return nil
 		}
 		mediaType, filename, isAttachment := partKind(part)
@@ -340,6 +286,7 @@ func AttachmentData(raw []byte) ([]OutgoingAttachment, error) {
 			return err
 		}
 		if part.MultipartReader() != nil {
+			boundParts(part)
 			return nil
 		}
 		mediaType, filename, attachment := partKind(part)

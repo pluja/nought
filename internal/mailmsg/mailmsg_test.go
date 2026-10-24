@@ -228,3 +228,11 @@ func FuzzParse(f *testing.F) {
 		_ = NormalizeMessageID(string(raw))
 	})
 }
+
+// An address list that does not parse falls back to its decoded text.
+func TestUnparsableAddressesAreDecoded(t *testing.T) {
+	h, _ := Parse([]byte("To: =?UTF-8?Q?Caf=C3=A9?= <not an address\r\nSubject: s\r\n\r\nx"))
+	if len(h.To) != 1 || !strings.Contains(h.To[0], "Café") {
+		t.Errorf("To = %q, want the decoded text", h.To)
+	}
+}
