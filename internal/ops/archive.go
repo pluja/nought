@@ -58,7 +58,20 @@ func keep(ctx context.Context, env *Env, account string, raw []byte, flags strin
 	if err != nil {
 		return index.Message{}, false, err
 	}
-	return indexMessage(ctx, env, ix, account, raw, entry.Flags, tags)
+	m, created, err := indexMessage(ctx, env, ix, account, raw, entry.Flags, tags)
+	if err != nil || !created {
+		return m, created, err
+	}
+	// New to the index, yet already in a store: one its tags may not call
+	// for (a file left in the trash store by a crash or a lost index).
+	transient, err := env.Transient(account)
+	if err != nil {
+		return m, created, err
+	}
+	if (st == transient) != isTransient(m.Tags) {
+		err = placeFiles(env, []index.Message{m})
+	}
+	return m, created, err
 }
 
 // indexMessage adds a stored message to the index. Parsing is best effort:

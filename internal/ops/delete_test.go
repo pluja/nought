@@ -465,3 +465,29 @@ func TestPurgeRemovesEveryCopy(t *testing.T) {
 		t.Errorf("left after the purge: archive %v, transient %v", archive.Has(h), transient.Has(h))
 	}
 }
+
+// Review: keep wrote into the store already holding a message; when that
+// was the transient store for a file the index no longer knew (a crash, a
+// lost index), new mail stayed there, out of backups.
+func TestNewMailFoundInTheTrashStoreIsPlaced(t *testing.T) {
+	env := newTestEnv(t)
+	if _, err := env.Index(t.Context()); err != nil { // empty: opened before the file appears
+		t.Fatal(err)
+	}
+	raw := []byte(mail("1@x", "read one"))
+	transient, err := env.Transient("personal")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := transient.Put(raw, "S"); err != nil { // a file the index lost
+		t.Fatal(err)
+	}
+	importSample(t, env)
+	archive, err := env.Store("personal")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if h := store.Hash(raw); !archive.Has(h) || transient.Has(h) {
+		t.Errorf("archive %v, transient %v: want it in the archive only", archive.Has(h), transient.Has(h))
+	}
+}
