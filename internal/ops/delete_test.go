@@ -16,6 +16,7 @@ import (
 	"github.com/pluja/nought/internal/config"
 	"github.com/pluja/nought/internal/imaptest"
 	"github.com/pluja/nought/internal/query"
+	"github.com/pluja/nought/internal/store"
 )
 
 func files(t *testing.T, dir string) int {
@@ -408,5 +409,59 @@ func TestPurgeSkipsWhatWasRestoredMeanwhile(t *testing.T) {
 	}
 	if got := search(t, env, `subject:"read one"`); len(got) != 1 {
 		t.Errorf("the restored message is gone: %v", got)
+	}
+}
+
+// Review: a trashed message fetched again (the server reset the folder,
+// so it is fetched from the start) got a second file in the archive,
+// which backups take, and purge removed only one of the two: the other
+// came back on reindex.
+func TestTrashedMailFetchedAgainStaysInTheTrash(t *testing.T) {
+	env, srv := syncEnv(t, imaptest.Options{}, false)
+	srv.Append(t, "INBOX", mail("gone@x", "gone"), daysAgo(env, 0))
+	runSyncOK(t, env, SyncIn{})
+	if _, err := Call(t.Context(), env, Delete, MsgDelete, DeleteIn{Query: "subject:gone"}); err != nil {
+		t.Fatal(err)
+	}
+	srv.Recreate(t, "INBOX") // a new UIDVALIDITY: fetched again from the start
+	srv.Append(t, "INBOX", mail("gone@x", "gone"), daysAgo(env, 0))
+	runSyncOK(t, env, SyncIn{})
+	if got := search(t, env, "subject:gone tag:deleted"); len(got) != 1 {
+		t.Fatalf("no longer in the trash: %v", got)
+	}
+	hash := store.Hash([]byte(mail("gone@x", "gone")))
+	archive, err := env.Store("personal")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if archive.Has(hash) {
+		t.Error("a trashed message has a copy in the archive again")
+	}
+}
+
+// A purge removes a message from both stores, should it be in both.
+func TestPurgeRemovesEveryCopy(t *testing.T) {
+	env := newTestEnv(t)
+	importSample(t, env)
+	raw := []byte(mail("1@x", "read one"))
+	if _, err := Call(t.Context(), env, Delete, MsgDelete, DeleteIn{Query: `subject:"read one"`, Now: false}); err != nil {
+		t.Fatal(err)
+	}
+	archive, err := env.Store("personal")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := archive.Put(raw, "S"); err != nil { // a duplicate left by the bug above
+		t.Fatal(err)
+	}
+	if _, err := Call(t.Context(), env, Delete, TrashEmpty, TrashEmptyIn{}); err != nil {
+		t.Fatal(err)
+	}
+	transient, err := env.Transient("personal")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if h := store.Hash(raw); archive.Has(h) || transient.Has(h) {
+		t.Errorf("left after the purge: archive %v, transient %v", archive.Has(h), transient.Has(h))
 	}
 }

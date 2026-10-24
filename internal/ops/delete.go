@@ -81,6 +81,21 @@ func TrashTags(env *Env, now bool) (add, remove []string, err error) {
 	return []string{TagDeleted, deleteAfterTag(when)}, []string{TagInbox}, nil
 }
 
+// removeEverywhere removes a message's file from the archive and from the
+// transient store: a copy left in either would come back on reindex.
+func removeEverywhere(env *Env, m index.Message) error {
+	for _, open := range []func(string) (*store.Maildir, error){env.Store, env.Transient} {
+		st, err := open(m.Account)
+		if err != nil {
+			return err
+		}
+		if err := st.Remove(m.Hash); err != nil && !errors.Is(err, store.ErrNotFound) {
+			return err
+		}
+	}
+	return nil
+}
+
 // placeFiles moves message files between the archive and the transient
 // store so that deleted and expiring mail stays out of backups.
 func placeFiles(env *Env, msgs []index.Message) error {
@@ -194,11 +209,7 @@ func purgeMessages(ctx context.Context, env *Env, ix *index.Index, due []index.M
 		if len(on[m.Hash]) > 0 {
 			continue
 		}
-		st, err := env.locate(m.Account, m.Hash)
-		if err != nil {
-			return purged, err
-		}
-		if err := st.Remove(m.Hash); err != nil && !errors.Is(err, store.ErrNotFound) {
+		if err := removeEverywhere(env, m); err != nil {
 			errs = append(errs, err)
 			continue
 		}

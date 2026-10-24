@@ -43,7 +43,10 @@ func archive(ctx context.Context, env *Env, account string, raw []byte, flags st
 // keep stores and indexes a message without applying the rules: imported
 // mail is old mail, which rules (an expiry above all) must not touch.
 func keep(ctx context.Context, env *Env, account string, raw []byte, flags string, tags []string) (index.Message, bool, error) {
-	st, err := env.Store(account)
+	// Into the store that already holds it, if any: a trashed message
+	// fetched again must not get a second file in the archive (backed up,
+	// and missed by purge).
+	st, err := env.locate(account, store.Hash(raw))
 	if err != nil {
 		return index.Message{}, false, err
 	}
