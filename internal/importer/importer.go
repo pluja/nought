@@ -236,10 +236,13 @@ func mozillaStatus(raw []byte, flags string) (string, bool) {
 }
 
 // isFolderInternalData recognizes the pseudo-message some mail programs
-// (Pine, older Thunderbird) keep at the start of an mbox file.
+// (Pine, older Thunderbird) keep at the start of an mbox file: the mail
+// system's sender, the subject, and the folder data header together. A
+// subject alone would let anyone's mail with it be skipped.
 func isFolderInternalData(raw []byte) bool {
-	subject := headerValue(raw, "Subject")
-	return strings.Contains(subject, "FOLDER INTERNAL DATA")
+	return strings.Contains(headerValue(raw, "Subject"), "FOLDER INTERNAL DATA") &&
+		strings.Contains(strings.ToUpper(headerValue(raw, "From")), "MAILER-DAEMON") &&
+		(headerValue(raw, "X-IMAP") != "" || headerValue(raw, "X-IMAPbase") != "")
 }
 
 // firstHeader returns the value of the message's first header field if it

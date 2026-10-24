@@ -180,7 +180,12 @@ func TestMboxEdgeCases(t *testing.T) {
 		{"two messages lf", "From a@b x\nSubject: 1\n\nx\n\nFrom - x\nSubject: 2\n\ny\n", 2, false},
 		{"separator without blank line", "From a@b x\nSubject: 1\n\nx\nFrom b@c Tue Oct 14 09:30:00 2026\nSubject: 2\n\ny\n", 2, false},
 		{"body From after blank line is not a separator", "From a@b x\nSubject: 1\n\nx\n\nFrom here on\n", 1, false},
-		{"internal data message skipped", "From a@b x\nSubject: DON'T DELETE THIS MESSAGE -- FOLDER INTERNAL DATA\n\nx\n\nFrom MAILER-DAEMON x\nSubject: real\n\ny\n", 1, false},
+		{"internal data message skipped", "From MAILER-DAEMON x\nFrom: Mail System Internal Data <MAILER-DAEMON@host>\n" +
+			"Subject: DON'T DELETE THIS MESSAGE -- FOLDER INTERNAL DATA\nX-IMAP: 1234567890 0000000001\n\nx\n\n" +
+			"From MAILER-DAEMON x\nSubject: real\n\ny\n", 1, false},
+		// Review: any message with that subject was dropped from imports.
+		{"a real message with that subject is kept", "From a@b x\nFrom: Bob <bob@example.org>\n" +
+			"Subject: FOLDER INTERNAL DATA\n\nx\n", 1, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
