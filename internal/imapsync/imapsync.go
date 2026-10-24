@@ -444,7 +444,7 @@ func (c *Conn) Fetch(uid uint32, limit int64) ([]byte, error) {
 		}
 	}
 	if err := cmd.Close(); err != nil {
-		if _, refused := errors.AsType[*imap.Error](err); refused {
+		if messageRefused(err) {
 			return nil, fmt.Errorf("fetch uid %d: %w: %w", uid, ErrUnavailable, err)
 		}
 		return nil, fmt.Errorf("fetch uid %d: %w", uid, err)
@@ -576,6 +576,22 @@ func (c *Conn) Headers(uids []uint32) (map[uint32][]byte, error) {
 		}
 	}
 	return out, nil
+}
+
+// messageRefused reports whether a FETCH failed for the message itself (a
+// NO with no code, or one that names the message), rather than for the
+// folder or the server (in use, over quota, a limit), which stop the
+// folder until the next sync.
+func messageRefused(err error) bool {
+	e, ok := errors.AsType[*imap.Error](err)
+	if !ok {
+		return false
+	}
+	switch e.Code {
+	case "", imap.ResponseCodeServerBug, imap.ResponseCodeCorruption, imap.ResponseCodeNonExistent, "EXPUNGEISSUED":
+		return true
+	}
+	return false
 }
 
 // readLiteral reads a fetched literal, up to limit bytes. A larger one is

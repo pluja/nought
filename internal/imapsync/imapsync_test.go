@@ -699,3 +699,25 @@ func TestServerNoIsUnavailable(t *testing.T) {
 		t.Errorf("Fetch answered NO = %v, want ErrUnavailable", err)
 	}
 }
+
+// Review: a NO for the whole folder (in use, over quota) is not one
+// message the server cannot send: it stops the folder rather than mark
+// every message in it skipped.
+func TestFolderWideNoIsNotUnavailable(t *testing.T) {
+	srv, client := fakeServer(t, func(w io.Writer, tag, line string) {
+		if strings.Contains(line, "FETCH") {
+			_, _ = io.WriteString(w, tag+" NO [INUSE] mailbox in use, try later\r\n")
+		}
+	})
+	c, err := Dial(t.Context(), srv, client, "u", "p", 5*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = c.Close() }()
+	if _, err := c.Select("INBOX", false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Fetch(1, 1000); err == nil || errors.Is(err, ErrUnavailable) {
+		t.Errorf("Fetch answered NO [INUSE] = %v, want an error that is not ErrUnavailable", err)
+	}
+}
