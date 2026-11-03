@@ -61,6 +61,7 @@ func (m Model) helpGroups() (left, right []helpGroup) {
 			{"*", "mark the whole view"},
 			{"Esc", "clear the marks"},
 			{"e # D u s t", "in the list, act on all the marked ones; z undoes"},
+			{"", "marks stay for the next action, e.g. u then e"},
 		}},
 		{"Read", [][2]string{
 			{"Enter", "open (marks it read)"},

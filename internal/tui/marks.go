@@ -16,7 +16,8 @@ import (
 // Batch actions: x marks the selected message, V marks the messages the
 // cursor passes over, * marks the whole view. While any are marked, the
 // message actions (e u s # t D) apply to all of them at once; replies and
-// saving attachments still take one message. Marks belong to a view.
+// saving attachments still take one message. Marks belong to a view, and
+// last until Esc or until their messages leave it.
 
 // markAllMsg brings the whole view's messages for *.
 type markAllMsg struct {
@@ -204,7 +205,32 @@ func all(msgs []ops.MessageOut, ok func(ops.MessageOut) bool) bool {
 	return !slices.ContainsFunc(msgs, func(msg ops.MessageOut) bool { return !ok(msg) })
 }
 
-// enqueueAction runs an action's tag change; the marks it used are done.
+// enqueueAction runs an action's tag change. The marks stay for the next
+// action, with their copies changed too, except on messages that leave the
+// view.
 func (m Model) enqueueAction(req tagReq) (Model, tea.Cmd) {
-	return m.clearMarks().enqueue(req)
+	gone := m.leavesView(req)
+	m.ranging = false
+	m.marked = maps.Clone(m.marked)
+	for _, msg := range req.msgs {
+		k := keyOf(msg)
+		marked, ok := m.marked[k]
+		switch {
+		case !ok:
+		case gone:
+			delete(m.marked, k)
+		default:
+			marked.Tags = applyTagChange(marked.Tags, req.add, req.remove)
+			m.marked[k] = marked
+		}
+	}
+	return m.enqueue(req)
+}
+
+func (m Model) unmark(msgs []ops.MessageOut) Model {
+	m.marked = maps.Clone(m.marked)
+	for _, msg := range msgs {
+		delete(m.marked, keyOf(msg))
+	}
+	return m
 }

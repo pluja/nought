@@ -40,7 +40,9 @@ recipients, a sender that is not yours, an attachment you mention but forgot, a 
 ![The undo countdown after sending a reply](docs/images/sending.svg)
 
 **Clear the inbox in bulk.** `x` marks messages (`V` marks as you move, `*` the whole view); `e`,
-`#`, `u`, `s`, `t` and `D` then act on all of them at once, and one `z` undoes it.
+`#`, `u`, `s`, `t` and `D` then act on all of them at once, and one `z` undoes it. The marks stay
+for the next action (`u` then `e` reads and archives), so a search like `/from:github.com` then
+`*` can be marked once and acted on several times.
 
 **Every key on one page** (`?`):
 

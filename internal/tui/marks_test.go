@@ -76,6 +76,51 @@ func TestBatchUndoIsExact(t *testing.T) {
 	}
 }
 
+// Marks outlast an action, so marked mail can be read and then archived;
+// those of messages that leave the view (archived from the inbox) go.
+func TestMarksStayForTheNextAction(t *testing.T) {
+	m := newTestModel(t, 120, 30)
+	m = drive(t, m, keys("xxu")...)
+	if !strings.Contains(screen(m), "2 marked") {
+		t.Fatalf("marks gone after u:\n%s", screen(m))
+	}
+	m = drive(t, m, key("e"))
+	if got := subjects(t, m, "-tag:inbox -is:unread"); len(got) != 2 {
+		t.Errorf("read and archived = %v, want the two marked", got)
+	}
+	if len(m.marked) != 0 {
+		t.Errorf("%d still marked after they left the inbox", len(m.marked))
+	}
+}
+
+// In a search the archived mail stays listed, and so marked: a filtered
+// view can be marked once and acted on many times. Trashing takes it out.
+func TestMarksStayInASearch(t *testing.T) {
+	m := newTestModel(t, 120, 30)
+	m = drive(t, m, keys("ga")...)
+	m = drive(t, m, key("*"))
+	m = drive(t, m, key("e"))
+	if got := subjects(t, m, "tag:inbox"); len(got) != 0 || len(m.marked) != 3 {
+		t.Fatalf("inbox %v, %d marked after archiving all in a search", got, len(m.marked))
+	}
+	m = drive(t, m, key("#"))
+	if got := subjects(t, m, "tag:deleted"); len(got) != 3 || len(m.marked) != 0 {
+		t.Errorf("trash %v, %d marked after trashing them", got, len(m.marked))
+	}
+}
+
+// A mark on a message not loaded (by *) keeps a copy of it; an action
+// updates the copy, so the next u toggles back and undo stays exact.
+func TestMarkCopiesFollowActions(t *testing.T) {
+	m := newTestModel(t, 120, 30)
+	unloaded := ops.MessageOut{ID: "0123456789ab", Account: "personal", Tags: []string{"inbox", "unread"}}
+	m, _ = m.markAllDone(markAllMsg{gen: m.markGen, msgs: []ops.MessageOut{unloaded}})
+	m, _ = m.messageAction("u")
+	if got, ok := m.marked[keyOf(unloaded)]; !ok || slices.Contains(got.Tags, ops.TagUnread) {
+		t.Errorf("copy of the unloaded mark after u: %v (marked %v)", got.Tags, ok)
+	}
+}
+
 // V marks everything the cursor passes over; Esc ends the range, a second
 // Esc clears the marks.
 func TestRangeMarks(t *testing.T) {

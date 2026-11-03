@@ -339,7 +339,8 @@ func (m Model) confirmKey(k tea.KeyPressMsg) (Model, tea.Cmd) {
 		m.notice = "draft kept"
 	case yes: // inputConfirmDelete
 		msgs := m.deleting
-		m, drop := m.clearMarks().dropFromView(msgs...)
+		m.ranging = false
+		m, drop := m.unmark(msgs).dropFromView(msgs...)
 		return m, tea.Batch(drop, m.deleteNow(msgs))
 	default:
 		m.notice = "not deleted"
