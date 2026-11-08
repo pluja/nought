@@ -5,6 +5,7 @@ package tui
 import (
 	"errors"
 	"net/url"
+	"os"
 	"os/exec"
 	"runtime"
 	"strconv"
@@ -24,8 +25,11 @@ func openInBrowser(link string) error {
 	if !openable(link) {
 		return errors.New("only http, https and mailto links can be opened")
 	}
-	args := browserCommand(runtime.GOOS, link)
-	cmd := exec.Command(args[0], args[1:]...) //nolint:gosec,noctx // G204: a validated http(s)/mailto URL, one argument, no shell; the opener may outlive the TUI
+	args, err := browserCommand(runtime.GOOS, link, os.Getenv, exec.LookPath)
+	if err != nil {
+		return err
+	}
+	cmd := exec.Command(args[0], args[1:]...) //nolint:gosec,noctx // G204: a validated http(s)/mailto URL as one argument, the opener from $BROWSER or the system, no shell; the opener may outlive the TUI
 	if err := cmd.Start(); err != nil {
 		return err
 	}
@@ -103,14 +107,46 @@ func (m Model) openLink(link, what string) (Model, tea.Cmd) {
 
 // browserCommand is the system's way to open a URL. On Windows it is not
 // "cmd /c start", which would read an & in the URL as another command.
-func browserCommand(goos, u string) []string {
+// Elsewhere it is the first installed of xdg-open, $BROWSER and gio open:
+// xdg-open knows the handler for each link type (mailto too), and the
+// others keep links working on a system without it.
+func browserCommand(goos, u string, getenv func(string) string, lookPath func(string) (string, error)) ([]string, error) {
 	switch goos {
 	case "darwin":
-		return []string{"open", u}
+		return []string{"open", u}, nil
 	case "windows":
-		return []string{"rundll32", "url.dll,FileProtocolHandler", u}
+		return []string{"rundll32", "url.dll,FileProtocolHandler", u}, nil
 	}
-	return []string{"xdg-open", u}
+	for _, c := range browserCandidates(getenv("BROWSER"), u) {
+		if _, err := lookPath(c[0]); err == nil {
+			return c, nil
+		}
+	}
+	return nil, errors.New("no way to open links: install xdg-open or gio, or set $BROWSER")
+}
+
+// browserCandidates lists the commands to try, in order. $BROWSER is a
+// colon-separated list of commands; %s in one stands for the URL, which
+// is otherwise appended. It is split into words, never run by a shell.
+func browserCandidates(browser, u string) [][]string {
+	cs := [][]string{{"xdg-open", u}}
+	for entry := range strings.SplitSeq(browser, ":") {
+		args := strings.Fields(entry)
+		if len(args) == 0 {
+			continue
+		}
+		placed := false
+		for i, a := range args[1:] {
+			if strings.Contains(a, "%s") {
+				args[i+1], placed = strings.ReplaceAll(a, "%s", u), true
+			}
+		}
+		if !placed {
+			args = append(args, u)
+		}
+		cs = append(cs, args)
+	}
+	return append(cs, []string{"gio", "open", u})
 }
 
 // renderLinkBox is the confirmation shown before a link is opened.

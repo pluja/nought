@@ -1142,16 +1142,45 @@ func TestLinksOpenWithTheSystemOpener(t *testing.T) {
 		t.Fatal("no default link opener")
 	}
 	u := "https://example.org/a?b=1&c=2"
-	for goos, want := range map[string][]string{
-		"linux":   {"xdg-open", u},
-		"freebsd": {"xdg-open", u},
-		"darwin":  {"open", u},
+	for _, tc := range []struct {
+		name, goos, browser string
+		installed           []string
+		want                []string
+	}{
+		{"xdg-open", "linux", "", []string{"xdg-open", "gio"}, []string{"xdg-open", u}},
+		{"bsd", "freebsd", "", []string{"xdg-open"}, []string{"xdg-open", u}},
+		{"no xdg-open: gio", "linux", "", []string{"gio"}, []string{"gio", "open", u}},
+		// xdg-open knows the handler for each link type (mailto too).
+		{"xdg-open before $BROWSER", "linux", "firefox", []string{"firefox", "xdg-open", "gio"}, []string{"xdg-open", u}},
+		{"$BROWSER before gio", "linux", "firefox", []string{"firefox", "gio"}, []string{"firefox", u}},
+		{"$BROWSER with args", "linux", "firefox --new-tab", []string{"firefox"}, []string{"firefox", "--new-tab", u}},
+		{"$BROWSER with %s", "linux", "firefox -url %s", []string{"firefox"}, []string{"firefox", "-url", u}},
+		{"$BROWSER with --url=%s", "linux", "firefox --url=%s", []string{"firefox"}, []string{"firefox", "--url=" + u}},
+		{"$BROWSER list", "linux", "chromium:firefox", []string{"firefox"}, []string{"firefox", u}},
+		{"$BROWSER missing", "linux", "nosuch", []string{"gio"}, []string{"gio", "open", u}},
+		{"darwin", "darwin", "firefox", nil, []string{"open", u}},
 		// Not "cmd /c start": cmd would read the & in the URL as a command.
-		"windows": {"rundll32", "url.dll,FileProtocolHandler", u},
+		{"windows", "windows", "firefox", nil, []string{"rundll32", "url.dll,FileProtocolHandler", u}},
 	} {
-		if got := browserCommand(goos, u); !slices.Equal(got, want) {
-			t.Errorf("%s: %q, want %q", goos, got, want)
+		getenv := func(k string) string {
+			if k == "BROWSER" {
+				return tc.browser
+			}
+			return ""
 		}
+		lookPath := func(f string) (string, error) {
+			if slices.Contains(tc.installed, f) {
+				return "/usr/bin/" + f, nil
+			}
+			return "", errors.New("not found")
+		}
+		got, err := browserCommand(tc.goos, u, getenv, lookPath)
+		if err != nil || !slices.Equal(got, tc.want) {
+			t.Errorf("%s: %q, %v; want %q", tc.name, got, err, tc.want)
+		}
+	}
+	if _, err := browserCommand("linux", u, func(string) string { return "" }, func(string) (string, error) { return "", errors.New("not found") }); err == nil {
+		t.Error("no opener installed: no error")
 	}
 }
 
